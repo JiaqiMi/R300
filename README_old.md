@@ -73,3 +73,20 @@ rosrun web_video_server web_video_server \
 hostname -I
 
 // 浏览器中直接访问： http://127.0.0.1:8080/
+
+
+
+#### 一键运行
+
+// 同时启动 Web 和 rosbag
+roslaunch r300_yolo_detector r300_system.launch
+
+// 方式一：启动相机、模型和 Web
+~/r300_ws/scripts/start_r300.sh web
+
+// 方式二：启动相机、模型和 rosbag
+~/r300_ws/scripts/start_r300.sh bag
+
+// 方式三：同时启动 Web 和 rosbag
+~/r300_ws/scripts/start_r300.sh both
+
