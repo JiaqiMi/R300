@@ -10,7 +10,22 @@
 
 ## 系统介绍
 
+### 系统架构
+
 pass
+
+---
+
+### 2. 运行环境
+
+- Ubuntu 20.04
+- ROS Noetic
+- Python 3.8
+- NVIDIA Jetson Orin
+- CUDA 11.4
+- Intel RealSense D435i
+- PyTorch CUDA
+- Ultralytics YOLO
 
 ---
 
@@ -72,18 +87,7 @@ r300_ws/
 
 ---
 
-### 2. 运行环境
 
-- Ubuntu 20.04
-- ROS Noetic
-- Python 3.8
-- NVIDIA Jetson Orin
-- CUDA 11.4
-- Intel RealSense D435i
-- PyTorch CUDA
-- Ultralytics YOLO
-
----
 
 ### 3. 项目编译
 
