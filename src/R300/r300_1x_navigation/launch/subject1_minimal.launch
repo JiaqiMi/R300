@@ -1,0 +1,91 @@
+<launch>
+  <!-- Required navigation input: absolute WGS-84 target coordinate in degrees. -->
+  <arg name="target_latitude_deg" default="0.0"/>
+  <arg name="target_longitude_deg" default="0.0"/>
+  <arg name="target_altitude_m" default="0.0"/>
+
+  <!-- 1X RS422-to-USB serial interface. Set the actual device node and baudrate. -->
+  <arg name="ins_serial_port" default="/dev/ttyUSB1"/>
+  <arg name="ins_baudrate" default="460800"/>
+
+  <!-- R300 platform settings. -->
+  <arg name="can_port" default="can0"/>
+  <arg name="launch_base" default="true"/>
+  <arg name="launch_lidar" default="true"/>
+  <arg name="launch_rviz" default="false"/>
+
+  <!-- Safety defaults: both remain false until an explicit field-test command is used. -->
+  <arg name="auto_start" default="false"/>
+  <arg name="motion_enabled" default="false"/>
+  <arg name="max_goal_distance_m" default="150.0"/>
+
+  <group if="$(arg launch_base)">
+    <!-- Requires the supplied scout_base patch: cmd_vel remap + odom_pub actually suppresses wheel TF. -->
+    <include file="$(find scout_base)/launch/scout_base.launch">
+      <arg name="port_name" value="$(arg can_port)"/>
+      <arg name="is_scout_mini" value="true"/>
+      <arg name="simulated_robot" value="false"/>
+      <arg name="odom_pub" value="false"/>
+      <arg name="cmd_vel_topic" value="/subject1/cmd_vel_safe"/>
+    </include>
+
+    <!-- Publish fixed base_link -> laser transform only; no Gazebo spawner is started. -->
+    <arg name="model" default="$(find xacro)/xacro --inorder '$(find r300_simulation)/models/r300_2dlidar.xacro'"/>
+    <param name="robot_description" command="$(arg model)"/>
+    <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" output="screen"/>
+  </group>
+
+  <group if="$(arg launch_lidar)">
+    <!-- Directly use the real lidar driver, avoiding the vendor launch file that additionally opens RViz. -->
+    <include file="$(find rplidar_ros)/launch/rplidar_s3.launch"/>
+  </group>
+
+  <!-- map and odom are intentionally identical in this first 1X-only version. -->
+  <node pkg="tf" type="static_transform_publisher" name="subject1_map_to_odom" args="0 0 0 0 0 0 map odom 100"/>
+
+  <node pkg="r300_1x_navigation" type="one_x_serial_driver" name="one_x_serial_driver" output="screen">
+    <param name="serial_port" value="$(arg ins_serial_port)"/>
+    <param name="baudrate" value="$(arg ins_baudrate)"/>
+    <param name="origin_mode" value="first_valid"/>
+    <param name="odom_frame" value="odom"/>
+    <param name="base_frame" value="base_link"/>
+    <param name="fix_frame" value="map"/>
+    <param name="publish_full_attitude" value="false"/>
+    <param name="position_std_m" value="0.50"/>
+    <param name="yaw_std_deg" value="3.0"/>
+  </node>
+
+  <node pkg="map_server" type="map_server" name="subject1_blank_map" args="$(find r300_1x_navigation)/maps/subject1_blank_map.yaml" output="screen"/>
+
+  <include file="$(find r300_1x_navigation)/launch/subject1_move_base.launch">
+    <arg name="cmd_vel_topic" value="/subject1/cmd_vel_raw"/>
+    <arg name="odom_topic" value="/one_x/odom"/>
+  </include>
+
+  <node pkg="r300_1x_navigation" type="cmd_vel_guard" name="cmd_vel_guard" output="screen">
+    <param name="input_topic" value="/subject1/cmd_vel_raw"/>
+    <param name="output_topic" value="/subject1/cmd_vel_safe"/>
+    <param name="odom_topic" value="/one_x/odom"/>
+    <param name="scan_topic" value="/scan"/>
+    <param name="require_scan" value="true"/>
+    <param name="enabled" value="$(arg motion_enabled)"/>
+    <param name="max_linear_mps" value="0.25"/>
+    <param name="max_angular_radps" value="0.40"/>
+  </node>
+
+  <node pkg="r300_1x_navigation" type="geodetic_goal_sender" name="geodetic_goal_sender" output="screen">
+    <param name="target_latitude_deg" value="$(arg target_latitude_deg)"/>
+    <param name="target_longitude_deg" value="$(arg target_longitude_deg)"/>
+    <param name="target_altitude_m" value="$(arg target_altitude_m)"/>
+    <param name="auto_start" value="$(arg auto_start)"/>
+    <param name="max_goal_distance_m" value="$(arg max_goal_distance_m)"/>
+    <param name="origin_topic" value="/one_x/origin"/>
+    <param name="odom_topic" value="/one_x/odom"/>
+    <param name="move_base_action" value="/move_base"/>
+    <param name="goal_frame" value="map"/>
+  </node>
+
+  <group if="$(arg launch_rviz)">
+    <node pkg="rviz" type="rviz" name="rviz" output="screen"/>
+  </group>
+</launch>

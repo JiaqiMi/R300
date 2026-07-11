@@ -1,0 +1,9 @@
+global_costmap:
+  global_frame: map
+  robot_base_frame: base_link
+  #地图更新频率
+  update_frequency: 10.0
+  publish_frequency: 10.0
+  transform_tolerance: 10
+  #静态地图设置
+  static_map: true

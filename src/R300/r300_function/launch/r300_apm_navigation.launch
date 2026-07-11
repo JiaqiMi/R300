@@ -1,0 +1,7 @@
+<launch>
+
+    <node pkg="r300_function" type="apm_navigation" name="apm_navigation"/>
+
+    <node pkg="tf" type="static_transform_publisher" name="map_odom_broadcaster" args="0 0 0 0 0 0 /map /odom 10" />
+
+</launch>

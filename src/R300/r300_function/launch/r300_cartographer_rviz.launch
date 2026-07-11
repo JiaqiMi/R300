@@ -1,0 +1,4 @@
+ <launch> 
+  <node name="rviz" pkg="rviz" type="rviz" required="true"
+      args="-d $(find r300_function)/config/r300_cartographer.rviz" />
+</launch>

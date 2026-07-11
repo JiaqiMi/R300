@@ -1,0 +1,8 @@
+[Unit]
+Description=r300_can2usb_autoload      # 简介
+
+[Service]
+ExecStart=/home/amov/amovcar/src/R300/r300_function/autoload/bringup_can2usb.bash     #你想要启动的脚本
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+# 1X parser and localisation defaults. Change serial_port / baudrate on launch if needed.
+one_x_serial_driver:
+  serial_port: /dev/ttyUSB1
+  baudrate: 460800
+  origin_mode: first_valid
+  odom_frame: odom
+  base_frame: base_link
+  fix_frame: map
+  publish_full_attitude: false
+  position_std_m: 0.50
+  yaw_std_deg: 3.0
+  max_yaw_rate_radps: 2.5
+
+cmd_vel_guard:
+  max_linear_mps: 0.25
+  max_angular_radps: 0.40
+  command_timeout_s: 0.35
+  localization_timeout_s: 0.30
+  scan_timeout_s: 0.50
+  require_scan: true

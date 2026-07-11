@@ -1,0 +1,17 @@
+#障碍物最大范围
+obstacle_range: 5.5
+#自由空间最大范围
+raytrace_range: 8
+#机器人占用面积
+footprint: [[0.3, 0.3], [-0.3, 0.3], [-0.3, -0.3], [0.3, -0.3]]
+#障碍物膨胀系数
+inflation_radius: 0.3   #膨胀半径
+cost_scaling_factor: 3.0  #比例系数
+
+map_type: costmap
+observation_sources: scan
+
+scan: {sensor_frame: laser, data_type: LaserScan, topic: /scan, marking: true, clearing: true}
+
+# pointcloud: {sensor_frame: d435i_link, data_type: PointCloud2, topic: /d435i/depth/color/points, marking: true, clearing: true}
+# pointcloud: {sensor_frame: livox_frame, data_type: PointCloud2, topic: /livox/lidar, marking: true, clearing: true}

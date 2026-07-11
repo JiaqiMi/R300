@@ -1,0 +1,6 @@
+<launch>
+
+		<!--vfh node-->
+		<node name="r300_vfh" pkg="amovcar_function" type="vfh_node" output="screen"/>
+
+</launch>

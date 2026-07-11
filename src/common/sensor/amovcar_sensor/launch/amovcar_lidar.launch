@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<launch>
+		
+		<!--bluesea LDS-50C-3-->
+		<!--<include file="$(find bluesea2)/launch/amov-50C-3.launch"/> -->
+		<!--rplidar_ros view_rplidar_s3-->
+               <include file="$(find rplidar_ros)/launch/view_rplidar_s3.launch"/>   
+</launch>

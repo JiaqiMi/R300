@@ -1,0 +1,9 @@
+<launch>
+
+		<!--vel_bridge node-->
+		<node name="r300_vel_bridge" pkg="r300_function" type="vel_bridge" output="screen">
+			<param name="VEK_MAX" value="0.5"/>
+			<param name="ANG_P" value="2"/>
+		</node>
+
+</launch>

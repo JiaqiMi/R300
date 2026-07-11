@@ -1,0 +1,8 @@
+<launch>
+
+	<include file="$(find realsense2_camera)/launch/rs_t265.launch">
+		<arg name="serial_no" default="201222111732
+"/>
+	</include>
+
+</launch>

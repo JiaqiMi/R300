@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# ROS runtime files
+*.bag
+*.bag.active
+*.bag.orig
+*.log
+.ros/
+
+# Catkin build output
+build/
+devel/
+install/
+logs/
+.catkin_tools/
+
+# Ultralytics output
+runs/
+wandb/
+
+# Recorded images and videos
+*.mp4
+*.avi
+*.mkv
+*.mov
+
+# TensorRT engines are machine/platform dependent
+*.engine
+*.trt
+
+# Temporary files
+*.tmp
+*.swp
+*~
+.DS_Store
+
+# IDE local configuration
+.vscode/
+.idea/
+
+# Core dumps
+core
+core.*
+
+# Local credentials and secrets
+*.key
+*.pem
+*.token
+credentials.*
+
+# Big Files
+*.stl
+*.tar.gz
+*.pdf

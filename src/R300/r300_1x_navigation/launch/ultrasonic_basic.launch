@@ -1,0 +1,49 @@
+<launch>
+
+  <arg name="port" default="/dev/ttyUSB1"/>
+
+  <arg name="baud" default="9600"/>
+
+  <arg name="slave" default="1"/>
+
+  <arg name="start" default="0x0106"/>
+
+  <arg name="rate" default="5.0"/>
+
+
+
+  <node pkg="r300_1x_navigation"
+
+        type="ultrasonic_basic_node.py"
+
+        name="ultrasonic_basic_node"
+
+        output="screen">
+
+
+
+    <param name="port" value="$(arg port)"/>
+
+    <param name="baud" value="$(arg baud)"/>
+
+    <param name="slave" value="$(arg slave)"/>
+
+    <param name="start" value="$(arg start)"/>
+
+    <param name="count" value="4"/>
+
+    <param name="rate" value="$(arg rate)"/>
+
+
+
+    <param name="scale" value="0.001"/>
+
+    <param name="min_valid_m" value="0.02"/>
+
+    <param name="max_valid_m" value="6.0"/>
+
+    <param name="invalid_raw_min" value="65000"/>
+
+  </node>
+
+</launch>

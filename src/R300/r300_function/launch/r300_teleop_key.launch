@@ -1,0 +1,17 @@
+<launch>
+
+    <!--启动键盘控制节点-->
+    <node name="r300_teleop_key" type="r300_teleop_key.py" pkg="r300_function" output="screen">
+				<!--max linear speed-->
+        <param name="max_vel" value="0.6"/>
+				<!--max angular speed-->
+        <param name="max_ang" value="1.0"/>
+				<!--linear speed step-->
+        <param name="vel_step" value="0.1"/>
+				<!--angular speed step-->
+        <param name="ang_step" value="0.1"/>
+				<!--amovcar-->
+				<remap from="cmd_vel" to="/cmd_vel"/>
+    </node>
+
+</launch>

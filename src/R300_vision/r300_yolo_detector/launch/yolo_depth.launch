@@ -1,0 +1,30 @@
+<launch>
+    <arg
+        name="model_path"
+        default="$(find r300_yolo_detector)/models/c11_260711.pt"
+    />
+
+    <node
+        pkg="r300_yolo_detector"
+        type="yolo_depth_node.py"
+        name="r300_yolo_depth_node"
+        output="screen"
+        required="true"
+    >
+        <!-- 规避Jetson/aarch64上的libgomp TLS问题 -->
+        <env
+            name="LD_PRELOAD"
+            value="/usr/lib/aarch64-linux-gnu/libgomp.so.1"
+        />
+
+        <rosparam
+            command="load"
+            file="$(find r300_yolo_detector)/config/detector.yaml"
+        />
+
+        <param
+            name="model_path"
+            value="$(arg model_path)"
+        />
+    </node>
+</launch>

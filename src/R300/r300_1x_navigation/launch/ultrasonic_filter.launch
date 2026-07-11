@@ -1,0 +1,99 @@
+<launch>
+
+  <arg name="port" default="/dev/ttyUSB1"/>
+
+  <arg name="baud" default="9600"/>
+
+  <arg name="slave" default="1"/>
+
+  <arg name="start" default="0x0106"/>
+
+  <arg name="rate" default="5.0"/>
+
+
+
+  <node pkg="r300_1x_navigation"
+
+        type="ultrasonic_basic_node.py"
+
+        name="ultrasonic_basic_node"
+
+        output="screen">
+
+
+
+    <param name="port" value="$(arg port)"/>
+
+    <param name="baud" value="$(arg baud)"/>
+
+    <param name="slave" value="$(arg slave)"/>
+
+    <param name="start" value="$(arg start)"/>
+
+    <param name="count" value="4"/>
+
+    <param name="rate" value="$(arg rate)"/>
+
+
+
+    <param name="scale" value="0.001"/>
+
+    <param name="min_valid_m" value="0.02"/>
+
+    <param name="max_valid_m" value="6.0"/>
+
+    <param name="invalid_raw_min" value="65000"/>
+
+  </node>
+
+
+
+  <node pkg="r300_1x_navigation"
+
+        type="ultrasonic_filter_node.py"
+
+        name="ultrasonic_filter_node"
+
+        output="screen">
+
+
+
+    <param name="input_topic" value="/ultrasonic/ranges"/>
+
+
+
+    <!-- data[0]=右前, data[1]=前右, data[2]=前左, data[3]=左前 -->
+
+    <param name="idx_right_front" value="0"/>
+
+    <param name="idx_front_right" value="1"/>
+
+    <param name="idx_front_left" value="2"/>
+
+    <param name="idx_left_front" value="3"/>
+
+
+
+    <param name="window_size" value="3"/>
+
+    <param name="max_jump_m" value="0.50"/>
+
+
+
+    <param name="front_warn_m" value="0.80"/>
+
+    <param name="front_danger_m" value="0.45"/>
+
+    <param name="side_warn_m" value="0.45"/>
+
+    <param name="side_danger_m" value="0.25"/>
+
+
+
+    <param name="trigger_frames" value="2"/>
+
+    <param name="clear_frames" value="3"/>
+
+  </node>
+
+</launch>

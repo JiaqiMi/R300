@@ -1,0 +1,15 @@
+digraph G {
+"camera_link" -> "camera_frame_optical"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1751273581.953 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "camera_link"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1751273581.953 sec old)\nBuffer length: 0.000 sec\n"];
+"odom" -> "base_link"[label="Broadcaster: /apm_navigation\nAverage rate: 100.200 Hz\nMost recent transform: 1751273581.947 ( 0.006 sec old)\nBuffer length: 4.980 sec\n"];
+"base_link" -> "laser"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1751273581.953 sec old)\nBuffer length: 0.000 sec\n"];
+"map" -> "map_ned"[label="Broadcaster: /mavros\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1751273581.953 sec old)\nBuffer length: 0.000 sec\n"];
+"odom" -> "odom_ned"[label="Broadcaster: /mavros\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1751273581.953 sec old)\nBuffer length: 0.000 sec\n"];
+"map" -> "odom"[label="Broadcaster: /map_odom_broadcaster\nAverage rate: 98.326 Hz\nMost recent transform: 1751273581.962 ( -0.009 sec old)\nBuffer length: 4.983 sec\n"];
+"base_link" -> "base_link_frd"[label="Broadcaster: /mavros\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1751273581.953 sec old)\nBuffer length: 0.000 sec\n"];
+"laser" -> "livox_frame"[label="Broadcaster: /livox_to_laser_tf\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1751273581.953 sec old)\nBuffer length: 0.000 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1751273581.953"[ shape=plaintext ] ;
+ }->"map";
+}

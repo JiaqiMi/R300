@@ -1,0 +1,42 @@
+rgb_topic: /camera/color/image_raw
+depth_topic: /camera/aligned_depth_to_color/image_raw
+camera_info_topic: /camera/color/camera_info
+
+annotated_topic: /r300_vision/annotated_image
+detections_topic: /r300_vision/detections
+target_point_topic: /r300_vision/target_point
+
+conf_threshold: 0.25
+iou_threshold: 0.70
+
+imgsz: 640
+
+# 使用GPU 0
+device: "0"
+
+# 第一轮先关闭FP16，功能稳定后再改成true
+half: false
+
+# Xavier/Orin第一轮建议5~10Hz
+infer_hz: 8.0
+
+sync_queue_size: 8
+sync_slop: 0.08
+
+# 中心深度窗口半径4，即9×9窗口
+depth_window_radius: 4
+min_valid_depth_pixels: 5
+
+# D435i的16UC1深度通常按毫米换算为米
+depth_scale_16u: 0.001
+
+min_depth_m: 0.15
+max_depth_m: 20.0
+
+# 空列表表示所有类别都可作为候选目标
+# 也可以写成：
+# target_classes: ["vehicle", "person"]
+target_classes: []
+
+# nearest 或 highest_confidence
+target_policy: nearest

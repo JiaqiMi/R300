@@ -1,0 +1,40 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="cmd_vel_topic" default="/cmd_vel" />
+  <arg name="odom_topic" default="/odom" />   <!-- frame_id: "odom"  child_frame_id: "base_link" -->
+  <arg name="move_forward_only" default="false"/>
+  <!-- <arg name="linear_speed" default="0.3" />
+  <arg name="steering_angle" default="0.5" /> -->
+
+  <!--move_base -->
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">   
+
+   <!--global_planner-->
+    <!-- <param name="base_global_planner" value="global_planner/GlobalPlanner"/>
+    <param name="planner_frequency" value="1.0" />
+    <param name="planner_patience" value="5.0" /> -->
+
+    <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS" />   
+    <!-- <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS" />  -->
+		<param name="DWAPlannerROS/min_vel_x" value="0.0" if="$(arg move_forward_only)" />
+
+    <rosparam file="$(find r300_function)/config/costmap_common_params.yaml" command="load" ns="global_costmap" />
+    <rosparam file="$(find r300_function)/config/costmap_common_params.yaml" command="load" ns="local_costmap" />
+    <rosparam file="$(find r300_function)/config/local_costmap_params.yaml" command="load" />
+    <rosparam file="$(find r300_function)/config/global_costmap_params.yaml" command="load" />
+    <rosparam file="$(find r300_function)/config/move_base_params.yaml" command="load" />          
+    <!-- <rosparam file="$(find r300_function)/config/global_planner_params.yaml" command="load" /> -->
+    <rosparam file="$(find r300_function)/config/dwa_local_planner_params.yaml" command="load" />  
+
+    <remap from="cmd_vel" to="$(arg cmd_vel_topic)"/>
+    <remap from="odom" to="$(arg odom_topic)"/>
+  </node>
+
+
+    <!-- move_base -->
+  <!-- <node pkg="move_base" type="snake_drive_node" respawn="false" name="snake_drive_node" output="screen">
+    <remap from="cmd_vel" to="$(arg cmd_vel_topic)"/>
+    <param name="linear_speed" value="$(arg linear_speed)" />
+    <param name="max_steering_angle" value="$(arg steering_angle)" />
+  </node> -->
+</launch>

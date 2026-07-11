@@ -1,0 +1,41 @@
+<launch>
+  <arg name="cmd_vel_topic" default="/subject1/cmd_vel_raw"/>
+  <arg name="odom_topic" default="/one_x/odom"/>
+
+  <node pkg="move_base"
+        type="move_base"
+        name="move_base"
+        output="screen"
+        clear_params="true">
+
+    <param name="base_global_planner" value="navfn/NavfnROS"/>
+    <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+
+    <!-- 公共参数先加载 -->
+    <rosparam file="$(find r300_1x_navigation)/config/subject1_costmap_common.yaml"
+              command="load"
+              ns="global_costmap"/>
+
+    <rosparam file="$(find r300_1x_navigation)/config/subject1_costmap_common.yaml"
+              command="load"
+              ns="local_costmap"/>
+
+    <!-- 再加载全局 / 局部各自的插件与框架参数 -->
+    <rosparam file="$(find r300_1x_navigation)/config/subject1_global_costmap.yaml"
+              command="load"/>
+
+    <rosparam file="$(find r300_1x_navigation)/config/subject1_local_costmap.yaml"
+              command="load"/>
+
+    <rosparam file="$(find r300_1x_navigation)/config/subject1_dwa.yaml"
+              command="load"/>
+
+    <rosparam file="$(find r300_1x_navigation)/config/subject1_move_base.yaml"
+              command="load"/>
+
+    <remap from="cmd_vel" to="$(arg cmd_vel_topic)"/>
+    <remap from="odom" to="$(arg odom_topic)"/>
+    <!-- 关键：显式告诉 DWA 使用哪个 odom -->
+    <param name="DWAPlannerROS/odom_topic" value="$(arg odom_topic)"/>
+  </node>
+</launch>

@@ -1,0 +1,10 @@
+shutdown_costmaps: false
+#控制频率
+controller_frequency: 10.0   #向底盘控制移动话题cmd_vel发送命令的频率
+planner_patience: 5.0      #在空间清理操作执行前,留给规划器多长时间来找出一条有效规划
+controller_patience: 15.0     #在空间清理操作执行前,控制器花多长时间等有效控制下发
+conservative_reset_dist: 3.0    #清理costmap的范围
+#规划频率  
+planner_frequency: 10.0  #全局规划操作的执行频率
+oscillation_timeout: 10.0
+oscillation_distance: 0.2

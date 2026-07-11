@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="scout_mini" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <material name="White">
+    <color rgba="1 1 1 0.9"/>
+  </material>
+
+  <!--link name="base_footprint" />
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint" />
+    <child link="base_link" />
+    <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
+  </joint-->
+
+  <!-- Base link -->
+  <link name="base_link">
+		<inertial>
+        <mass value="25"/>
+        <origin xyz="0.0 0.0 0.0"/>
+        <inertia ixx="0.688042"   ixy="0.0"   ixz="0.0" 
+                 iyy="0.826042"   iyz="0.0" 
+                 izz="0.341667" />
+    </inertial>
+
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0.22"/>
+      <geometry>
+        <mesh filename="package://r300_simulation/models/meshes/R300.stl"/>
+      </geometry>
+      <material name="White"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.22"/>
+      <geometry>
+        <box size="0.53 0.34 0.22"/>
+      </geometry>
+    </collision>
+  </link>
+
+		<!--gazebo plugin-->
+		<gazebo>
+    	<plugin name="object_controller" filename="libgazebo_ros_planar_move.so">
+      	<commandTopic>cmd_vel</commandTopic>
+      	<odometryTopic>odom</odometryTopic>
+      	<odometryFrame>odom</odometryFrame>
+      	<odometryRate>20.0</odometryRate>
+      	<robotBaseFrame>base_link</robotBaseFrame>
+    	</plugin>
+  	</gazebo>
+
+</robot>

@@ -1,0 +1,88 @@
+<launch>
+  <!-- Pure DWA closed-loop simulation. No INS, no Scout, no Livox. -->
+
+  <arg name="use_rviz" default="true"/>
+
+  <arg name="cmd_vel_topic" default="/subject1/cmd_vel_raw"/>
+  <arg name="odom_topic" default="/one_x/odom"/>
+
+  <arg name="map_frame" default="map"/>
+  <arg name="odom_frame" default="odom"/>
+  <arg name="base_frame" default="base_link"/>
+
+  <!-- Sim vehicle parameters -->
+  <arg name="sim_rate_hz" default="50.0"/>
+  <arg name="sim_max_v" default="1.5"/>
+  <arg name="sim_max_w" default="0.6"/>
+  <arg name="sim_acc_lim_v" default="0.8"/>
+  <arg name="sim_acc_lim_w" default="1.2"/>
+  <arg name="sim_tau_v" default="0.20"/>
+  <arg name="sim_tau_w" default="0.15"/>
+
+  <!-- Ideal odom by default. Increase these later to test INS/GPS drift. -->
+  <arg name="pos_noise_std" default="0.0"/>
+  <arg name="yaw_noise_std_deg" default="0.0"/>
+  <arg name="drift_x_mps" default="0.0"/>
+  <arg name="drift_y_mps" default="0.0"/>
+  <arg name="yaw_drift_degps" default="0.0"/>
+  <arg name="jump_period_s" default="0.0"/>
+  <arg name="jump_std_m" default="0.0"/>
+
+  <!-- Empty map: map coincides with odom. -->
+  <node pkg="tf2_ros"
+        type="static_transform_publisher"
+        name="sim_map_to_odom"
+        args="0 0 0 0 0 0 $(arg map_frame) $(arg odom_frame)"/>
+
+  <!-- Empty OccupancyGrid map for move_base costmaps. -->
+  <node pkg="r300_1x_navigation"
+        type="sim_blank_map_node.py"
+        name="subject1_blank_map"
+        output="screen">
+    <param name="map_topic" value="/map"/>
+    <param name="map_frame" value="$(arg map_frame)"/>
+    <param name="resolution" value="0.10"/>
+    <param name="width_m" value="500.0"/>
+    <param name="height_m" value="500.0"/>
+    <param name="publish_rate" value="1.0"/>
+  </node>
+
+  <!-- Virtual R300 odom source. -->
+  <node pkg="r300_1x_navigation"
+        type="sim_r300_odom_node.py"
+        name="sim_r300_odom_node"
+        output="screen">
+    <param name="cmd_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="nav_odom_topic" value="$(arg odom_topic)"/>
+    <param name="truth_odom_topic" value="/sim/truth_odom"/>
+    <param name="odom_frame" value="$(arg odom_frame)"/>
+    <param name="base_frame" value="$(arg base_frame)"/>
+
+    <param name="rate_hz" value="$(arg sim_rate_hz)"/>
+    <param name="max_v" value="$(arg sim_max_v)"/>
+    <param name="max_w" value="$(arg sim_max_w)"/>
+    <param name="acc_lim_v" value="$(arg sim_acc_lim_v)"/>
+    <param name="acc_lim_w" value="$(arg sim_acc_lim_w)"/>
+    <param name="tau_v" value="$(arg sim_tau_v)"/>
+    <param name="tau_w" value="$(arg sim_tau_w)"/>
+
+    <param name="pos_noise_std" value="$(arg pos_noise_std)"/>
+    <param name="yaw_noise_std_deg" value="$(arg yaw_noise_std_deg)"/>
+    <param name="drift_x_mps" value="$(arg drift_x_mps)"/>
+    <param name="drift_y_mps" value="$(arg drift_y_mps)"/>
+    <param name="yaw_drift_degps" value="$(arg yaw_drift_degps)"/>
+    <param name="jump_period_s" value="$(arg jump_period_s)"/>
+    <param name="jump_std_m" value="$(arg jump_std_m)"/>
+  </node>
+
+  <!-- move_base pure DWA. -->
+  <include file="$(find r300_1x_navigation)/launch/subject1_move_base.launch">
+    <arg name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+    <arg name="odom_topic" value="$(arg odom_topic)"/>
+  </include>
+
+  <node pkg="rviz"
+        type="rviz"
+        name="rviz"
+        if="$(arg use_rviz)"/>
+</launch>

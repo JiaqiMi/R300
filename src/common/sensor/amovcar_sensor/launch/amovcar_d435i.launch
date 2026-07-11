@@ -1,0 +1,7 @@
+<launch>
+
+	<include file="$(find realsense2_camera)/launch/rs_d435i.launch">
+		<arg name="serial_no_camera2" default=""/>
+	</include>
+
+</launch>

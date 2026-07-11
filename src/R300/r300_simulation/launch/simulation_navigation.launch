@@ -1,0 +1,16 @@
+<launch>
+
+    <!--地图文件路径-->
+    <arg name="map_file"         default="$(find r300_simulation)/maps/map.yaml"/>
+
+    <!--加载地图和rviz-->
+    <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_file)"/>
+    
+    <!--启动定位和导航功能包-->
+    <include file="$(find r300_simulation)/launch/amcl.launch"/>
+    <include file="$(find r300_simulation)/launch/move_base.launch">
+			<arg name="cmd_vel_topic" default="/cmd_vel" />
+  		<arg name="odom_topic" default="odom" />
+		</include>
+
+</launch>

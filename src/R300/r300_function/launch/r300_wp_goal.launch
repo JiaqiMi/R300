@@ -1,0 +1,7 @@
+<launch>
+
+    <node pkg="r300_function" type="wp_goal" name="wp_gpal" output="screen">
+        <param name="OutTime" value="60"/>
+    </node>
+
+</launch>

@@ -1,0 +1,33 @@
+<launch>
+
+	<!--scout mini-->
+	<arg name="port_name" value="can0" />
+    <arg name="simulated_robot" value="false" />
+    <arg name="odom_topic_name" default="odom_scout" />
+    <arg name="is_scout_mini" default="true" />
+    <arg name="odom_pub" default="true" />
+
+    <include file="$(find scout_base)/launch/scout_base.launch">
+        <arg name="port_name" default="$(arg port_name)" />
+        <arg name="simulated_robot" default="$(arg simulated_robot)" />
+        <arg name="odom_topic_name" default="$(arg odom_topic_name)" />
+        <arg name="is_scout_mini" default="$(arg is_scout_mini)" />
+        <arg name="odom_pub" default="$(arg odom_pub)" />
+    </include>
+
+<!-- Odom-IMU Extended Kalman Filter-->
+    <node if="$(arg odom_pub)" pkg="robot_localization" type="ekf_localization_node" name="ekf_localization"> 
+        <remap from="odometry/filtered" to="odom" />
+        <rosparam command="load" file="$(find r300_bringup)/param/ekf/robot_localization.yaml" />
+    </node>
+
+	<!--gazebo model xacro-->
+	<arg name="model" default="$(find xacro)/xacro --inorder '$(find r300_simulation)/models/r300_2dlidar.xacro'"/>
+	<param name="robot_description" command="$(arg model)"/>
+	<node name="urdf_spawner" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen" args="-urdf -model r300 -param robot_description"/>
+
+	<!--robot_state_publisher-->
+	<node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
+
+</launch>
+

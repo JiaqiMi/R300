@@ -1,0 +1,251 @@
+<launch>
+  <!-- 科目一：1X惯导 + GPS 航点 + move_base/DWA。
+       控制链唯一：
+       waypoint_executor -> move_base/DWA -> cmd_vel_guard -> ultrasonic_estop -> 底盘。
+       不启用预对准，也不存在 cmd_vel_align 抢占。 -->
+
+  <!-- 基础参数 -->
+  <arg name="ins_serial_port" default="/dev/ttyACM0"/>
+  <arg name="ins_baudrate" default="460800"/>
+  <arg name="can_port" default="can0"/>
+  <arg name="waypoint_file" default="$(find r300_1x_navigation)/config/subject1_waypoints.yaml"/>
+
+  <arg name="launch_base" default="true"/>
+  <arg name="launch_lidar" default="true"/>
+  <arg name="launch_rviz" default="false"/>
+
+  <arg name="auto_start" default="false"/>
+  <arg name="motion_enabled" default="false"/>
+  <arg name="max_goal_distance_from_origin_m" default="180.0"/>
+
+  <!-- DWA、odom 适配器与 guard 的角速度上限必须一致。 -->
+  <arg name="max_linear_mps" default="0.25"/>
+  <arg name="max_angular_radps" default="0.45"/>
+
+  <!-- guard 超时参数 -->
+  <arg name="guard_command_timeout_s" default="0.50"/>
+  <arg name="guard_localization_timeout_s" default="0.50"/>
+  <arg name="guard_scan_timeout_s" default="0.70"/>
+
+  <!-- 超声波 4 合 1 安全急停参数 -->
+  <arg name="enable_ultrasonic" default="true"/>
+  <arg name="ultrasonic_port" default="/dev/ttyUSB2"/>
+  <arg name="ultrasonic_baud" default="9600"/>
+  <arg name="ultrasonic_slave" default="1"/>
+  <arg name="ultrasonic_start" default="0x0106"/>
+
+  <!-- 底盘与机器人模型 -->
+  <group if="$(arg launch_base)">
+    <include file="$(find scout_base)/launch/scout_base.launch">
+      <arg name="port_name" value="$(arg can_port)"/>
+      <arg name="is_scout_mini" value="true"/>
+      <arg name="simulated_robot" value="false"/>
+      <arg name="odom_pub" value="false"/>
+      <arg name="cmd_vel_topic" value="/subject1/cmd_vel_safe"/>
+    </include>
+
+    <arg name="model" default="$(find xacro)/xacro --inorder '$(find r300_simulation)/models/r300_2dlidar.xacro'"/>
+    <param name="robot_description" command="$(arg model)"/>
+    <node name="robot_state_publisher"
+          pkg="robot_state_publisher"
+          type="robot_state_publisher"
+          output="screen"/>
+  </group>
+
+  <!-- MID360 由外部终端单独启动：
+       source /home/amov/livox_ws/devel/setup.bash
+       roslaunch livox_ros_driver2 msg_MID360_2d.launch
+  -->
+  <group if="$(arg launch_lidar)">
+  </group>
+
+  <!-- 第一阶段 map 与 odom 重合；1X 负责 odom -> base_link。 -->
+  <node pkg="tf"
+        type="static_transform_publisher"
+        name="subject1_map_to_odom"
+        args="0 0 0 0 0 0 map odom 100"/>
+
+  <node pkg="r300_1x_navigation"
+        type="one_x_serial_driver"
+        name="one_x_serial_driver"
+        output="screen">
+    <param name="serial_port" value="$(arg ins_serial_port)"/>
+    <param name="baudrate" value="$(arg ins_baudrate)"/>
+    <param name="origin_mode" value="first_valid"/>
+    <param name="odom_frame" value="odom"/>
+    <param name="base_frame" value="base_link"/>
+    <param name="fix_frame" value="map"/>
+    <param name="publish_full_attitude" value="false"/>
+    <param name="position_std_m" value="0.50"/>
+    <param name="yaw_std_deg" value="3.0"/>
+    <param name="max_yaw_rate_radps" value="$(arg max_angular_radps)"/>
+  </node>
+
+  <!-- DWA 专用 odom：保留 1X pose/vx/wz，仅将横向速度固定为 0。
+       不再对 yaw 重复差分。 -->
+  <node pkg="r300_1x_navigation"
+        type="dwa_odom_adapter.py"
+        name="dwa_odom_adapter"
+        output="screen">
+    <param name="input_odom_topic" value="/one_x/odom"/>
+    <param name="output_odom_topic" value="/subject1/dwa_odom"/>
+    <param name="forward_deadband_mps" value="0.03"/>
+    <param name="yaw_rate_deadband_radps" value="0.02"/>
+    <param name="max_yaw_rate_radps" value="$(arg max_angular_radps)"/>
+  </node>
+
+  <!-- 空白地图 -->
+  <node pkg="map_server"
+        type="map_server"
+        name="subject1_blank_map"
+        args="$(find r300_1x_navigation)/maps/subject1_blank_map.yaml"
+        output="screen"/>
+
+  <!-- move_base 使用专用 non-holonomic odom；DWA 输出只进入 raw topic。 -->
+  <include file="$(find r300_1x_navigation)/launch/subject1_move_base.launch">
+    <arg name="cmd_vel_topic" value="/subject1/cmd_vel_raw"/>
+    <arg name="odom_topic" value="/subject1/dwa_odom"/>
+  </include>
+
+  <!-- 单输入安全限幅器：不再接受 align 输入。
+       注意：这里不再直接输出到 /subject1/cmd_vel_safe，
+       而是先输出到 /subject1/cmd_vel_guarded，交给超声波急停层。 -->
+  <node pkg="r300_1x_navigation"
+        type="cmd_vel_guard"
+        name="cmd_vel_guard"
+        output="screen">
+    <param name="input_topic" value="/subject1/cmd_vel_raw"/>
+    <param name="output_topic" value="/subject1/cmd_vel_guarded"/>
+    <param name="odom_topic" value="/one_x/odom"/>
+    <param name="scan_topic" value="/scan"/>
+    <param name="require_scan" value="true"/>
+    <param name="enabled" value="$(arg motion_enabled)"/>
+    <param name="max_linear_mps" value="$(arg max_linear_mps)"/>
+    <param name="max_angular_radps" value="$(arg max_angular_radps)"/>
+    <param name="command_timeout_s" value="$(arg guard_command_timeout_s)"/>
+    <param name="localization_timeout_s" value="$(arg guard_localization_timeout_s)"/>
+    <param name="scan_timeout_s" value="$(arg guard_scan_timeout_s)"/>
+
+    <!-- 每个航点仅执行一次“原地对准→交还 DWA”。
+         对准阶段由 guard 按真实航向误差生成角速度；达到条件后，DWA 的
+         线速度和角速度均原样通过，且同一航点不再重复进入对准阶段。 -->
+    <param name="goal_topic" value="/subject1/current_waypoint_pose"/>
+    <param name="heading_gate_enabled" value="true"/>
+    <param name="heading_gate_enter_deg" value="60.0"/>
+    <param name="heading_gate_exit_deg" value="8.0"/>
+    <param name="heading_gate_min_goal_distance_m" value="1.20"/>
+    <param name="heading_gate_goal_timeout_s" value="0.0"/>
+    <param name="heading_align_kp_radps_per_rad" value="1.20"/>
+    <param name="heading_align_min_angular_radps" value="0.10"/>
+    <param name="heading_align_max_angular_radps" value="0.35"/>
+    <param name="heading_align_release_hold_s" value="0.40"/>
+  </node>
+
+  <!-- ================= Ultrasonic safety layer ================= -->
+  <group if="$(arg enable_ultrasonic)">
+
+    <node pkg="r300_1x_navigation"
+          type="ultrasonic_basic_node.py"
+          name="ultrasonic_basic_node"
+          output="screen"
+          respawn="true">
+
+      <param name="port" value="$(arg ultrasonic_port)"/>
+      <param name="baud" value="$(arg ultrasonic_baud)"/>
+      <param name="slave" value="$(arg ultrasonic_slave)"/>
+      <param name="start" value="$(arg ultrasonic_start)"/>
+      <param name="count" value="4"/>
+      <param name="rate" value="5.0"/>
+
+      <param name="scale" value="0.001"/>
+      <param name="min_valid_m" value="0.02"/>
+      <param name="max_valid_m" value="6.0"/>
+      <param name="invalid_raw_min" value="65000"/>
+    </node>
+
+    <node pkg="r300_1x_navigation"
+          type="ultrasonic_filter_node.py"
+          name="ultrasonic_filter_node"
+          output="screen"
+          respawn="true">
+
+      <param name="input_topic" value="/ultrasonic/ranges"/>
+
+      <!-- 通道顺序：data[0]=右前, data[1]=前右, data[2]=前左, data[3]=左前 -->
+      <param name="idx_right_front" value="0"/>
+      <param name="idx_front_right" value="1"/>
+      <param name="idx_front_left" value="2"/>
+      <param name="idx_left_front" value="3"/>
+
+      <param name="window_size" value="3"/>
+      <param name="max_jump_m" value="0.50"/>
+
+      <param name="front_warn_m" value="0.80"/>
+      <param name="front_danger_m" value="0.45"/>
+      <param name="side_warn_m" value="0.45"/>
+      <param name="side_danger_m" value="0.25"/>
+
+      <param name="trigger_frames" value="2"/>
+      <param name="clear_frames" value="3"/>
+    </node>
+
+    <node pkg="r300_1x_navigation"
+          type="ultrasonic_estop_node.py"
+          name="ultrasonic_estop_node"
+          output="screen"
+          respawn="true">
+
+      <param name="input_cmd_vel" value="/subject1/cmd_vel_guarded"/>
+      <param name="output_cmd_vel" value="/subject1/cmd_vel_safe"/>
+
+      <param name="danger_topic" value="/ultrasonic/danger"/>
+      <param name="front_min_topic" value="/ultrasonic/front_min"/>
+      <param name="side_min_topic" value="/ultrasonic/side_min"/>
+
+      <param name="require_ultrasonic" value="true"/>
+      <param name="ultrasonic_timeout_s" value="0.80"/>
+      <param name="cmd_timeout_s" value="0.50"/>
+      <param name="publish_rate_hz" value="20.0"/>
+
+      <!-- false：一旦 danger，不管前进、转向、倒车全部置零，最安全。 -->
+      <param name="only_stop_forward" value="false"/>
+    </node>
+
+  </group>
+
+  <!-- 关闭超声波时，用 relay 直接把 guarded 转发到 safe，保证速度链路不断。 -->
+  <node pkg="topic_tools"
+        type="relay"
+        name="cmd_vel_guarded_to_safe_relay"
+        args="/subject1/cmd_vel_guarded /subject1/cmd_vel_safe"
+        unless="$(arg enable_ultrasonic)"/>
+
+  <!-- 航点参数 -->
+  <rosparam command="load" file="$(arg waypoint_file)"/>
+
+  <!-- 航点执行器只发送 MoveBaseGoal，完全不发布 Twist。 -->
+  <node pkg="r300_1x_navigation"
+        type="waypoint_executor.py"
+        name="waypoint_executor"
+        output="screen">
+    <param name="waypoints_param" value="/subject1_waypoints/waypoints"/>
+    <param name="origin_topic" value="/one_x/origin"/>
+    <param name="odom_topic" value="/one_x/odom"/>
+    <param name="move_base_action" value="/move_base"/>
+    <param name="goal_frame" value="map"/>
+    <param name="auto_start" value="$(arg auto_start)"/>
+    <param name="max_goal_distance_from_origin_m"
+           value="$(arg max_goal_distance_from_origin_m)"/>
+  </node>
+
+  <group if="$(arg launch_rviz)">
+    <node pkg="rviz" type="rviz" name="rviz" output="screen"/>
+  </group>
+
+  <!-- MID360 外参；在真实安装测量后更新 xyz/rpy。 -->
+  <node pkg="tf"
+        type="static_transform_publisher"
+        name="subject1_base_to_livox"
+        args="0.20 0 0.35 0 0 0 base_link livox_frame 100"/>
+</launch>
+XML
