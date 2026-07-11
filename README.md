@@ -65,8 +65,11 @@ rqt_image_view
 
 rosrun web_video_server web_video_server \
   _port:=8080 \
-  _address:=127.0.0.1 \
+  _address:=192.168.1.107 \
   _server_threads:=2 \
   _ros_threads:=2
+
+// 查询工控机IP
+hostname -I
 
 // 浏览器中直接访问： http://127.0.0.1:8080/
