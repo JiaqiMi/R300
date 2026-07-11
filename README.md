@@ -1,4 +1,32 @@
-# R300 Vision System
+# Self-Driving Car
+---
+
+## 项目介绍
+
+
+无人车挑战赛
+
+---
+
+## 系统介绍
+
+pass
+
+---
+
+## 惯性导航系统
+
+pass
+
+---
+
+## 控制系统
+
+pass
+
+--
+
+## Vision System
 
 基于 **ROS Noetic、Intel RealSense D435i、Ultralytics YOLO 和 NVIDIA Jetson GPU** 实现的目标检测与深度定位系统。
 
@@ -15,7 +43,7 @@
 
 ---
 
-## 1. 项目结构
+### 1. 项目结构
 
 ```text
 r300_ws/
@@ -44,7 +72,7 @@ r300_ws/
 
 ---
 
-## 2. 运行环境
+### 2. 运行环境
 
 - Ubuntu 20.04
 - ROS Noetic
@@ -57,7 +85,7 @@ r300_ws/
 
 ---
 
-## 3. 项目编译
+### 3. 项目编译
 
 进入工作空间：
 
@@ -98,16 +126,16 @@ source ~/r300_ws/devel/setup.bash
 
 ---
 
-## 4. 独立编译视觉功能包
+### 4. 独立编译视觉功能包
 
-### 4.1 编译消息包
+#### 4.1 编译消息包
 
 ```bash
 cd ~/r300_ws
 catkin_make --pkg r300_vision_msgs
 ```
 
-### 4.2 编译目标检测包
+#### 4.2 编译目标检测包
 
 ```bash
 cd ~/r300_ws
@@ -122,11 +150,11 @@ source ~/r300_ws/devel/setup.bash
 
 ---
 
-## 5. 分步启动系统
+### 5. 分步启动系统
 
 分步启动适合调试和排查问题。
 
-### 5.1 启动 RealSense D435i
+#### 5.1 启动 RealSense D435i
 
 打开第一个终端：
 
@@ -163,7 +191,7 @@ rostopic hz /camera/aligned_depth_to_color/image_raw
 
 ---
 
-### 5.2 启动目标检测与深度定位
+#### 5.2 启动目标检测与深度定位
 
 打开第二个终端：
 
@@ -192,7 +220,7 @@ R300 YOLO depth node started
 
 ---
 
-### 5.3 查看检测结果
+#### 5.3 查看检测结果
 
 打开第三个终端：
 
@@ -210,9 +238,9 @@ rqt_image_view
 
 ---
 
-## 6. 主要 ROS 话题
+### 6. 主要 ROS 话题
 
-### 6.1 订阅话题
+#### 6.1 订阅话题
 
 | 话题 | 类型 | 说明 |
 |---|---|---|
@@ -220,7 +248,7 @@ rqt_image_view
 | `/camera/aligned_depth_to_color/image_raw` | `sensor_msgs/Image` | 对齐到彩色图的深度图 |
 | `/camera/color/camera_info` | `sensor_msgs/CameraInfo` | 彩色相机内参 |
 
-### 6.2 发布话题
+#### 6.2 发布话题
 
 | 话题 | 类型 | 说明 |
 |---|---|---|
@@ -248,16 +276,16 @@ rostopic hz /r300_vision/annotated_image
 
 ---
 
-## 7. 录制检测图像和检测结果
+### 7. 录制检测图像和检测结果
 
-### 7.1 创建记录目录
+#### 7.1 创建记录目录
 
 ```bash
 mkdir -p ~/r300_records
 cd ~/r300_records
 ```
 
-### 7.2 开始录制 rosbag
+#### 7.2 开始录制 rosbag
 
 ```bash
 rosbag record \
@@ -281,7 +309,7 @@ yolo_test_20260711_183000.bag
 
 ---
 
-### 7.3 查看 rosbag 信息
+#### 7.3 查看 rosbag 信息
 
 ```bash
 rosbag info ~/r300_records/yolo_test_20260711_183000.bag
@@ -297,7 +325,7 @@ ls -lh ~/r300_records
 
 ---
 
-### 7.4 回放 rosbag
+#### 7.4 回放 rosbag
 
 先启动 ROS Master：
 
@@ -319,7 +347,7 @@ rosbag play \
 
 ---
 
-### 7.5 查看回放画面
+#### 7.5 查看回放画面
 
 再打开一个新终端：
 
@@ -337,9 +365,9 @@ rqt_image_view
 
 ---
 
-## 8. Web 实时画面发布
+### 8. Web 实时画面发布
 
-### 8.1 启动 Web 视频服务器
+#### 8.1 启动 Web 视频服务器
 
 ```bash
 source /opt/ros/noetic/setup.bash
@@ -365,7 +393,7 @@ rosrun web_video_server web_video_server \
 
 ---
 
-### 8.2 查询工控机 IP
+#### 8.2 查询工控机 IP
 
 ```bash
 hostname -I
@@ -400,7 +428,7 @@ http://192.168.1.107:8080/stream?topic=/r300_vision/annotated_image&type=mjpeg&q
 
 ---
 
-## 9. 一键启动
+### 9. 一键启动
 
 一键启动脚本位于：
 
@@ -414,7 +442,7 @@ http://192.168.1.107:8080/stream?topic=/r300_vision/annotated_image&type=mjpeg&q
 chmod +x ~/r300_ws/scripts/start_r300.sh
 ```
 
-### 9.1 启动相机、模型和 Web
+#### 9.1 启动相机、模型和 Web
 
 ```bash
 ~/r300_ws/scripts/start_r300.sh web
@@ -431,7 +459,7 @@ RealSense D435i
 
 ---
 
-### 9.2 启动相机、模型和 rosbag
+#### 9.2 启动相机、模型和 rosbag
 
 ```bash
 ~/r300_ws/scripts/start_r300.sh bag
@@ -448,7 +476,7 @@ RealSense D435i
 
 ---
 
-### 9.3 同时启动 Web 和 rosbag
+#### 9.3 同时启动 Web 和 rosbag
 
 ```bash
 ~/r300_ws/scripts/start_r300.sh both
@@ -472,7 +500,7 @@ Ctrl + C
 
 ---
 
-## 10. 直接使用总 Launch 文件
+### 10. 直接使用总 Launch 文件
 
 总 launch 文件可以启动：
 
@@ -511,7 +539,7 @@ roslaunch r300_yolo_detector r300_system.launch \
 
 ---
 
-## 11. 坐标系说明
+### 11. 坐标系说明
 
 目标三维位置默认发布在相机光学坐标系中：
 
@@ -549,9 +577,9 @@ base_link
 
 ---
 
-## 12. 常见问题
+### 12. 常见问题
 
-### 12.1 找不到 ROS 包
+#### 12.1 找不到 ROS 包
 
 ```bash
 source /opt/ros/noetic/setup.bash
@@ -567,7 +595,7 @@ rospack find r300_yolo_detector
 
 ---
 
-### 12.2 CUDA 不可用
+#### 12.2 CUDA 不可用
 
 ```bash
 source ~/venvs/yolo26/bin/activate
@@ -585,7 +613,7 @@ PY
 
 ---
 
-### 12.3 Web 页面无法访问
+#### 12.3 Web 页面无法访问
 
 检查 Web 服务是否运行：
 
@@ -607,7 +635,7 @@ sudo ufw allow 8080/tcp
 
 ---
 
-### 12.4 Web 页面可以打开但没有图像
+#### 12.4 Web 页面可以打开但没有图像
 
 检查标注图像是否正常发布：
 
@@ -623,7 +651,7 @@ rostopic info /r300_vision/annotated_image
 
 ---
 
-### 12.5 rosbag 异常中断
+#### 12.5 rosbag 异常中断
 
 如果出现：
 
@@ -647,7 +675,7 @@ rosbag fix \
 
 ---
 
-## 13. 推荐运行方式
+### 13. 推荐运行方式
 
 日常查看检测效果：
 
@@ -667,8 +695,3 @@ rosbag fix \
 roslaunch r300_yolo_detector r300_system.launch
 ```
 
----
-
-## 14. License
-
-本项目仅用于 R300 无人车视觉感知与目标定位系统开发。
