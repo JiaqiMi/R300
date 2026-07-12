@@ -31,9 +31,106 @@ pass
 
 ## 惯性导航系统
 
-pass
+本部分用于在 AMOV R300 小车上接入自研 1X 惯导/GPS，替代原飞控位姿输入，并继续使用 ROS `move_base + DWA` 完成定点导航和多航点导航。
+
+当前主链路为：
+
+```text
+1X INS/GPS
+    ↓
+/one_x/odom + odom → base_link
+    ↓
+move_base + DWA
+    ↓
+/subject1/cmd_vel_raw
+    ↓
+scout_base_node
+    ↓
+R300 底盘
+
+当前版本采用纯 DWA 控制链路，暂未使用“预先对准、安全速度”等
 
 ---
+
+### 1. 功能说明
+
+该部分主要实现：
+
+- 解析 1X 惯导 110 字节串口数据；
+- 发布惯导/GPS 定位、航向和速度信息；
+- 发布 `/one_x/odom` 与 `odom → base_link` TF；
+- 同时保存和发布 INS 经纬度与 GPS 经纬度；
+- 将经纬度航点转换为局部 ENU 坐标；
+- 通过 `move_base + DWA` 生成速度指令；
+- 通过 `scout_base_node` 控制 R300 底盘运动；
+- 支持多航点顺序执行；
+- 支持 RViz 空白地图闭环仿真，用于 DWA 参数调试。
+
+---
+
+### 2. 项目结构
+
+```text
+r300_ws/
+├── src/
+│   └── R300/
+│       └── r300_1x_navigation/
+│           ├── config/
+│           │   ├── subject1_dwa.yaml
+│           │   ├── subject1_move_base.yaml
+│           │   ├── subject1_waypoints.yaml
+│           │   ├── subject1_costmap_common.yaml
+│           │   ├── subject1_global_costmap.yaml
+│           │   └── subject1_local_costmap.yaml
+│           │
+│           ├── launch/
+│           │   ├── subject1_waypoint_nav.launch
+│           │   ├── subject1_move_base.launch
+│           │   ├── subject1_dwa_sim.launch
+│           │   └── one_x_localization_only.launch
+│           │
+│           ├── scripts/
+│           │   ├── waypoint_executor.py
+│           │   ├── sim_r300_odom_node.py
+│           │   ├── sim_blank_map_node.py
+│           │   ├── odom_to_path.py
+│           │   └── one_key/
+│           │
+│           ├── src/
+│           │   └── one_x_serial_driver.cpp
+│           │
+│           ├── maps/
+│           │   ├── subject1_blank_map.yaml
+│           │   └── subject1_blank_map.pgm
+│           │
+│           ├── CMakeLists.txt
+│           └── package.xml
+```
+
+---
+
+### 3. 编译
+
+进入工作空间：
+
+```bash
+cd ~/r300_ws
+```
+
+编译：
+
+```bash
+catkin_make
+```
+
+加载环境：
+
+```bash
+source ~/r300_ws/devel/setup.bash
+```
+
+
+
 
 ## 控制系统
 
