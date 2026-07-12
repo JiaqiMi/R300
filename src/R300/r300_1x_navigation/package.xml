@@ -49,6 +49,11 @@
   <exec_depend>r300_simulation</exec_depend>
   <exec_depend>r300_function</exec_depend>
   <exec_depend>scout_base</exec_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>actionlib_msgs</exec_depend>
+  <exec_depend>python3-serial</exec_depend>
 
   <export/>
 </package>

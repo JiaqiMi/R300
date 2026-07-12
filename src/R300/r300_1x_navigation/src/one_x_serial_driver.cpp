@@ -421,12 +421,12 @@ private:
     // To switch back to INS control later, change only these two lines.
 
     // 当前控制仍使用 GPS。
-    // const double latitude_deg = gps_latitude_deg;
-    // const double longitude_deg = gps_longitude_deg;
+    const double latitude_deg = gps_latitude_deg;
+    const double longitude_deg = gps_longitude_deg;
     
     // 当前控制使用 INS。
-    const double latitude_deg = ins_latitude_deg;
-    const double longitude_deg = ins_longitude_deg;
+    // const double latitude_deg = ins_latitude_deg;
+    // const double longitude_deg = ins_longitude_deg;
 
     // The 110-byte layout currently verified in this driver supplies the
     // navigation/INS altitude at bytes 14..17.  It is attached to both

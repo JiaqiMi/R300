@@ -44,8 +44,21 @@ install(DIRECTORY launch config maps include/
   USE_SOURCE_PERMISSIONS
 )
 
+# catkin_install_python(PROGRAMS
+#   scripts/waypoint_executor.py
+#   scripts/dwa_odom_adapter.py
+#   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+# )
+
+# 仿真和工具+实际
 catkin_install_python(PROGRAMS
   scripts/waypoint_executor.py
-  scripts/dwa_odom_adapter.py
+  scripts/odom_to_path.py
+  scripts/sim_blank_map_node.py
+  scripts/sim_r300_odom_node.py
+  scripts/ins_trajectory_viewer.py
+  scripts/ultrasonic_basic_node.py
+  scripts/ultrasonic_filter_node.py
+  scripts/ultrasonic_estop_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
