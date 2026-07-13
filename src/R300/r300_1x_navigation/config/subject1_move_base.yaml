@@ -1,7 +1,7 @@
 recovery_behavior_enabled: false
 shutdown_costmaps: false
 
-controller_frequency: 10.0
+controller_frequency: 5.0
 planner_frequency: 0.0
 
 planner_patience: 8.0

@@ -1,0 +1,50 @@
+local_costmap:
+  global_frame: odom
+  robot_base_frame: base_link
+
+  update_frequency: 10.0
+  publish_frequency: 5.0
+  transform_tolerance: 0.5
+
+  # Web/SSH 诊断时持续发布完整地图。此时 costmap_updates 为 0 Hz 是正常的。
+  always_send_full_costmap: true
+
+  static_map: false
+  rolling_window: true
+  width: 24.0
+  height: 24.0
+  resolution: 0.10
+
+  plugins:
+    - {name: vision_snapshot_layer,
+       type: "r300_1x_navigation/VisionSnapshotLayer"}
+    - {name: inflation_layer,
+       type: "costmap_2d::InflationLayer"}
+
+  # 视觉专用快照层：不再使用 ObstacleLayer 的 360° 伪清除射线。
+  # 当前障碍点先变换到 odom，再在 odom 中保持 1 秒。车辆原地旋转时，
+  # 历史点不会跟着 base_link 一起转。每次 costmap 更新都会重建整层，
+  # 因此过期黑团不会残留，新障碍也会在下一周期立即写入。
+  vision_snapshot_layer:
+    enabled: true
+    topic: /r300_vision/obstacle_scan
+
+    hold_time_s: 1.0
+    expected_update_rate_s: 0.5
+    max_message_age_s: 0.5
+    transform_timeout_s: 0.10
+    stop_on_stale: true
+
+    min_range_m: 0.20
+    max_range_m: 10.0
+    dedup_resolution_m: 0.05
+
+    publish_active_scan: true
+    active_scan_topic: /r300_vision/active_obstacle_scan
+    active_scan_frame: base_link
+    active_scan_angle_increment_deg: 0.50
+
+  inflation_layer:
+    enabled: true
+    inflation_radius: 0.65
+    cost_scaling_factor: 3.0

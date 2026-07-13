@@ -19,7 +19,7 @@ LAUNCH_LIDAR="${LAUNCH_LIDAR:-false}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-false}"
 ODOM_PATH="${ODOM_PATH:-true}"
 MAX_GOAL_DIST="${MAX_GOAL_DIST:-180.0}"
-SETUP_CAN="${SETUP_CAN:-false}"
+SETUP_CAN="${SETUP_CAN:-true}"
 CAN_BITRATE="${CAN_BITRATE:-500000}"
 
 source /opt/ros/noetic/setup.bash
@@ -35,9 +35,10 @@ if [[ ! -e "$INS_PORT" ]]; then
 fi
 
 if [[ "$SETUP_CAN" == "true" ]]; then
-  echo "[INFO] 尝试配置 CAN：$CAN_PORT bitrate=$CAN_BITRATE"
+  echo "[INFO] 配置 CAN: $CAN_PORT bitrate=$CAN_BITRATE"
   sudo ip link set "$CAN_PORT" down >/dev/null 2>&1 || true
-  sudo ip link set "$CAN_PORT" up type can bitrate "$CAN_BITRATE"
+  sudo ip link set "$CAN_PORT" type can bitrate "$CAN_BITRATE"
+  sudo ip link set "$CAN_PORT" up
 fi
 
 cleanup() {

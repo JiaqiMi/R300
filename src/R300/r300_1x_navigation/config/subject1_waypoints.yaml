@@ -5,23 +5,27 @@
 
 subject1_waypoints:
   waypoints:    
-    - name: wp_03
-      latitude_deg: 38.98670724
-      longitude_deg: 117.341834446
+    - name: wp_01
+      latitude_deg: 38.9866498299
+      longitude_deg: 117.3427974
       altitude_m: 21.741
 
-    - name: wp_04
-      latitude_deg: 38.98665879
-      longitude_deg: 117.34196771
+    - name: wp_02
+      latitude_deg: 38.9866743
+      longitude_deg: 117.34292644
       altitude_m: 21.741
   
-  
-    - name: wp_05
-      latitude_deg: 38.98668821
-      longitude_deg: 117.3420233745
+    - name: wp_03
+      latitude_deg: 38.98704746
+      longitude_deg: 117.34297782
       altitude_m: 21.741
     
-    - name: wp_06
-      latitude_deg: 38.98670724
-      longitude_deg: 117.341834446
+    - name: wp_04
+      latitude_deg: 38.9866743
+      longitude_deg: 117.34292644
+      altitude_m: 21.741
+
+    - name: wp_05
+      latitude_deg: 38.9866498299
+      longitude_deg: 117.3427974
       altitude_m: 21.741

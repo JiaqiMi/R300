@@ -1,0 +1,50 @@
+<launch>
+  <!--
+    Visual-obstacle adapter only.
+
+    This launch does NOT start a camera, detector, or neural-network model.
+    An external perception process must already publish:
+      1) DetectedObjectArray on detections_topic
+      2) CameraInfo on camera_info_topic
+      3) the camera frame used by the detection header in the TF tree
+  -->
+  <arg name="config_file"
+       default="$(find r300_1x_navigation)/config/subject1_vision_obstacles.yaml"/>
+
+  <arg name="detections_topic" default="/r300_vision/detections"/>
+  <arg name="camera_info_topic" default="/camera/color/camera_info"/>
+
+  <!-- Enable only for bench tests without robot_state_publisher. -->
+  <arg name="publish_camera_mount_tf" default="false"/>
+  <arg name="camera_mount_xyz" default="0.15 0 0.40"/>
+  <arg name="camera_mount_roll" default="0.0"/>
+  <arg name="camera_mount_pitch" default="0.0"/>
+  <arg name="camera_mount_yaw" default="0.0"/>
+
+  <node if="$(arg publish_camera_mount_tf)"
+        pkg="tf"
+        type="static_transform_publisher"
+        name="subject1_base_to_camera"
+        args="$(arg camera_mount_xyz) $(arg camera_mount_yaw) $(arg camera_mount_pitch) $(arg camera_mount_roll) base_link camera_link 100"/>
+
+  <node pkg="r300_1x_navigation"
+        type="vision_obstacle_layer_node.py"
+        name="vision_obstacle_layer_node"
+        output="screen"
+        required="true">
+    <rosparam command="load" file="$(arg config_file)"/>
+
+    <!-- Override the YAML defaults so upstream topic names can be selected at launch time. -->
+    <param name="detections_topic" value="$(arg detections_topic)"/>
+    <param name="camera_info_topic" value="$(arg camera_info_topic)"/>
+  </node>
+
+ 
+
+
+  <!--
+    costmap 直接由 VisionSnapshotLayer 订阅 /r300_vision/obstacle_scan。
+    不再生成 360° /r300_vision/costmap_scan，避免清除射线和标记射线
+    在标准 ObstacleLayer 中相互干扰。
+  -->
+</launch>

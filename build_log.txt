@@ -1,180 +1,823 @@
-[  0%] Built target geometry_msgs_generate_messages_py
+-- The C compiler identification is GNU 9.4.0
+-- The CXX compiler identification is GNU 9.4.0
+-- Check for working C compiler: /usr/bin/cc
+-- Check for working C compiler: /usr/bin/cc -- works
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Check for working CXX compiler: /usr/bin/c++
+-- Check for working CXX compiler: /usr/bin/c++ -- works
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Using CATKIN_DEVEL_PREFIX: /home/explorer/r300_ws/devel
+-- Using CMAKE_PREFIX_PATH: /opt/ros/noetic
+-- This workspace overlays: /opt/ros/noetic
+-- Found PythonInterp: /home/explorer/venvs/yolo26/bin/python3 (found suitable version "3.8.10", minimum required is "3") 
+-- Using PYTHON_EXECUTABLE: /home/explorer/venvs/yolo26/bin/python3
+-- Using Debian Python package layout
+-- Found PY_em: /home/explorer/venvs/yolo26/lib/python3.8/site-packages/em.py  
+-- Using empy: /home/explorer/venvs/yolo26/lib/python3.8/site-packages/em.py
+-- Using CATKIN_ENABLE_TESTING: ON
+-- Call enable_testing()
+-- Using CATKIN_TEST_RESULTS_DIR: /home/explorer/r300_ws/build/test_results
+-- Forcing gtest/gmock from source, though one was otherwise available.
+-- Found gtest sources under '/usr/src/googletest': gtests will be built
+-- Found gmock sources under '/usr/src/googletest': gmock will be built
+-- Found PythonInterp: /home/explorer/venvs/yolo26/bin/python3 (found version "3.8.10") 
+-- Found Threads: TRUE  
+-- Using Python nosetests: /usr/bin/nosetests3
+-- catkin 0.8.12
+-- BUILD_SHARED_LIBS is on
+-- BUILD_SHARED_LIBS is on
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- ~~  traversing 19 packages in topological order:
+-- ~~  - r300_vision_msgs
+-- ~~  - scout_msgs
+-- ~~  - ugv_sdk
+-- ~~  - amovcar_sensor
+-- ~~  - r300_bringup
+-- ~~  - r300_function
+-- ~~  - r300_simulation
+-- ~~  - scout_bringup
+-- ~~  - scout_description
+-- ~~  - bluesea2
+-- ~~  - r300_yolo_detector
+-- ~~  - rplidar_ros
+-- ~~  - scout_base
+-- ~~  - amovcar_function
+-- ~~  - realsense2_camera
+-- ~~  - r300_1x_navigation
+-- ~~  - navi_multi_goals_pub_rviz_plugin
+-- ~~  - vision_to_mavros
+-- ~~  - move_base
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- +++ processing catkin package: 'r300_vision_msgs'
+-- ==> add_subdirectory(R300_vision/r300_vision_msgs)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- r300_vision_msgs: 2 messages, 0 services
+-- +++ processing catkin package: 'scout_msgs'
+-- ==> add_subdirectory(R300/scout_ros/scout_msgs)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- scout_msgs: 6 messages, 0 services
+-- +++ processing catkin package: 'ugv_sdk'
+-- ==> add_subdirectory(R300/ugv_sdk)
+-- Build package with catkin
+-- Setting build type to 'Release' as none was specified.
+-- +++ processing catkin package: 'amovcar_sensor'
+-- ==> add_subdirectory(common/sensor/amovcar_sensor)
+-- +++ processing catkin package: 'r300_bringup'
+-- ==> add_subdirectory(R300/r300_bringup)
+-- +++ processing catkin package: 'r300_function'
+-- ==> add_subdirectory(R300/r300_function)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- +++ processing catkin package: 'r300_simulation'
+-- ==> add_subdirectory(R300/r300_simulation)
+-- +++ processing catkin package: 'scout_bringup'
+-- ==> add_subdirectory(R300/scout_ros/scout_bringup)
+-- +++ processing catkin package: 'scout_description'
+-- ==> add_subdirectory(R300/scout_ros/scout_description)
+-- +++ processing catkin package: 'bluesea2'
+-- ==> add_subdirectory(common/sensor/bluesea2)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- bluesea2: 0 messages, 2 services
+-- +++ processing catkin package: 'r300_yolo_detector'
+-- ==> add_subdirectory(R300_vision/r300_yolo_detector)
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/scripts/yolo_depth_node.py to /home/explorer/r300_ws/devel/lib/r300_yolo_detector
+-- +++ processing catkin package: 'rplidar_ros'
+-- ==> add_subdirectory(common/sensor/rplidar_ros)
+-- +++ processing catkin package: 'scout_base'
+-- ==> add_subdirectory(R300/scout_ros/scout_base)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- +++ processing catkin package: 'amovcar_function'
+-- ==> add_subdirectory(common/function/amovcar_function)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- +++ processing catkin package: 'realsense2_camera'
+-- ==> add_subdirectory(common/sensor/realsense-ros/realsense2_camera)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- Create Release Build.
+-- realsense2_camera: 2 messages, 0 services
+-- +++ processing catkin package: 'r300_1x_navigation'
+-- ==> add_subdirectory(R300/r300_1x_navigation)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/waypoint_executor.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/odom_to_path.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/sim_blank_map_node.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/sim_r300_odom_node.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/ins_trajectory_viewer.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/ultrasonic_basic_node.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/ultrasonic_filter_node.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/ultrasonic_estop_node.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- Installing devel-space wrapper /home/explorer/r300_ws/src/R300/r300_1x_navigation/scripts/vision_obstacle_layer_node.py to /home/explorer/r300_ws/devel/lib/r300_1x_navigation
+-- +++ processing catkin package: 'navi_multi_goals_pub_rviz_plugin'
+-- ==> add_subdirectory(common/function/rviz_multigoals_pub_plugin/navi_multi_goals_pub_rviz_plugin)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- Using Qt5 based on the rviz_QT_VERSION: 5.12.8
+-- +++ processing catkin package: 'vision_to_mavros'
+-- ==> add_subdirectory(common/function/vision_to_mavros)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- Found OpenCV: /usr (found version "4.2.0") found components: core calib3d 
+-- +++ processing catkin package: 'move_base'
+-- ==> add_subdirectory(common/function/move_base)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- Configuring done
+CMake Warning (dev) at common/sensor/bluesea2/CMakeLists.txt:148 (add_dependencies):
+  Policy CMP0046 is not set: Error on non-existent dependency in
+  add_dependencies.  Run "cmake --help-policy CMP0046" for policy details.
+  Use the cmake_policy command to set the policy and suppress this warning.
+
+  The dependency target "bluesea2_gencfg" of target "bluesea2_node_client"
+  does not exist.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at common/sensor/bluesea2/CMakeLists.txt:147 (add_dependencies):
+  Policy CMP0046 is not set: Error on non-existent dependency in
+  add_dependencies.  Run "cmake --help-policy CMP0046" for policy details.
+  Use the cmake_policy command to set the policy and suppress this warning.
+
+  The dependency target "bluesea2_gencfg" of target "bluesea2_node" does not
+  exist.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- Generating done
+-- Build files have been written to: /home/explorer/r300_ws/build
+Scanning dependencies of target geometry_msgs_generate_messages_py
+Scanning dependencies of target std_msgs_generate_messages_py
+Scanning dependencies of target _r300_vision_msgs_generate_messages_check_deps_DetectedObject
 [  0%] Built target std_msgs_generate_messages_py
+[  0%] Built target geometry_msgs_generate_messages_py
+Scanning dependencies of target _r300_vision_msgs_generate_messages_check_deps_DetectedObjectArray
+Scanning dependencies of target geometry_msgs_generate_messages_lisp
+Scanning dependencies of target std_msgs_generate_messages_lisp
 [  0%] Built target geometry_msgs_generate_messages_lisp
 [  0%] Built target std_msgs_generate_messages_lisp
 [  0%] Built target _r300_vision_msgs_generate_messages_check_deps_DetectedObjectArray
+Scanning dependencies of target geometry_msgs_generate_messages_nodejs
+Scanning dependencies of target std_msgs_generate_messages_nodejs
 [  0%] Built target _r300_vision_msgs_generate_messages_check_deps_DetectedObject
+Scanning dependencies of target std_msgs_generate_messages_cpp
 [  0%] Built target std_msgs_generate_messages_nodejs
 [  0%] Built target geometry_msgs_generate_messages_nodejs
 [  0%] Built target std_msgs_generate_messages_cpp
-[  0%] Built target geometry_msgs_generate_messages_cpp
+Scanning dependencies of target std_msgs_generate_messages_eus
+Scanning dependencies of target geometry_msgs_generate_messages_eus
+Scanning dependencies of target geometry_msgs_generate_messages_cpp
 [  0%] Built target std_msgs_generate_messages_eus
+[  0%] Built target geometry_msgs_generate_messages_cpp
 [  0%] Built target geometry_msgs_generate_messages_eus
+Scanning dependencies of target _scout_msgs_generate_messages_check_deps_ScoutDriverState
+Scanning dependencies of target _scout_msgs_generate_messages_check_deps_ScoutStatus
+Scanning dependencies of target _scout_msgs_generate_messages_check_deps_ScoutLightState
+Scanning dependencies of target _scout_msgs_generate_messages_check_deps_ScoutMotorState
 [  0%] Built target _scout_msgs_generate_messages_check_deps_ScoutDriverState
 [  0%] Built target _scout_msgs_generate_messages_check_deps_ScoutLightState
 [  0%] Built target _scout_msgs_generate_messages_check_deps_ScoutStatus
+Scanning dependencies of target _scout_msgs_generate_messages_check_deps_ScoutLightCmd
+Scanning dependencies of target _scout_msgs_generate_messages_check_deps_ScoutBmsStatus
+Scanning dependencies of target ugv_sdk
 [  0%] Built target _scout_msgs_generate_messages_check_deps_ScoutMotorState
-[  8%] Built target ugv_sdk
-[  9%] Built target vel_bridge
-[  9%] Built target _scout_msgs_generate_messages_check_deps_ScoutLightCmd
-[  9%] Built target _scout_msgs_generate_messages_check_deps_ScoutBmsStatus
-[ 10%] Built target apm_navigation
-[ 13%] Built target wp_goal
-[ 13%] Built target slave_tf_listener
-[ 13%] Built target roscpp_generate_messages_cpp
-[ 13%] Built target roscpp_generate_messages_eus
-[ 13%] Built target _bluesea2_generate_messages_check_deps_DefenceZone
-[ 13%] Built target _bluesea2_generate_messages_check_deps_Control
-[ 13%] Built target roscpp_generate_messages_nodejs
-[ 13%] Built target roscpp_generate_messages_py
-[ 13%] Built target rosgraph_msgs_generate_messages_nodejs
-[ 13%] Built target rosgraph_msgs_generate_messages_cpp
-[ 13%] Built target rosgraph_msgs_generate_messages_eus
-[ 13%] Built target rosgraph_msgs_generate_messages_lisp
-[ 13%] Built target roscpp_generate_messages_lisp
-[ 13%] Built target rosgraph_msgs_generate_messages_py
-[ 13%] Built target sensor_msgs_generate_messages_lisp
-[ 13%] Built target sensor_msgs_generate_messages_nodejs
-[ 13%] Built target sensor_msgs_generate_messages_eus
-[ 13%] Built target sensor_msgs_generate_messages_py
-[ 13%] Built target sensor_msgs_generate_messages_cpp
-[ 15%] Built target bluesea2_generate_messages_eus
-[ 17%] Built target bluesea2_generate_messages_py
-[ 18%] Built target bluesea2_generate_messages_lisp
-[ 20%] Built target rplidarNodeClient
-[ 21%] Built target bluesea2_generate_messages_nodejs
-[ 33%] Built target rplidarNode
-[ 33%] Built target tf2_msgs_generate_messages_cpp
-[ 33%] Built target actionlib_generate_messages_eus
-[ 33%] Built target tf2_msgs_generate_messages_nodejs
-[ 33%] Built target actionlib_generate_messages_cpp
-[ 33%] Built target actionlib_msgs_generate_messages_cpp
-[ 33%] Built target actionlib_generate_messages_nodejs
-[ 33%] Built target tf2_msgs_generate_messages_py
-[ 33%] Built target actionlib_msgs_generate_messages_nodejs
-[ 33%] Built target actionlib_msgs_generate_messages_lisp
-[ 33%] Built target actionlib_generate_messages_py
-[ 33%] Built target tf2_msgs_generate_messages_lisp
-[ 33%] Built target actionlib_generate_messages_lisp
-[ 33%] Built target actionlib_msgs_generate_messages_eus
-[ 33%] Built target actionlib_msgs_generate_messages_py
-[ 33%] Built target tf2_msgs_generate_messages_eus
-[ 35%] Built target cmd_vel_guard
-[ 36%] Built target one_x_serial_driver
-[ 38%] Built target vfh_node
-[ 41%] Built target geodetic_goal_sender
-[ 41%] Built target _catkin_empty_exported_target
-[ 41%] Built target dynamic_reconfigure_generate_messages_nodejs
-[ 41%] Built target nav_msgs_generate_messages_eus
-[ 41%] Built target diagnostic_msgs_generate_messages_cpp
-[ 41%] Built target tf_generate_messages_eus
-[ 41%] Built target diagnostic_msgs_generate_messages_lisp
-[ 41%] Built target tf_generate_messages_cpp
-[ 41%] Built target tf_generate_messages_nodejs
-[ 41%] Built target diagnostic_msgs_generate_messages_eus
-[ 41%] Built target tf_generate_messages_py
-[ 41%] Built target tf_generate_messages_lisp
-[ 41%] Built target nav_msgs_generate_messages_py
-[ 41%] Built target nav_msgs_generate_messages_nodejs
-[ 41%] Built target diagnostic_msgs_generate_messages_py
-[ 41%] Built target diagnostic_msgs_generate_messages_nodejs
-[ 41%] Built target nav_msgs_generate_messages_cpp
-[ 41%] Built target dynamic_reconfigure_generate_messages_cpp
-[ 41%] Built target nav_msgs_generate_messages_lisp
-[ 41%] Built target dynamic_reconfigure_generate_messages_lisp
-[ 41%] Built target nodelet_generate_messages_eus
-[ 41%] Built target nodelet_generate_messages_py
-[ 41%] Built target bond_generate_messages_lisp
-[ 41%] Built target bond_generate_messages_eus
-[ 41%] Built target bond_generate_messages_cpp
-[ 41%] Built target _realsense2_camera_generate_messages_check_deps_Extrinsics
-[ 41%] Built target nodelet_generate_messages_lisp
-[ 41%] Built target bond_generate_messages_py
-[ 41%] Built target _realsense2_camera_generate_messages_check_deps_IMUInfo
-[ 41%] Built target bond_generate_messages_nodejs
-[ 41%] Built target nodelet_generate_messages_nodejs
-[ 41%] Built target dynamic_reconfigure_generate_messages_eus
-[ 41%] Built target dynamic_reconfigure_generate_messages_py
-[ 41%] Built target nodelet_generate_messages_cpp
-[ 41%] Built target dynamic_reconfigure_gencfg
-[ 42%] Built target realsense2_camera_generate_messages_nodejs
-[ 44%] Built target realsense2_camera_generate_messages_py
-[ 46%] Built target realsense2_camera_generate_messages_eus
-[ 47%] Built target realsense2_camera_generate_messages_lisp
-[ 47%] Automatic MOC for target navi_multi_goals_pub_rviz_plugin
-[ 48%] Built target navi_multi_goals_pub_rviz_plugin_autogen
-[ 49%] Built target vision_to_mavros_node
-[ 48%] Built target t265_fisheye_undistort_node
-[ 49%] Built target costmap_2d_generate_messages_py
-[ 49%] Built target move_base_msgs_generate_messages_cpp
-[ 49%] Built target move_base_msgs_generate_messages_lisp
-[ 49%] Built target std_srvs_generate_messages_nodejs
-[ 49%] Built target move_base_msgs_generate_messages_eus
-[ 49%] Built target move_base_msgs_generate_messages_py
-[ 49%] Built target std_srvs_generate_messages_py
-[ 49%] Built target move_base_msgs_generate_messages_nodejs
-[ 49%] Built target std_srvs_generate_messages_cpp
-[ 49%] Built target std_srvs_generate_messages_lisp
-[ 49%] Built target std_srvs_generate_messages_eus
-[ 49%] Built target visualization_msgs_generate_messages_cpp
-[ 49%] Built target visualization_msgs_generate_messages_lisp
-[ 49%] Built target visualization_msgs_generate_messages_eus
-[ 49%] Built target visualization_msgs_generate_messages_py
-[ 49%] Built target visualization_msgs_generate_messages_nodejs
-[ 49%] Built target map_msgs_generate_messages_cpp
-[ 49%] Built target map_msgs_generate_messages_py
-[ 49%] Built target map_msgs_generate_messages_nodejs
-[ 49%] Built target map_msgs_generate_messages_lisp
-[ 49%] Built target map_msgs_generate_messages_eus
-[ 50%] Built target move_base_gencfg
+[  1%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/async_port/async_serial.cpp.o
+Scanning dependencies of target vel_bridge
+[  1%] Built target _scout_msgs_generate_messages_check_deps_ScoutLightCmd
+[  1%] Built target _scout_msgs_generate_messages_check_deps_ScoutBmsStatus
+[  1%] Building CXX object R300/r300_function/CMakeFiles/vel_bridge.dir/src/vel_bridge.cpp.o
+[  2%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/async_port/async_can.cpp.o
+Scanning dependencies of target apm_navigation
+[  2%] Building CXX object R300/r300_function/CMakeFiles/apm_navigation.dir/src/apm_navigation.cpp.o
+[  2%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/utilities/protocol_detector.cpp.o
+[  3%] Linking CXX executable /home/explorer/r300_ws/devel/lib/r300_function/vel_bridge
+[  4%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/mobile_robot/scout_robot.cpp.o
+[  4%] Built target vel_bridge
+Scanning dependencies of target wp_goal
+[  5%] Building CXX object R300/r300_function/CMakeFiles/wp_goal.dir/src/wp_goal.cpp.o
+[  6%] Linking CXX executable /home/explorer/r300_ws/devel/lib/r300_function/apm_navigation
+[  6%] Built target apm_navigation
+Scanning dependencies of target slave_tf_listener
+[  6%] Building CXX object R300/r300_function/CMakeFiles/slave_tf_listener.dir/src/slave_tf_listener.cpp.o
+[  6%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/mobile_robot/hunter_robot.cpp.o
+[  7%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/mobile_robot/bunker_robot.cpp.o
+[  8%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/mobile_robot/ranger_robot.cpp.o
+[  8%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/mobile_robot/titan_robot.cpp.o
+[  9%] Building C object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/protocol_v2/agilex_msg_parser_v2.c.o
+Scanning dependencies of target _bluesea2_generate_messages_check_deps_DefenceZone
+[  9%] Built target _bluesea2_generate_messages_check_deps_DefenceZone
+Scanning dependencies of target _bluesea2_generate_messages_check_deps_Control
+[  9%] Built target _bluesea2_generate_messages_check_deps_Control
+Scanning dependencies of target roscpp_generate_messages_cpp
+[  9%] Built target roscpp_generate_messages_cpp
+Scanning dependencies of target roscpp_generate_messages_eus
+[  9%] Built target roscpp_generate_messages_eus
+[ 10%] Building CXX object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/protocol_v2/protocol_v2_parser.cpp.o
+[ 11%] Linking CXX executable /home/explorer/r300_ws/devel/lib/r300_function/slave_tf_listener
+[ 11%] Building C object R300/ugv_sdk/CMakeFiles/ugv_sdk.dir/src/protocol_v1/agilex_msg_parser_v1.c.o
+Scanning dependencies of target rosgraph_msgs_generate_messages_nodejs
+[ 11%] Built target rosgraph_msgs_generate_messages_nodejs
+Scanning dependencies of target roscpp_generate_messages_py
+[ 11%] Built target roscpp_generate_messages_py
+Scanning dependencies of target roscpp_generate_messages_nodejs
+[ 11%] Built target slave_tf_listener
+[ 11%] Built target roscpp_generate_messages_nodejs
+Scanning dependencies of target rosgraph_msgs_generate_messages_eus
+Scanning dependencies of target rosgraph_msgs_generate_messages_cpp
+[ 11%] Built target rosgraph_msgs_generate_messages_cpp
+[ 11%] Built target rosgraph_msgs_generate_messages_eus
+Scanning dependencies of target rosgraph_msgs_generate_messages_lisp
+Scanning dependencies of target roscpp_generate_messages_lisp
+[ 11%] Built target rosgraph_msgs_generate_messages_lisp
+[ 11%] Built target roscpp_generate_messages_lisp
+Scanning dependencies of target rosgraph_msgs_generate_messages_py
+Scanning dependencies of target sensor_msgs_generate_messages_nodejs
+[ 11%] Built target rosgraph_msgs_generate_messages_py
+[ 11%] Built target sensor_msgs_generate_messages_nodejs
+Scanning dependencies of target sensor_msgs_generate_messages_lisp
+Scanning dependencies of target sensor_msgs_generate_messages_eus
+[ 11%] Built target sensor_msgs_generate_messages_eus
+[ 11%] Built target sensor_msgs_generate_messages_lisp
+Scanning dependencies of target sensor_msgs_generate_messages_cpp
+Scanning dependencies of target sensor_msgs_generate_messages_py
+[ 11%] Built target sensor_msgs_generate_messages_py
+[ 11%] Built target sensor_msgs_generate_messages_cpp
+Scanning dependencies of target bluesea2_generate_messages_eus
+Scanning dependencies of target bluesea2_generate_messages_py
+[ 13%] Generating EusLisp code from bluesea2/Control.srv
+[ 13%] Generating Python code from SRV bluesea2/Control
+[ 13%] Generating EusLisp code from bluesea2/DefenceZone.srv
+[ 14%] Generating Python code from SRV bluesea2/DefenceZone
+[ 15%] Generating EusLisp manifest code for bluesea2
+[ 15%] Generating Python srv __init__.py for bluesea2
+[ 15%] Built target bluesea2_generate_messages_py
+Scanning dependencies of target bluesea2_generate_messages_lisp
+[ 16%] Generating Lisp code from bluesea2/Control.srv
+[ 17%] Linking CXX shared library /home/explorer/r300_ws/devel/lib/libugv_sdk.so
+[ 17%] Generating Lisp code from bluesea2/DefenceZone.srv
+[ 17%] Built target bluesea2_generate_messages_lisp
+Scanning dependencies of target bluesea2_generate_messages_nodejs
+[ 17%] Built target ugv_sdk
+[ 18%] Generating Javascript code from bluesea2/Control.srv
+Scanning dependencies of target rplidarNodeClient
+[ 18%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNodeClient.dir/src/client.cpp.o
+[ 18%] Generating Javascript code from bluesea2/DefenceZone.srv
+[ 18%] Built target bluesea2_generate_messages_eus
+Scanning dependencies of target rplidarNode
+[ 20%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/src/node.cpp.o
+[ 20%] Built target bluesea2_generate_messages_nodejs
+[ 21%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/arch/linux/net_serial.cpp.o
+/home/explorer/r300_ws/src/common/sensor/rplidar_ros/sdk/src/arch/linux/net_serial.cpp: In member function ‘virtual void rp::arch::net::raw_serial::cancelOperation()’:
+/home/explorer/r300_ws/src/common/sensor/rplidar_ros/sdk/src/arch/linux/net_serial.cpp:427:17: warning: ignoring return value of ‘ssize_t write(int, const void*, size_t)’, declared with attribute warn_unused_result [-Wunused-result]
+  427 |     (int)::write(_selfpipe[1], "x", 1);
+      |          ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~
+[ 21%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/arch/linux/net_socket.cpp.o
+[ 22%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/arch/linux/timer.cpp.o
+[ 22%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/dataunpacker/dataunpacker.cpp.o
+[ 23%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/dataunpacker/unpacker/handler_capsules.cpp.o
+[ 24%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/dataunpacker/unpacker/handler_hqnode.cpp.o
+[ 25%] Linking CXX executable /home/explorer/r300_ws/devel/lib/rplidar_ros/rplidarNodeClient
+[ 25%] Built target rplidarNodeClient
+Scanning dependencies of target actionlib_generate_messages_eus
+[ 25%] Built target actionlib_generate_messages_eus
+Scanning dependencies of target tf2_msgs_generate_messages_cpp
+[ 25%] Built target tf2_msgs_generate_messages_cpp
+Scanning dependencies of target tf2_msgs_generate_messages_nodejs
+[ 25%] Built target tf2_msgs_generate_messages_nodejs
+Scanning dependencies of target actionlib_generate_messages_cpp
+[ 25%] Built target actionlib_generate_messages_cpp
+Scanning dependencies of target actionlib_msgs_generate_messages_cpp
+[ 25%] Built target actionlib_msgs_generate_messages_cpp
+Scanning dependencies of target actionlib_generate_messages_nodejs
+[ 25%] Built target actionlib_generate_messages_nodejs
+Scanning dependencies of target tf2_msgs_generate_messages_py
+[ 25%] Built target tf2_msgs_generate_messages_py
+Scanning dependencies of target actionlib_generate_messages_py
+[ 25%] Built target actionlib_generate_messages_py
+[ 25%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/dataunpacker/unpacker/handler_normalnode.cpp.o
+Scanning dependencies of target actionlib_msgs_generate_messages_lisp
+[ 25%] Built target actionlib_msgs_generate_messages_lisp
+Scanning dependencies of target actionlib_msgs_generate_messages_nodejs
+[ 25%] Built target actionlib_msgs_generate_messages_nodejs
+Scanning dependencies of target tf2_msgs_generate_messages_lisp
+[ 25%] Built target tf2_msgs_generate_messages_lisp
+[ 26%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/hal/thread.cpp.o
+Scanning dependencies of target actionlib_msgs_generate_messages_eus
+[ 26%] Built target actionlib_msgs_generate_messages_eus
+Scanning dependencies of target actionlib_msgs_generate_messages_py
+[ 26%] Built target actionlib_msgs_generate_messages_py
+Scanning dependencies of target actionlib_generate_messages_lisp
+[ 26%] Built target actionlib_generate_messages_lisp
+Scanning dependencies of target tf2_msgs_generate_messages_eus
+[ 26%] Built target tf2_msgs_generate_messages_eus
+Scanning dependencies of target vfh_node
+[ 27%] Building CXX object common/function/amovcar_function/CMakeFiles/vfh_node.dir/src/vfh_node.cpp.o
+[ 27%] Building CXX object common/function/amovcar_function/CMakeFiles/vfh_node.dir/src/sectormap.cpp.o
+[ 28%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/rplidar_driver.cpp.o
+[ 29%] Linking CXX executable /home/explorer/r300_ws/devel/lib/r300_function/wp_goal
+[ 29%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/sl_async_transceiver.cpp.o
+[ 29%] Built target wp_goal
+Scanning dependencies of target dynamic_reconfigure_generate_messages_nodejs
+[ 29%] Built target dynamic_reconfigure_generate_messages_nodejs
+Scanning dependencies of target _catkin_empty_exported_target
+[ 29%] Built target _catkin_empty_exported_target
+Scanning dependencies of target nav_msgs_generate_messages_eus
+[ 29%] Built target nav_msgs_generate_messages_eus
+Scanning dependencies of target diagnostic_msgs_generate_messages_cpp
+[ 30%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/sl_crc.cpp.o
+[ 30%] Built target diagnostic_msgs_generate_messages_cpp
+Scanning dependencies of target tf_generate_messages_eus
+[ 30%] Built target tf_generate_messages_eus
+Scanning dependencies of target diagnostic_msgs_generate_messages_lisp
+[ 30%] Built target diagnostic_msgs_generate_messages_lisp
+Scanning dependencies of target tf_generate_messages_cpp
+[ 30%] Built target tf_generate_messages_cpp
+[ 30%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/sl_lidar_driver.cpp.o
+Scanning dependencies of target tf_generate_messages_nodejs
+[ 30%] Built target tf_generate_messages_nodejs
+Scanning dependencies of target diagnostic_msgs_generate_messages_eus
+[ 30%] Built target diagnostic_msgs_generate_messages_eus
+Scanning dependencies of target tf_generate_messages_py
+[ 30%] Built target tf_generate_messages_py
+Scanning dependencies of target tf_generate_messages_lisp
+[ 30%] Built target tf_generate_messages_lisp
+Scanning dependencies of target nav_msgs_generate_messages_py
+[ 30%] Built target nav_msgs_generate_messages_py
+Scanning dependencies of target nav_msgs_generate_messages_nodejs
+[ 30%] Built target nav_msgs_generate_messages_nodejs
+Scanning dependencies of target diagnostic_msgs_generate_messages_py
+[ 30%] Built target diagnostic_msgs_generate_messages_py
+Scanning dependencies of target diagnostic_msgs_generate_messages_nodejs
+[ 30%] Built target diagnostic_msgs_generate_messages_nodejs
+[ 31%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/sl_lidarprotocol_codec.cpp.o
+Scanning dependencies of target nav_msgs_generate_messages_cpp
+[ 31%] Built target nav_msgs_generate_messages_cpp
+Scanning dependencies of target nav_msgs_generate_messages_lisp
+[ 31%] Built target nav_msgs_generate_messages_lisp
+Scanning dependencies of target dynamic_reconfigure_generate_messages_lisp
+[ 31%] Built target dynamic_reconfigure_generate_messages_lisp
+Scanning dependencies of target dynamic_reconfigure_generate_messages_cpp
+[ 31%] Built target dynamic_reconfigure_generate_messages_cpp
+Scanning dependencies of target nodelet_generate_messages_eus
+[ 31%] Built target nodelet_generate_messages_eus
+Scanning dependencies of target bond_generate_messages_lisp
+[ 31%] Built target bond_generate_messages_lisp
+Scanning dependencies of target nodelet_generate_messages_py
+[ 31%] Built target nodelet_generate_messages_py
+Scanning dependencies of target _realsense2_camera_generate_messages_check_deps_Extrinsics
+[ 31%] Built target _realsense2_camera_generate_messages_check_deps_Extrinsics
+Scanning dependencies of target _realsense2_camera_generate_messages_check_deps_IMUInfo
+[ 31%] Built target _realsense2_camera_generate_messages_check_deps_IMUInfo
+Scanning dependencies of target bond_generate_messages_cpp
+[ 31%] Built target bond_generate_messages_cpp
+Scanning dependencies of target bond_generate_messages_eus
+[ 31%] Built target bond_generate_messages_eus
+Scanning dependencies of target nodelet_generate_messages_lisp
+[ 31%] Built target nodelet_generate_messages_lisp
+Scanning dependencies of target bond_generate_messages_py
+[ 31%] Built target bond_generate_messages_py
+Scanning dependencies of target bond_generate_messages_nodejs
+[ 31%] Built target bond_generate_messages_nodejs
+Scanning dependencies of target nodelet_generate_messages_nodejs
+[ 31%] Built target nodelet_generate_messages_nodejs
+Scanning dependencies of target dynamic_reconfigure_generate_messages_py
+[ 31%] Built target dynamic_reconfigure_generate_messages_py
+Scanning dependencies of target dynamic_reconfigure_generate_messages_eus
+[ 31%] Built target dynamic_reconfigure_generate_messages_eus
+Scanning dependencies of target nodelet_generate_messages_cpp
+[ 31%] Built target nodelet_generate_messages_cpp
+Scanning dependencies of target dynamic_reconfigure_gencfg
+[ 31%] Built target dynamic_reconfigure_gencfg
+Scanning dependencies of target realsense2_camera_generate_messages_py
+[ 32%] Generating Python from MSG realsense2_camera/IMUInfo
+[ 33%] Generating Python from MSG realsense2_camera/Extrinsics
+[ 34%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/sl_serial_channel.cpp.o
+[ 34%] Generating Python msg __init__.py for realsense2_camera
+[ 34%] Built target realsense2_camera_generate_messages_py
+Scanning dependencies of target realsense2_camera_generate_messages_nodejs
+[ 35%] Generating Javascript code from realsense2_camera/IMUInfo.msg
+[ 35%] Generating Javascript code from realsense2_camera/Extrinsics.msg
+Scanning dependencies of target realsense2_camera_generate_messages_eus
+[ 35%] Built target realsense2_camera_generate_messages_nodejs
+[ 36%] Generating EusLisp code from realsense2_camera/IMUInfo.msg
+Scanning dependencies of target realsense2_camera_generate_messages_lisp
+[ 37%] Generating Lisp code from realsense2_camera/IMUInfo.msg
+[ 37%] Generating Lisp code from realsense2_camera/Extrinsics.msg
+[ 37%] Generating EusLisp code from realsense2_camera/Extrinsics.msg
+[ 37%] Built target realsense2_camera_generate_messages_lisp
+Scanning dependencies of target one_x_serial_driver
+[ 38%] Building CXX object R300/r300_1x_navigation/CMakeFiles/one_x_serial_driver.dir/src/one_x_serial_driver.cpp.o
+[ 40%] Generating EusLisp manifest code for realsense2_camera
+/home/explorer/r300_ws/src/common/function/amovcar_function/src/vfh_node.cpp: In function ‘int main(int, char**)’:
+/home/explorer/r300_ws/src/common/function/amovcar_function/src/vfh_node.cpp:121:20: warning: format ‘%d’ expects argument of type ‘int’, but argument 2 has type ‘std::vector<mavros_msgs::Waypoint_<std::allocator<void> >, std::allocator<mavros_msgs::Waypoint_<std::allocator<void> > > >::size_type’ {aka ‘long unsigned int’} [-Wformat=]
+  121 |   printf("wp size=%d\n", waypoints.waypoints.size());
+      |                   ~^     ~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                    |                             |
+      |                    int                           std::vector<mavros_msgs::Waypoint_<std::allocator<void> >, std::allocator<mavros_msgs::Waypoint_<std::allocator<void> > > >::size_type {aka long unsigned int}
+      |                   %ld
+[ 40%] Built target realsense2_camera_generate_messages_eus
+Scanning dependencies of target cmd_vel_guard
+[ 41%] Building CXX object R300/r300_1x_navigation/CMakeFiles/cmd_vel_guard.dir/src/cmd_vel_guard.cpp.o
+[ 41%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/sl_tcp_channel.cpp.o
+[ 42%] Building CXX object common/sensor/rplidar_ros/CMakeFiles/rplidarNode.dir/sdk/src/sl_udp_channel.cpp.o
+[ 43%] Linking CXX executable /home/explorer/r300_ws/devel/lib/rplidar_ros/rplidarNode
+[ 43%] Built target rplidarNode
+Scanning dependencies of target geodetic_goal_sender
+[ 44%] Building CXX object R300/r300_1x_navigation/CMakeFiles/geodetic_goal_sender.dir/src/geodetic_goal_sender.cpp.o
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/one_x_serial_driver.cpp: In constructor ‘OneXSerialDriver::OneXSerialDriver()’:
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/one_x_serial_driver.cpp:260:13: warning: ‘OneXSerialDriver::last_valid_frame_time_’ will be initialized after [-Wreorder]
+  260 |   ros::Time last_valid_frame_time_;
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/one_x_serial_driver.cpp:252:13: warning:   ‘ros::Time OneXSerialDriver::last_yaw_time_’ [-Wreorder]
+  252 |   ros::Time last_yaw_time_;
+      |             ^~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/one_x_serial_driver.cpp:126:3: warning:   when initialized here [-Wreorder]
+  126 |   OneXSerialDriver()
+      |   ^~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/cmd_vel_guard.cpp: In constructor ‘CmdVelGuard::CmdVelGuard()’:
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/cmd_vel_guard.cpp:150:8: warning: ‘CmdVelGuard::have_goal_’ will be initialized after [-Wreorder]
+  150 |   bool have_goal_;
+      |        ^~~~~~~~~~
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/cmd_vel_guard.cpp:146:8: warning:   ‘bool CmdVelGuard::enabled_’ [-Wreorder]
+  146 |   bool enabled_;
+      |        ^~~~~~~~
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/cmd_vel_guard.cpp:29:3: warning:   when initialized here [-Wreorder]
+   29 |   CmdVelGuard()
+      |   ^~~~~~~~~~~
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/cmd_vel_guard.cpp:184:10: warning: ‘CmdVelGuard::last_goal_distance_m_’ will be initialized after [-Wreorder]
+  184 |   double last_goal_distance_m_;
+      |          ^~~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/cmd_vel_guard.cpp:164:13: warning:   ‘ros::Time CmdVelGuard::last_publish_time_’ [-Wreorder]
+  164 |   ros::Time last_publish_time_;
+      |             ^~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/R300/r300_1x_navigation/src/cmd_vel_guard.cpp:29:3: warning:   when initialized here [-Wreorder]
+   29 |   CmdVelGuard()
+      |   ^~~~~~~~~~~
+[ 45%] Linking CXX executable /home/explorer/r300_ws/devel/lib/amovcar_function/vfh_node
+[ 46%] Linking CXX executable /home/explorer/r300_ws/devel/lib/r300_1x_navigation/one_x_serial_driver
+[ 46%] Built target vfh_node
+Scanning dependencies of target navi_multi_goals_pub_rviz_plugin_autogen
+[ 46%] Built target one_x_serial_driver
+[ 46%] Automatic MOC for target navi_multi_goals_pub_rviz_plugin
+Scanning dependencies of target t265_fisheye_undistort_node
+[ 47%] Building CXX object common/function/vision_to_mavros/CMakeFiles/t265_fisheye_undistort_node.dir/src/t265_fisheye_undistort.cpp.o
+[ 47%] Built target navi_multi_goals_pub_rviz_plugin_autogen
+Scanning dependencies of target vision_to_mavros_node
+[ 48%] Building CXX object common/function/vision_to_mavros/CMakeFiles/vision_to_mavros_node.dir/src/vision_to_mavros.cpp.o
+[ 48%] Linking CXX executable /home/explorer/r300_ws/devel/lib/r300_1x_navigation/cmd_vel_guard
+[ 48%] Built target cmd_vel_guard
+Scanning dependencies of target costmap_2d_generate_messages_py
+[ 48%] Built target costmap_2d_generate_messages_py
+Scanning dependencies of target move_base_msgs_generate_messages_cpp
+[ 48%] Built target move_base_msgs_generate_messages_cpp
+Scanning dependencies of target move_base_msgs_generate_messages_eus
+[ 48%] Built target move_base_msgs_generate_messages_eus
+Scanning dependencies of target move_base_msgs_generate_messages_lisp
+[ 48%] Built target move_base_msgs_generate_messages_lisp
+Scanning dependencies of target std_srvs_generate_messages_nodejs
+[ 48%] Built target std_srvs_generate_messages_nodejs
+Scanning dependencies of target move_base_msgs_generate_messages_nodejs
+[ 48%] Built target move_base_msgs_generate_messages_nodejs
+Scanning dependencies of target std_srvs_generate_messages_py
+[ 48%] Built target std_srvs_generate_messages_py
+Scanning dependencies of target move_base_msgs_generate_messages_py
+[ 48%] Built target move_base_msgs_generate_messages_py
+Scanning dependencies of target std_srvs_generate_messages_cpp
+[ 48%] Built target std_srvs_generate_messages_cpp
+Scanning dependencies of target std_srvs_generate_messages_eus
+[ 48%] Built target std_srvs_generate_messages_eus
+Scanning dependencies of target std_srvs_generate_messages_lisp
+[ 48%] Built target std_srvs_generate_messages_lisp
+Scanning dependencies of target visualization_msgs_generate_messages_cpp
+[ 48%] Built target visualization_msgs_generate_messages_cpp
+Scanning dependencies of target visualization_msgs_generate_messages_lisp
+[ 48%] Built target visualization_msgs_generate_messages_lisp
+Scanning dependencies of target visualization_msgs_generate_messages_eus
+[ 48%] Built target visualization_msgs_generate_messages_eus
+Scanning dependencies of target visualization_msgs_generate_messages_nodejs
+[ 48%] Built target visualization_msgs_generate_messages_nodejs
+Scanning dependencies of target visualization_msgs_generate_messages_py
+[ 48%] Built target visualization_msgs_generate_messages_py
+Scanning dependencies of target map_msgs_generate_messages_cpp
+[ 48%] Built target map_msgs_generate_messages_cpp
+Scanning dependencies of target map_msgs_generate_messages_py
+[ 48%] Built target map_msgs_generate_messages_py
+Scanning dependencies of target map_msgs_generate_messages_nodejs
+[ 48%] Built target map_msgs_generate_messages_nodejs
+Scanning dependencies of target map_msgs_generate_messages_lisp
+[ 48%] Built target map_msgs_generate_messages_lisp
+Scanning dependencies of target map_msgs_generate_messages_eus
+[ 48%] Built target map_msgs_generate_messages_eus
+Scanning dependencies of target move_base_gencfg
+[ 49%] Generating dynamic reconfigure files from cfg/MoveBase.cfg: /home/explorer/r300_ws/devel/include/move_base/MoveBaseConfig.h /home/explorer/r300_ws/devel/lib/python3/dist-packages/move_base/cfg/MoveBaseConfig.py
+Generating reconfiguration files for MoveBase in move_base
+Wrote header file in /home/explorer/r300_ws/devel/include/move_base/MoveBaseConfig.h
+[ 49%] Built target move_base_gencfg
+Scanning dependencies of target navfn_generate_messages_nodejs
 [ 49%] Built target navfn_generate_messages_nodejs
-[ 50%] Built target navfn_generate_messages_lisp
-[ 50%] Built target navfn_generate_messages_eus
-[ 50%] Built target base_local_planner_generate_messages_eus
-[ 50%] Built target base_local_planner_generate_messages_cpp
-[ 50%] Built target base_local_planner_generate_messages_lisp
-[ 50%] Built target base_local_planner_generate_messages_nodejs
-[ 50%] Built target base_local_planner_generate_messages_py
-[ 50%] Built target base_local_planner_gencfg
-[ 50%] Built target costmap_2d_generate_messages_cpp
-[ 50%] Built target costmap_2d_generate_messages_lisp
-[ 50%] Built target navfn_generate_messages_cpp
-[ 50%] Built target navfn_generate_messages_py
-[ 50%] Built target costmap_2d_generate_messages_eus
-[ 50%] Built target costmap_2d_generate_messages_nodejs
-[ 50%] Built target costmap_2d_gencfg
+Scanning dependencies of target navfn_generate_messages_lisp
+[ 49%] Built target navfn_generate_messages_lisp
+Scanning dependencies of target navfn_generate_messages_eus
+[ 49%] Built target navfn_generate_messages_eus
+Scanning dependencies of target base_local_planner_generate_messages_cpp
+[ 49%] Built target base_local_planner_generate_messages_cpp
+Scanning dependencies of target base_local_planner_generate_messages_eus
+[ 49%] Built target base_local_planner_generate_messages_eus
+Scanning dependencies of target base_local_planner_generate_messages_lisp
+[ 49%] Built target base_local_planner_generate_messages_lisp
+Scanning dependencies of target base_local_planner_generate_messages_nodejs
+[ 49%] Built target base_local_planner_generate_messages_nodejs
+Scanning dependencies of target base_local_planner_generate_messages_py
+[ 49%] Built target base_local_planner_generate_messages_py
+Scanning dependencies of target base_local_planner_gencfg
+[ 49%] Built target base_local_planner_gencfg
+Scanning dependencies of target costmap_2d_generate_messages_cpp
+[ 49%] Built target costmap_2d_generate_messages_cpp
+Scanning dependencies of target costmap_2d_generate_messages_lisp
+[ 49%] Built target costmap_2d_generate_messages_lisp
+Scanning dependencies of target navfn_generate_messages_py
+[ 49%] Built target navfn_generate_messages_py
+Scanning dependencies of target navfn_generate_messages_cpp
+[ 49%] Built target navfn_generate_messages_cpp
+Scanning dependencies of target costmap_2d_generate_messages_eus
+[ 49%] Built target costmap_2d_generate_messages_eus
+Scanning dependencies of target costmap_2d_generate_messages_nodejs
+[ 49%] Built target costmap_2d_generate_messages_nodejs
+Scanning dependencies of target costmap_2d_gencfg
+[ 49%] Built target costmap_2d_gencfg
+Scanning dependencies of target r300_vision_msgs_generate_messages_py
+[ 50%] Generating Python from MSG r300_vision_msgs/DetectedObject
+[ 51%] Generating Python from MSG r300_vision_msgs/DetectedObjectArray
+[ 51%] Generating Python msg __init__.py for r300_vision_msgs
+[ 51%] Built target r300_vision_msgs_generate_messages_py
+Scanning dependencies of target r300_vision_msgs_generate_messages_lisp
+[ 51%] Generating Lisp code from r300_vision_msgs/DetectedObject.msg
+[ 52%] Generating Lisp code from r300_vision_msgs/DetectedObjectArray.msg
 [ 52%] Built target r300_vision_msgs_generate_messages_lisp
-[ 53%] Built target r300_vision_msgs_generate_messages_py
-[ 55%] Built target r300_vision_msgs_generate_messages_nodejs
-[ 55%] Built target r300_vision_msgs_generate_messages_cpp
-[ 61%] Built target r300_vision_msgs_generate_messages_eus
-[ 61%] Built target scout_msgs_generate_messages_lisp
-[ 67%] Built target scout_msgs_generate_messages_py
-[ 70%] Built target scout_msgs_generate_messages_nodejs
-[ 74%] Built target scout_msgs_generate_messages_cpp
-[ 80%] Built target scout_msgs_generate_messages_eus
+Scanning dependencies of target r300_vision_msgs_generate_messages_nodejs
+[ 53%] Generating Javascript code from r300_vision_msgs/DetectedObject.msg
+[ 53%] Generating Javascript code from r300_vision_msgs/DetectedObjectArray.msg
+[ 53%] Built target r300_vision_msgs_generate_messages_nodejs
+Scanning dependencies of target r300_vision_msgs_generate_messages_cpp
+[ 53%] Generating C++ code from r300_vision_msgs/DetectedObject.msg
+[ 54%] Generating C++ code from r300_vision_msgs/DetectedObjectArray.msg
+[ 54%] Built target r300_vision_msgs_generate_messages_cpp
+Scanning dependencies of target r300_vision_msgs_generate_messages_eus
+[ 55%] Generating EusLisp code from r300_vision_msgs/DetectedObject.msg
+[ 55%] Generating EusLisp code from r300_vision_msgs/DetectedObjectArray.msg
+[ 56%] Generating EusLisp manifest code for r300_vision_msgs
+[ 56%] Built target r300_vision_msgs_generate_messages_eus
+Scanning dependencies of target scout_msgs_generate_messages_lisp
+[ 56%] Generating Lisp code from scout_msgs/ScoutStatus.msg
+[ 57%] Generating Lisp code from scout_msgs/ScoutMotorState.msg
+[ 57%] Generating Lisp code from scout_msgs/ScoutLightState.msg
+[ 58%] Generating Lisp code from scout_msgs/ScoutLightCmd.msg
+[ 60%] Generating Lisp code from scout_msgs/ScoutBmsStatus.msg
+[ 60%] Generating Lisp code from scout_msgs/ScoutDriverState.msg
+[ 60%] Built target scout_msgs_generate_messages_lisp
+Scanning dependencies of target scout_msgs_generate_messages_py
+[ 61%] Generating Python from MSG scout_msgs/ScoutStatus
+[ 61%] Linking CXX executable /home/explorer/r300_ws/devel/lib/vision_to_mavros/vision_to_mavros_node
+[ 61%] Generating Python from MSG scout_msgs/ScoutMotorState
+[ 61%] Built target vision_to_mavros_node
+[ 62%] Generating Python from MSG scout_msgs/ScoutLightState
+[ 63%] Generating Python from MSG scout_msgs/ScoutLightCmd
+[ 64%] Linking CXX executable /home/explorer/r300_ws/devel/lib/r300_1x_navigation/geodetic_goal_sender
+[ 64%] Generating Python from MSG scout_msgs/ScoutBmsStatus
+[ 65%] Generating Python from MSG scout_msgs/ScoutDriverState
+Scanning dependencies of target scout_msgs_generate_messages_nodejs
+[ 65%] Built target geodetic_goal_sender
+[ 67%] Generating Javascript code from scout_msgs/ScoutStatus.msg
+[ 67%] Generating Python msg __init__.py for scout_msgs
+Scanning dependencies of target scout_msgs_generate_messages_eus
+[ 68%] Generating EusLisp code from scout_msgs/ScoutStatus.msg
+[ 69%] Generating Javascript code from scout_msgs/ScoutMotorState.msg
+[ 69%] Generating Javascript code from scout_msgs/ScoutLightState.msg
+[ 69%] Generating EusLisp code from scout_msgs/ScoutMotorState.msg
+[ 69%] Built target scout_msgs_generate_messages_py
+Scanning dependencies of target scout_msgs_generate_messages_cpp
+[ 70%] Generating C++ code from scout_msgs/ScoutStatus.msg
+[ 71%] Generating Javascript code from scout_msgs/ScoutLightCmd.msg
+[ 71%] Generating Javascript code from scout_msgs/ScoutBmsStatus.msg
+[ 72%] Generating EusLisp code from scout_msgs/ScoutLightState.msg
+[ 73%] Generating C++ code from scout_msgs/ScoutMotorState.msg
+[ 74%] Generating Javascript code from scout_msgs/ScoutDriverState.msg
+[ 75%] Generating EusLisp code from scout_msgs/ScoutLightCmd.msg
+[ 75%] Built target scout_msgs_generate_messages_nodejs
+[ 75%] Generating EusLisp code from scout_msgs/ScoutBmsStatus.msg
+[ 75%] Generating C++ code from scout_msgs/ScoutLightState.msg
+[ 76%] Generating EusLisp code from scout_msgs/ScoutDriverState.msg
+[ 77%] Generating EusLisp manifest code for scout_msgs
+[ 78%] Generating C++ code from scout_msgs/ScoutLightCmd.msg
+Scanning dependencies of target bluesea2_generate_messages_cpp
+[ 78%] Generating C++ code from bluesea2/Control.srv
+[ 80%] Generating C++ code from scout_msgs/ScoutBmsStatus.msg
+[ 81%] Generating C++ code from bluesea2/DefenceZone.srv
+[ 81%] Generating C++ code from scout_msgs/ScoutDriverState.msg
+[ 81%] Built target scout_msgs_generate_messages_cpp
+Scanning dependencies of target realsense2_camera_generate_messages_cpp
+[ 81%] Generating C++ code from realsense2_camera/IMUInfo.msg
+[ 81%] Built target bluesea2_generate_messages_cpp
+[ 82%] Generating C++ code from realsense2_camera/Extrinsics.msg
+[ 82%] Built target scout_msgs_generate_messages_eus
+Scanning dependencies of target navi_multi_goals_pub_rviz_plugin
 [ 82%] Built target realsense2_camera_generate_messages_cpp
-[ 82%] Built target bluesea2_generate_messages_cpp
-[ 83%] Built target snake_drive_node
-[ 82%] Built target r300_vision_msgs_generate_messages
+[ 83%] Building CXX object common/function/rviz_multigoals_pub_plugin/navi_multi_goals_pub_rviz_plugin/CMakeFiles/navi_multi_goals_pub_rviz_plugin.dir/navi_multi_goals_pub_rviz_plugin_autogen/mocs_compilation.cpp.o
+[ 83%] Building CXX object common/function/rviz_multigoals_pub_plugin/navi_multi_goals_pub_rviz_plugin/CMakeFiles/navi_multi_goals_pub_rviz_plugin.dir/src/multi_navi_goal_panel.cpp.o
+Scanning dependencies of target snake_drive_node
+[ 83%] Building CXX object common/function/move_base/CMakeFiles/snake_drive_node.dir/src/snake_drive_node.cpp.o
+[ 83%] Linking CXX executable /home/explorer/r300_ws/devel/lib/vision_to_mavros/t265_fisheye_undistort_node
+[ 83%] Built target t265_fisheye_undistort_node
+Scanning dependencies of target move_base
+[ 83%] Building CXX object common/function/move_base/CMakeFiles/move_base.dir/src/move_base.cpp.o
+[ 84%] Linking CXX shared library /home/explorer/r300_ws/devel/lib/libnavi_multi_goals_pub_rviz_plugin.so
+[ 85%] Linking CXX executable /home/explorer/r300_ws/devel/lib/move_base/snake_drive_node
 [ 85%] Built target navi_multi_goals_pub_rviz_plugin
-[ 86%] Built target move_base
-[ 86%] Built target scout_msgs_generate_messages
-[ 87%] Built target bluesea2_node_client
-[ 87%] Built target bluesea2_generate_messages
-[ 93%] Built target bluesea2_node
-[ 94%] Built target scout_messenger
+Scanning dependencies of target scout_msgs_generate_messages
+Scanning dependencies of target r300_vision_msgs_generate_messages
+[ 85%] Built target r300_vision_msgs_generate_messages
+[ 85%] Built target scout_msgs_generate_messages
+Scanning dependencies of target bluesea2_node
+Scanning dependencies of target bluesea2_node_client
+[ 86%] Building CXX object common/sensor/bluesea2/CMakeFiles/bluesea2_node.dir/src/bluesea_node.cpp.o
+[ 87%] Building CXX object common/sensor/bluesea2/CMakeFiles/bluesea2_node_client.dir/src/bluesea_node_client.cpp.o
+[ 87%] Built target snake_drive_node
+[ 88%] Building CXX object common/sensor/bluesea2/CMakeFiles/bluesea2_node.dir/src/uart_reader.cpp.o
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/uart_reader.cpp: In function ‘bool uart_talk(int, int, const char*, int, const char*, int, char*, const char*)’:
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/uart_reader.cpp:153:7: warning: ignoring return value of ‘ssize_t write(int, const void*, size_t)’, declared with attribute warn_unused_result [-Wunused-result]
+  153 |  write(fd, cmd, n);
+      |  ~~~~~^~~~~~~~~~~~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/uart_reader.cpp: In function ‘bool vpc_talk(int, int, int, const char*, int, void*, const char*)’:
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/uart_reader.cpp:232:7: warning: ignoring return value of ‘ssize_t write(int, const void*, size_t)’, declared with attribute warn_unused_result [-Wunused-result]
+  232 |  write(hCom, buffer, len2);
+      |  ~~~~~^~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/uart_reader.cpp: In function ‘bool SendUartCmd(HReader, int, char*)’:
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/uart_reader.cpp:463:8: warning: ignoring return value of ‘ssize_t write(int, const void*, size_t)’, declared with attribute warn_unused_result [-Wunused-result]
+  463 |   write(info->fd_uart, cmd, len);
+      |   ~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/uart_reader.cpp: In function ‘bool SendVpcCmd(HReader, int, char*)’:
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/uart_reader.cpp:489:8: warning: ignoring return value of ‘ssize_t write(int, const void*, size_t)’, declared with attribute warn_unused_result [-Wunused-result]
+  489 |   write(fd, buffer, len2);
+      |   ~~~~~^~~~~~~~~~~~~~~~~~
+[ 88%] Building CXX object common/sensor/bluesea2/CMakeFiles/bluesea2_node.dir/src/udp_reader.cpp.o
+[ 89%] Building CXX object common/sensor/bluesea2/CMakeFiles/bluesea2_node.dir/src/tcp_reader.cpp.o
+[ 89%] Building CXX object common/sensor/bluesea2/CMakeFiles/bluesea2_node.dir/src/parser.cpp.o
+[ 90%] Building C object common/sensor/bluesea2/CMakeFiles/bluesea2_node.dir/src/uart.c.o
+[ 90%] Linking CXX executable /home/explorer/r300_ws/devel/lib/bluesea2/bluesea2_node_client
+[ 91%] Building CXX object common/sensor/bluesea2/CMakeFiles/bluesea2_node.dir/src/data_process.cpp.o
+[ 91%] Built target bluesea2_node_client
+Scanning dependencies of target bluesea2_generate_messages
+[ 91%] Built target bluesea2_generate_messages
+Scanning dependencies of target scout_messenger
+[ 92%] Building CXX object R300/scout_ros/scout_base/CMakeFiles/scout_messenger.dir/src/scout_messenger.cpp.o
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp: In function ‘void getCMDList(CommandList&, std::string, int, int, int, double, int, int, int, int, int, int, int)’:
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:967:31: warning: ‘%d’ directive writing between 1 and 10 bytes into a region of size 6 [-Wformat-overflow=]
+  967 |   sprintf(cmdlist.rpm, "LSRPM:%dH", init_rpm);
+      |                               ^~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:967:24: note: directive argument in the range [0, 2147483647]
+  967 |   sprintf(cmdlist.rpm, "LSRPM:%dH", init_rpm);
+      |                        ^~~~~~~~~~~
+In file included from /usr/include/stdio.h:867,
+                 from /usr/include/c++/9/cstdio:42,
+                 from /usr/include/c++/9/ext/string_conversions.h:43,
+                 from /usr/include/c++/9/bits/basic_string.h:6496,
+                 from /usr/include/c++/9/string:55,
+                 from /opt/ros/noetic/include/ros/platform.h:38,
+                 from /opt/ros/noetic/include/ros/time.h:53,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:11:
+/usr/include/aarch64-linux-gnu/bits/stdio2.h:36:34: note: ‘__builtin___sprintf_chk’ output between 9 and 18 bytes into a destination of size 12
+   36 |   return __builtin___sprintf_chk (__s, __USE_FORTIFY_LEVEL - 1,
+      |          ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   37 |       __bos (__s), __fmt, __va_arg_pack ());
+      |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:981:35: warning: ‘%d’ directive writing between 1 and 10 bytes into a region of size 6 [-Wformat-overflow=]
+  981 |    sprintf(cmdlist.smooth, "LSSMT:%dH", with_smooth);
+      |                                   ^~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:981:28: note: directive argument in the range [0, 2147483647]
+  981 |    sprintf(cmdlist.smooth, "LSSMT:%dH", with_smooth);
+      |                            ^~~~~~~~~~~
+In file included from /usr/include/stdio.h:867,
+                 from /usr/include/c++/9/cstdio:42,
+                 from /usr/include/c++/9/ext/string_conversions.h:43,
+                 from /usr/include/c++/9/bits/basic_string.h:6496,
+                 from /usr/include/c++/9/string:55,
+                 from /opt/ros/noetic/include/ros/platform.h:38,
+                 from /opt/ros/noetic/include/ros/time.h:53,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:11:
+/usr/include/aarch64-linux-gnu/bits/stdio2.h:36:34: note: ‘__builtin___sprintf_chk’ output between 9 and 18 bytes into a destination of size 12
+   36 |   return __builtin___sprintf_chk (__s, __USE_FORTIFY_LEVEL - 1,
+      |          ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   37 |       __bos (__s), __fmt, __va_arg_pack ());
+      |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:979:33: warning: ‘%d’ directive writing between 1 and 10 bytes into a region of size 8 [-Wformat-overflow=]
+  979 |    sprintf(cmdlist.smooth, "LSSS%dH", with_smooth);
+      |                                 ^~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:979:28: note: directive argument in the range [0, 2147483647]
+  979 |    sprintf(cmdlist.smooth, "LSSS%dH", with_smooth);
+      |                            ^~~~~~~~~
+In file included from /usr/include/stdio.h:867,
+                 from /usr/include/c++/9/cstdio:42,
+                 from /usr/include/c++/9/ext/string_conversions.h:43,
+                 from /usr/include/c++/9/bits/basic_string.h:6496,
+                 from /usr/include/c++/9/string:55,
+                 from /opt/ros/noetic/include/ros/platform.h:38,
+                 from /opt/ros/noetic/include/ros/time.h:53,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:11:
+/usr/include/aarch64-linux-gnu/bits/stdio2.h:36:34: note: ‘__builtin___sprintf_chk’ output between 7 and 16 bytes into a destination of size 12
+   36 |   return __builtin___sprintf_chk (__s, __USE_FORTIFY_LEVEL - 1,
+      |          ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   37 |       __bos (__s), __fmt, __va_arg_pack ());
+      |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:988:35: warning: ‘%d’ directive writing between 1 and 10 bytes into a region of size 6 [-Wformat-overflow=]
+  988 |    sprintf(cmdlist.fitter, "LSDSW:%dH", with_deshadow);
+      |                                   ^~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:988:28: note: directive argument in the range [0, 2147483647]
+  988 |    sprintf(cmdlist.fitter, "LSDSW:%dH", with_deshadow);
+      |                            ^~~~~~~~~~~
+In file included from /usr/include/stdio.h:867,
+                 from /usr/include/c++/9/cstdio:42,
+                 from /usr/include/c++/9/ext/string_conversions.h:43,
+                 from /usr/include/c++/9/bits/basic_string.h:6496,
+                 from /usr/include/c++/9/string:55,
+                 from /opt/ros/noetic/include/ros/platform.h:38,
+                 from /opt/ros/noetic/include/ros/time.h:53,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:11:
+/usr/include/aarch64-linux-gnu/bits/stdio2.h:36:34: note: ‘__builtin___sprintf_chk’ output between 9 and 18 bytes into a destination of size 12
+   36 |   return __builtin___sprintf_chk (__s, __USE_FORTIFY_LEVEL - 1,
+      |          ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   37 |       __bos (__s), __fmt, __va_arg_pack ());
+      |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:986:33: warning: ‘%d’ directive writing between 1 and 10 bytes into a region of size 8 [-Wformat-overflow=]
+  986 |    sprintf(cmdlist.fitter, "LFFF%dH", with_deshadow);
+      |                                 ^~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:986:28: note: directive argument in the range [0, 2147483647]
+  986 |    sprintf(cmdlist.fitter, "LFFF%dH", with_deshadow);
+      |                            ^~~~~~~~~
+In file included from /usr/include/stdio.h:867,
+                 from /usr/include/c++/9/cstdio:42,
+                 from /usr/include/c++/9/ext/string_conversions.h:43,
+                 from /usr/include/c++/9/bits/basic_string.h:6496,
+                 from /usr/include/c++/9/string:55,
+                 from /opt/ros/noetic/include/ros/platform.h:38,
+                 from /opt/ros/noetic/include/ros/time.h:53,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:11:
+/usr/include/aarch64-linux-gnu/bits/stdio2.h:36:34: note: ‘__builtin___sprintf_chk’ output between 7 and 16 bytes into a destination of size 12
+   36 |   return __builtin___sprintf_chk (__s, __USE_FORTIFY_LEVEL - 1,
+      |          ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   37 |       __bos (__s), __fmt, __va_arg_pack ());
+      |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:993:37: warning: ‘%d’ directive writing between 1 and 10 bytes into a region of size 6 [-Wformat-overflow=]
+  993 |   sprintf(cmdlist.direction, "LSCCW:%dH", direction);
+      |                                     ^~
+/home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:993:30: note: directive argument in the range [0, 2147483647]
+  993 |   sprintf(cmdlist.direction, "LSCCW:%dH", direction);
+      |                              ^~~~~~~~~~~
+In file included from /usr/include/stdio.h:867,
+                 from /usr/include/c++/9/cstdio:42,
+                 from /usr/include/c++/9/ext/string_conversions.h:43,
+                 from /usr/include/c++/9/bits/basic_string.h:6496,
+                 from /usr/include/c++/9/string:55,
+                 from /opt/ros/noetic/include/ros/platform.h:38,
+                 from /opt/ros/noetic/include/ros/time.h:53,
+                 from /opt/ros/noetic/include/ros/ros.h:38,
+                 from /home/explorer/r300_ws/src/common/sensor/bluesea2/src/bluesea_node.cpp:11:
+/usr/include/aarch64-linux-gnu/bits/stdio2.h:36:34: note: ‘__builtin___sprintf_chk’ output between 9 and 18 bytes into a destination of size 12
+   36 |   return __builtin___sprintf_chk (__s, __USE_FORTIFY_LEVEL - 1,
+      |          ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   37 |       __bos (__s), __fmt, __va_arg_pack ());
+      |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[ 92%] Building CXX object common/sensor/bluesea2/CMakeFiles/bluesea2_node.dir/src/algorithmAPI.cpp.o
+Scanning dependencies of target realsense2_camera
+[ 93%] Building CXX object common/sensor/realsense-ros/realsense2_camera/CMakeFiles/realsense2_camera.dir/src/realsense_node_factory.cpp.o
+[ 94%] Linking CXX executable /home/explorer/r300_ws/devel/lib/bluesea2/bluesea2_node
+[ 94%] Built target bluesea2_node
+Scanning dependencies of target realsense2_camera_generate_messages
 [ 94%] Built target realsense2_camera_generate_messages
-[ 97%] Built target move_base_node
+[ 94%] Building CXX object common/sensor/realsense-ros/realsense2_camera/CMakeFiles/realsense2_camera.dir/src/base_realsense_node.cpp.o
+[ 94%] Linking CXX static library /home/explorer/r300_ws/devel/lib/libscout_messenger.a
+[ 94%] Built target scout_messenger
+[ 95%] Building CXX object common/sensor/realsense-ros/realsense2_camera/CMakeFiles/realsense2_camera.dir/src/t265_realsense_node.cpp.o
+[ 96%] Linking CXX shared library /home/explorer/r300_ws/devel/lib/libmove_base.so
+[ 96%] Built target move_base
+Scanning dependencies of target scout_base_node
+[ 97%] Building CXX object R300/scout_ros/scout_base/CMakeFiles/scout_base_node.dir/src/scout_base_node.cpp.o
+[ 97%] Linking CXX executable /home/explorer/r300_ws/devel/lib/scout_base/scout_base_node
+[ 97%] Built target scout_base_node
+Scanning dependencies of target move_base_node
+[ 97%] Building CXX object common/function/move_base/CMakeFiles/move_base_node.dir/src/move_base_node.cpp.o
+[ 98%] Linking CXX shared library /home/explorer/r300_ws/devel/lib/librealsense2_camera.so
 [ 98%] Built target realsense2_camera
-[100%] Built target scout_base_node
+[100%] Linking CXX executable /home/explorer/r300_ws/devel/lib/move_base/move_base
+[100%] Built target move_base_node
 Base path: /home/explorer/r300_ws
 Source space: /home/explorer/r300_ws/src
 Build space: /home/explorer/r300_ws/build
 Devel space: /home/explorer/r300_ws/devel
 Install space: /home/explorer/r300_ws/install
 ####
-#### Running command: "make cmake_check_build_system" in "/home/explorer/r300_ws/build"
+#### Running command: "cmake /home/explorer/r300_ws/src -DCATKIN_DEVEL_PREFIX=/home/explorer/r300_ws/devel -DCMAKE_INSTALL_PREFIX=/home/explorer/r300_ws/install -G Unix Makefiles" in "/home/explorer/r300_ws/build"
 ####
 ####
 #### Running command: "make -j4 -l4" in "/home/explorer/r300_ws/build"

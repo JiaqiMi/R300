@@ -1,5 +1,5 @@
 <launch>
-  <!--
+  <!--1
     Pure DWA verification launch.
 
     The only autonomous motion chain is:
@@ -19,6 +19,10 @@
   <arg name="ins_baudrate" default="460800"/>
   <arg name="can_port" default="can0"/>
   <arg name="waypoint_file" default="$(find r300_1x_navigation)/config/subject1_waypoints.yaml"/>
+  <arg name="dwa_config_file"
+       default="$(find r300_1x_navigation)/config/subject1_dwa.yaml"/>
+  <arg name="local_costmap_config_file"
+       default="$(find r300_1x_navigation)/config/subject1_local_costmap.yaml"/>
 
   <arg name="launch_base" default="true"/>
   <arg name="launch_lidar" default="true"/>
@@ -80,6 +84,8 @@
   <include file="$(find r300_1x_navigation)/launch/subject1_move_base.launch">
     <arg name="cmd_vel_topic" value="/subject1/cmd_vel_raw"/>
     <arg name="odom_topic" value="/one_x/odom"/>
+    <arg name="dwa_config_file" value="$(arg dwa_config_file)"/>
+    <arg name="local_costmap_config_file" value="$(arg local_costmap_config_file)"/>
   </include>
 
   <rosparam command="load" file="$(arg waypoint_file)"/>

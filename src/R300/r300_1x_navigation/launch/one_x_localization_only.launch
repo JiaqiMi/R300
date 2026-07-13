@@ -1,5 +1,5 @@
 <launch>
-  <arg name="serial_port" default="/dev/ttyUSB1"/>
+  <arg name="serial_port" default="/dev/ttyACM0"/>
   <arg name="baudrate" default="460800"/>
   <arg name="publish_full_attitude" default="false"/>
 

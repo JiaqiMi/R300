@@ -1,6 +1,10 @@
 <launch>
   <arg name="cmd_vel_topic" default="/subject1/cmd_vel_raw"/>
   <arg name="odom_topic" default="/one_x/odom"/>
+  <arg name="dwa_config_file"
+       default="$(find r300_1x_navigation)/config/subject1_dwa.yaml"/>
+  <arg name="local_costmap_config_file"
+       default="$(find r300_1x_navigation)/config/subject1_local_costmap.yaml"/>
 
   <node pkg="move_base"
         type="move_base"
@@ -24,10 +28,10 @@
     <rosparam file="$(find r300_1x_navigation)/config/subject1_global_costmap.yaml"
               command="load"/>
 
-    <rosparam file="$(find r300_1x_navigation)/config/subject1_local_costmap.yaml"
+    <rosparam file="$(arg local_costmap_config_file)"
               command="load"/>
 
-    <rosparam file="$(find r300_1x_navigation)/config/subject1_dwa.yaml"
+    <rosparam file="$(arg dwa_config_file)"
               command="load"/>
 
     <rosparam file="$(find r300_1x_navigation)/config/subject1_move_base.yaml"

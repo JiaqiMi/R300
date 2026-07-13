@@ -2,18 +2,18 @@ DWAPlannerROS:
   # R300 为差速车，只允许前进，不允许横移。
   odom_topic: /one_x/odom
 
-  max_vel_x: 2.5
+  max_vel_x: 1.5
   max_vel_y: 0.0
   min_vel_y: 0.0
 
-  max_vel_trans: 2.5
+  max_vel_trans: 1.5
   min_vel_trans: 0.0
 
   # 先降低角速度和角加速度，避免大角度误差时突然打满。
-  max_vel_theta: 0.8
+  max_vel_theta: 0.4
   min_vel_theta: 0.1
 
-  acc_lim_x: 6.0
+  acc_lim_x: 8.0
   acc_lim_y: 0.0
   acc_lim_theta: 8.0
 
@@ -23,7 +23,7 @@ DWAPlannerROS:
   latch_xy_goal_tolerance: true
 
   # 1.2 s 足够预测局部轨迹，避免 3 s 长圆弧评分。
-  sim_time: 3
+  sim_time: 1.5
   sim_granularity: 0.05
   angular_sim_granularity: 0.025
 
@@ -31,7 +31,7 @@ DWAPlannerROS:
   vy_samples: 1
   vth_samples: 48
 
-  controller_frequency: 10.0
+  controller_frequency: 3.0
 
   # 单点、空白地图测试：略增强靠近目标的倾向。
   path_distance_bias: 45.0
@@ -48,8 +48,8 @@ DWAPlannerROS:
   max_scaling_factor: 0.0
 
   # 尽快清除 DWA 自身的振荡记忆。
-  oscillation_reset_dist: 0.30
-  oscillation_reset_angle: 0.40
+  oscillation_reset_dist: 0.20
+  oscillation_reset_angle: 0.30
 
   # 明确不惩罚原地转向；背对目标时允许 DWA 选择原地转。
   twirling_scale: 0.0

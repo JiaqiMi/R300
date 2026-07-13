@@ -7,18 +7,25 @@ find_package(catkin REQUIRED COMPONENTS
   actionlib
   diagnostic_msgs
   geometry_msgs
+  costmap_2d
+  pluginlib
   move_base_msgs
   nav_msgs
   roscpp
+  rospy
+  r300_vision_msgs
   sensor_msgs
   std_msgs
   std_srvs
   tf
+  tf2_geometry_msgs
+  tf2_ros
+  tf2
 )
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS actionlib diagnostic_msgs geometry_msgs move_base_msgs nav_msgs roscpp sensor_msgs std_msgs std_srvs tf
+  CATKIN_DEPENDS actionlib costmap_2d diagnostic_msgs geometry_msgs move_base_msgs nav_msgs pluginlib roscpp rospy r300_vision_msgs sensor_msgs std_msgs std_srvs tf tf2 tf2_geometry_msgs tf2_ros
 )
 
 include_directories(
@@ -35,8 +42,20 @@ target_link_libraries(geodetic_goal_sender ${catkin_LIBRARIES})
 add_executable(cmd_vel_guard src/cmd_vel_guard.cpp)
 target_link_libraries(cmd_vel_guard ${catkin_LIBRARIES})
 
+add_library(r300_vision_snapshot_layer src/vision_snapshot_layer.cpp)
+target_link_libraries(r300_vision_snapshot_layer ${catkin_LIBRARIES})
+add_dependencies(r300_vision_snapshot_layer ${catkin_EXPORTED_TARGETS})
+
 install(TARGETS one_x_serial_driver geodetic_goal_sender cmd_vel_guard
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(TARGETS r300_vision_snapshot_layer
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+)
+
+install(FILES vision_snapshot_layer_plugins.xml
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
 install(DIRECTORY launch config maps include/
@@ -60,5 +79,18 @@ catkin_install_python(PROGRAMS
   scripts/ultrasonic_basic_node.py
   scripts/ultrasonic_filter_node.py
   scripts/ultrasonic_estop_node.py
+  scripts/vision_obstacle_layer_node.py
+  scripts/vision_clear_scan_node.py
+  scripts/costmap_web_viewer.py
+  scripts/vision_costmap_scan_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
+
+install(PROGRAMS
+  scripts/one_key/start_r300_vision_nav.sh
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+# install(FILES VISUAL_AVOIDANCE_GUIDE.md
+#   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+# )

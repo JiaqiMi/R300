@@ -1,0 +1,11 @@
+<library path="lib/libr300_vision_snapshot_layer">
+  <class name="r300_1x_navigation/VisionSnapshotLayer"
+         type="r300_1x_navigation::VisionSnapshotLayer"
+         base_class_type="costmap_2d::Layer">
+    <description>
+      Snapshot/TTL visual obstacle layer.  Visual scan points are transformed
+      into the global frame, held there for a configurable time, and the whole
+      visual layer is rebuilt each costmap cycle.
+    </description>
+  </class>
+</library>

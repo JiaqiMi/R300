@@ -1,0 +1,88 @@
+# Visual detections -> virtual LaserScan -> local_costmap.
+# Empty obstacle_classes means every detector class is considered, unless it
+# appears in ignored_classes.  Change class names to exactly match YOLO output.
+
+detections_topic: /r300_vision/detections
+camera_info_topic: /camera/color/camera_info
+scan_topic: /r300_vision/obstacle_scan
+cloud_topic: /r300_vision/obstacle_points
+target_frame: base_link
+
+# ---------- semantic acceptance conditions ----------
+# 表示所有检测类别都可能作为障碍物
+# obstacle_classes: []
+obstacle_classes:
+  - person
+  - vehicle
+
+
+# 可设定不躲避的障碍物
+# ignored_classes: []
+ignored_classes:
+  - smoke
+  - trench
+  - puddle
+  - park
+  - chevro_left
+  - chevro_right
+  - rockfall
+  - tire
+  - barrel
+
+# 置信度
+default_min_confidence: 0.3
+class_min_confidence:
+  person: 0.20
+  vehicle: 0.20
+  barrel: 0.20
+  tire: 0.20
+  rockfall: 0.20
+
+# ---------- depth / geometry acceptance conditions ----------
+# 深度和空间范围筛选
+require_depth: true
+# 表示只接受0.5～10米的目标
+min_distance_m: 0.5
+max_distance_m: 10
+# 只处理车体前方障碍物
+min_forward_x_m: 0.10
+# 横向范围
+max_abs_lateral_m: 6.50
+# 高度范围 
+min_center_height_m: -0.50
+max_center_height_m: 10.0
+# 目标框最小尺寸
+min_bbox_width_px: 8
+min_bbox_height_px: 8
+# 检测消息超过X秒，就不再采用，避免用过时位置生成障碍物
+max_message_age_s: 0.5
+
+# ---------- virtual scan and obstacle expansion ----------
+# D435i horizontal field of view is represented conservatively here.
+scan_angle_min_deg: -27.0
+scan_angle_max_deg: 27.0
+scan_angle_increment_deg: 0.50
+scan_range_min_m: 0.20
+scan_range_max_m: 10.5
+
+# Expand each detected bbox before costmap inflation.  This compensates for
+# depth noise and an object bbox that is slightly narrower than the real body.
+# 角度扩展：目标框左右各额外扩大
+angular_padding_deg: 1.50
+# 横向扩展：目标左右额外增加约0.2米安全宽度
+lateral_padding_m: 0.2
+# 距离安全余量
+range_safety_margin_m: 0.2
+
+# 这里只桥接相邻检测帧，不承担最终1秒保持。
+# 最终 hold_time_s=1.0 已移动到 vision_snapshot_layer，并在 odom 中保持。
+# 这样车辆转向时历史障碍不会跟着 base_link 漂移。
+hold_time_s: 0.20
+publish_rate_hz: 10.0
+
+# If detections stop arriving, stop publishing the scan.  The costmap source
+# then becomes stale and move_base fails safe rather than driving blind.
+input_timeout_s: 0.60
+tf_timeout_s: 0.08
+allow_latest_transform: true
+debug_log: true

@@ -1,0 +1,47 @@
+<launch>
+  <!--
+    INS + waypoint navigation + visual local-costmap adapter.
+
+    Camera acquisition and object recognition are intentionally external.
+    This launch only subscribes to existing perception topics and never loads
+    a model file or starts a detector.
+  -->
+  <arg name="ins_serial_port" default="/dev/ttyACM0"/>
+  <arg name="ins_baudrate" default="460800"/>
+  <arg name="can_port" default="can0"/>
+  <arg name="waypoint_file"
+       default="$(find r300_1x_navigation)/config/subject1_waypoints.yaml"/>
+
+  <arg name="detections_topic" default="/r300_vision/detections"/>
+  <arg name="camera_info_topic" default="/camera/color/camera_info"/>
+  <arg name="vision_config_file"
+       default="$(find r300_1x_navigation)/config/subject1_vision_obstacles.yaml"/>
+
+  <arg name="launch_base" default="true"/>
+  <arg name="launch_rviz" default="false"/>
+  <arg name="auto_start" default="false"/>
+  <arg name="max_goal_distance_from_origin_m" default="180.0"/>
+
+  <include file="$(find r300_1x_navigation)/launch/subject1_waypoint_nav.launch">
+    <arg name="ins_serial_port" value="$(arg ins_serial_port)"/>
+    <arg name="ins_baudrate" value="$(arg ins_baudrate)"/>
+    <arg name="can_port" value="$(arg can_port)"/>
+    <arg name="waypoint_file" value="$(arg waypoint_file)"/>
+    <arg name="launch_base" value="$(arg launch_base)"/>
+    <arg name="launch_lidar" value="false"/>
+    <arg name="launch_rviz" value="$(arg launch_rviz)"/>
+    <arg name="auto_start" value="$(arg auto_start)"/>
+    <arg name="max_goal_distance_from_origin_m"
+         value="$(arg max_goal_distance_from_origin_m)"/>
+    <arg name="dwa_config_file"
+         value="$(find r300_1x_navigation)/config/subject1_dwa_vision.yaml"/>
+    <arg name="local_costmap_config_file"
+         value="$(find r300_1x_navigation)/config/subject1_local_costmap_vision.yaml"/>
+  </include>
+
+  <include file="$(find r300_1x_navigation)/launch/subject1_vision_avoidance.launch">
+    <arg name="config_file" value="$(arg vision_config_file)"/>
+    <arg name="detections_topic" value="$(arg detections_topic)"/>
+    <arg name="camera_info_topic" value="$(arg camera_info_topic)"/>
+  </include>
+</launch>
