@@ -31,241 +31,272 @@ pass
 
 ## 惯性导航与控制系统
 
-惯性导航与控制系统部分，用于在R300无人车上接入自研1X惯导/GPS，替代原飞控位姿输入，并基于ROS `move_base + DWA`实现定点导航、多航点导航和仿真调参。
+本模块用于在 R300 无人车上接入自研 1X 惯导/GPS，替代原飞控位姿输入，并基于 ROS1 `move_base + DWA` 实现：
 
-系统当前采用纯 DWA 控制链路，`move_base` 输出的速度指令直接发送到底盘驱动节点，不再使用预对准、转头接管、`cmd_vel_guard` 或 `dwa_odom_adapter` 等中间控制模块。
+- 惯导定位；
+- 单点与多航点导航；
+- DWA 仿真调参；
+- 视觉障碍接入局部代价地图；
+- Web 端查看 costmap、全局路径、局部路径和控制指令。
+
+当前控制链路为：
+
+```text
+1X INS/GPS → /one_x/odom → move_base + DWA → /subject1/cmd_vel_raw → scout_base_node
+```
+
+视觉避障链路为：
+
+```text
+/r300_vision/detections → vision_obstacle_layer_node.py
+→ /r300_vision/obstacle_scan → VisionSnapshotLayer
+→ local_costmap → inflation_layer → DWA
+```
+
+系统不再使用 `cmd_vel_guard`、`dwa_odom_adapter`、预转向接管或其他中间控制模块。
 
 ---
 
-### 1.系统架构
-
-整体导航与控制链路如下：
+### 1. 目录结构
 
 ```text
-1X INS/GPS
-    ↓
-one_x_serial_driver
-    ↓
-/one_x/odom  +  odom → base_link
-    ↓
-move_base + DWA
-    ↓
-/subject1/cmd_vel_raw
-    ↓
-scout_base_node
-    ↓
-R300 底盘
-```
-
-仿真调参链路如下：
-
-```text
-sim_r300_odom_node
-    ↓
-/one_x/odom  +  odom → base_link
-    ↓
-move_base + DWA
-    ↓
-/subject1/cmd_vel_raw
-    ↓
-sim_r300_odom_node
-```
-
-主要功能包括：
-
-- 解析 1X 惯导 110 字节串口数据；
-- 发布 `/one_x/odom` 和 `odom → base_link` TF；
-- 发布 INS 经纬度、GPS 经纬度、航向角和位置对比信息；
-- 使用 GPS/INS 位置信息建立局部导航坐标；
-- 将经纬度航点转换为局部 ENU 目标点；
-- 使用 `move_base + DWA` 生成底盘速度指令；
-- 支持多航点顺序执行；
-- 支持 RViz 空白地图下的 DWA 闭环仿真；
-- 支持一键启动、链路检查、目标点测试和 rosbag 数据记录。
-
----
-
-### 2.项目结构
-
-```text
-r300_ws/
+r300_1x_navigation/
+├── config/
+│   ├── subject1_dwa.yaml
+│   ├── subject1_move_base.yaml
+│   ├── subject1_waypoints.yaml
+│   ├── subject1_costmap_common.yaml
+│   ├── subject1_global_costmap.yaml
+│   ├── subject1_local_costmap.yaml
+│   ├── subject1_dwa_vision.yaml
+│   ├── subject1_local_costmap_vision.yaml
+│   └── subject1_vision_obstacles.yaml
+├── launch/
+│   ├── subject1_waypoint_nav.launch
+│   ├── subject1_move_base.launch
+│   ├── subject1_dwa_sim.launch
+│   ├── one_x_localization_only.launch
+│   ├── subject1_vision_avoidance.launch
+│   └── subject1_waypoint_vision_nav.launch
+├── scripts/
+│   ├── waypoint_executor.py
+│   ├── sim_r300_odom_node.py
+│   ├── odom_to_path.py
+│   ├── vision_obstacle_layer_node.py
+│   ├── costmap_web_viewer.py
+│   ├── diagnose_vision_costmap.py
+│   └── one_key/
+│       ├── start_real_nav.sh
+│       ├── start_sim_dwa.sh
+│       ├── start_localization_only.sh
+│       ├── start_r300_vision_nav.sh
+│       ├── send_goal_base.sh
+│       ├── check_r300_nav.sh
+│       ├── record_r300_bag.sh
+│       ├── stop_r300_nav.sh
+│       └── fix_permissions.sh
+├── include/r300_1x_navigation/
+│   └── vision_snapshot_layer.hpp
 ├── src/
-│   └── R300/
-│       └── r300_1x_navigation/
-│           ├── config/
-│           │   ├── subject1_dwa.yaml
-│           │   ├── subject1_move_base.yaml
-│           │   ├── subject1_waypoints.yaml
-│           │   ├── subject1_costmap_common.yaml
-│           │   ├── subject1_global_costmap.yaml
-│           │   └── subject1_local_costmap.yaml
-│           │
-│           ├── launch/
-│           │   ├── subject1_waypoint_nav.launch
-│           │   ├── subject1_move_base.launch
-│           │   ├── subject1_dwa_sim.launch
-│           │   └── one_x_localization_only.launch
-│           │
-│           ├── scripts/
-│           │   ├── waypoint_executor.py
-│           │   ├── sim_r300_odom_node.py
-│           │   ├── sim_blank_map_node.py
-│           │   ├── odom_to_path.py
-│           │   └── one_key/
-│           │       ├── start_real_nav.sh
-│           │       ├── start_sim_dwa.sh
-│           │       ├── start_localization_only.sh
-│           │       ├── send_goal_base.sh
-│           │       ├── check_r300_nav.sh
-│           │       ├── record_r300_bag.sh
-│           │       ├── stop_r300_nav.sh
-│           │       └── fix_permissions.sh
-│           │
-│           ├── src/
-│           │   └── one_x_serial_driver.cpp
-│           │
-│           ├── maps/
-│           │   ├── subject1_blank_map.yaml
-│           │   └── subject1_blank_map.pgm
-│           │
-│           ├── CMakeLists.txt
-│           └── package.xml
+│   ├── one_x_serial_driver.cpp
+│   └── vision_snapshot_layer.cpp
+├── maps/
+├── vision_snapshot_layer_plugins.xml
+├── CMakeLists.txt
+└── package.xml
 ```
 
 ---
 
-### 3.主要 ROS 话题
+### 2. 主要 ROS 话题
 
-#### 惯导与定位相关话题
+#### 定位
 
-| 话题 | 类型 | 说明 |
-|---|---|---|
-| `/one_x/odom` | `nav_msgs/Odometry` | 导航使用的里程计 |
-| `/one_x/fix` | `sensor_msgs/NavSatFix` | 当前导航位置 |
-| `/one_x/ins_fix` | `sensor_msgs/NavSatFix` | INS 经纬度 |
-| `/one_x/gps_fix` | `sensor_msgs/NavSatFix` | GPS 经纬度 |
-| `/one_x/heading_deg` | `std_msgs/Float64` | 惯导航向角 |
-| `/one_x/pos_compare` | `std_msgs/String` | INS/GPS 位置对比 |
-| `/one_x/path` | `nav_msgs/Path` | RViz 轨迹显示 |
+| 话题 | 说明 |
+|---|---|
+| `/one_x/odom` | DWA 使用的里程计 |
+| `/one_x/fix` | 当前导航位置 |
+| `/one_x/ins_fix` | INS 经纬度 |
+| `/one_x/gps_fix` | GPS 经纬度 |
+| `/one_x/heading_deg` | 惯导航向角 |
+| `/one_x/pos_compare` | INS/GPS 位置对比 |
+| `/one_x/path` | 车辆轨迹 |
 
-#### 控制与规划相关话题
+#### 规划与控制
 
-| 话题 | 类型 | 说明 |
-|---|---|---|
-| `/subject1/cmd_vel_raw` | `geometry_msgs/Twist` | DWA 输出速度指令 |
-| `/move_base/NavfnROS/plan` | `nav_msgs/Path` | 全局路径 |
-| `/move_base/DWAPlannerROS/local_plan` | `nav_msgs/Path` | 局部路径 |
-| `/move_base/current_goal` | `geometry_msgs/PoseStamped` | 当前导航目标 |
+| 话题 | 说明 |
+|---|---|
+| `/subject1/cmd_vel_raw` | DWA 输出到底盘的速度指令 |
+| `/move_base/NavfnROS/plan` | 全局路径 |
+| `/move_base/DWAPlannerROS/local_plan` | DWA 局部路径 |
+| `/move_base/current_goal` | 当前目标点 |
 
----
+#### 视觉避障
 
-### 4.编译与环境加载
-
-```bash
-cd ~/r300_ws
-catkin_make
-source devel/setup.bash
-```
-
-建议加入 `~/.bashrc`：
-
-```bash
-source /opt/ros/noetic/setup.bash
-source ~/r300_ws/devel/setup.bash
-```
+| 话题 | 说明 |
+|---|---|
+| `/r300_vision/detections` | 外部视觉检测结果 |
+| `/r300_vision/obstacle_scan` | 视觉障碍几何扫描 |
+| `/r300_vision/active_obstacle_scan` | VisionSnapshotLayer 当前有效障碍 |
+| `/move_base/local_costmap/costmap` | DWA 使用的局部代价地图 |
 
 ---
 
-### 5.常用启动指令
-
-#### 实车导航
+### 3. 编译
 
 ```bash
-roslaunch r300_1x_navigation subject1_waypoint_nav.launch
+cd ~/r300_ws && source /opt/ros/noetic/setup.bash && catkin_make --pkg r300_1x_navigation -j4 && source devel/setup.bash
 ```
 
-指定惯导串口和波特率：
+首次使用时修复脚本权限：
 
 ```bash
-roslaunch r300_1x_navigation subject1_waypoint_nav.launch \
-  ins_serial_port:=/dev/ttyACM0 \
-  ins_baudrate:=460800 \
-  auto_start:=false
-```
-
-手动开始航点任务：
-
-```bash
-rosservice call /subject1/start_waypoints
-```
-
-取消航点任务：
-
-```bash
-rosservice call /subject1/cancel_waypoints
-```
-
-暂停航点任务：
-
-```bash
-rosservice call /subject1/pause_waypoints
-```
-
-恢复航点任务：
-
-```bash
-rosservice call /subject1/resume_waypoints
-```
-
-跳过当前航点：
-
-```bash
-rosservice call /subject1/skip_waypoint
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./fix_permissions.sh
 ```
 
 ---
 
-#### 仅启动惯导定位
+### 4. 实车导航
+
+进入脚本目录：
 
 ```bash
-roslaunch r300_1x_navigation one_x_localization_only.launch
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 ```
 
-该模式只发布惯导/GPS 数据和 TF，不启动 `move_base`，也不控制车辆。
+启动实车导航：
+
+```bash
+./start_real_nav.sh
+```
+
+指定惯导串口：
+
+```bash
+INS_PORT=/dev/ttyUSB0 ./start_real_nav.sh
+```
+
+配置 CAN 后启动：
+
+```bash
+SETUP_CAN=true CAN_PORT=can0 ./start_real_nav.sh
+```
+
+启动 RViz：
+
+```bash
+LAUNCH_RVIZ=true ./start_real_nav.sh
+```
+
+启动后自动执行航点：
+
+```bash
+AUTO_START=true ./start_real_nav.sh
+```
+
+手动开始航点：
+
+```bash
+rosservice call /subject1/start_waypoints "{}"
+```
+
+暂停、恢复、取消或跳过航点：
+
+```bash
+rosservice call /subject1/pause_waypoints "{}"
+```
+
+```bash
+rosservice call /subject1/resume_waypoints "{}"
+```
+
+```bash
+rosservice call /subject1/cancel_waypoints "{}"
+```
+
+```bash
+rosservice call /subject1/skip_waypoint "{}"
+```
 
 ---
 
-#### DWA 仿真调参
+### 5. 仅启动惯导定位
 
 ```bash
-roslaunch r300_1x_navigation subject1_dwa_sim.launch
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./start_localization_only.sh
 ```
 
-发送车体正前方 10 m 目标：
+指定串口：
 
 ```bash
-rostopic pub -1 /move_base_simple/goal geometry_msgs/PoseStamped \
-"{header: {frame_id: 'base_link'}, pose: {position: {x: 10.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}"
+INS_PORT=/dev/ttyUSB0 ./start_localization_only.sh
 ```
 
-发送车体后方 5 m 目标：
+该模式不启动 `move_base` 和底盘，不会控制车辆。
+
+---
+
+### 6. DWA 仿真
 
 ```bash
-rostopic pub -1 /move_base_simple/goal geometry_msgs/PoseStamped \
-"{header: {frame_id: 'base_link'}, pose: {position: {x: -5.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}"
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./start_sim_dwa.sh
+```
+
+不启动 RViz：
+
+```bash
+RVIZ=false ./start_sim_dwa.sh
+```
+
+加入位置漂移与航向噪声：
+
+```bash
+DRIFT_Y_MPS=0.03 YAW_NOISE_DEG=0.5 ./start_sim_dwa.sh
+```
+
+加入周期性位置跳变：
+
+```bash
+JUMP_PERIOD_S=3.0 JUMP_STD_M=0.2 ./start_sim_dwa.sh
 ```
 
 ---
 
-### 6.航点配置
+### 7. 发送测试目标
+
+目标坐标系为 `base_link`，适合直接测试 DWA。
+
+```bash
+./send_goal_base.sh forward 10
+```
+
+```bash
+./send_goal_base.sh back 5
+```
+
+```bash
+./send_goal_base.sh left 3
+```
+
+```bash
+./send_goal_base.sh right 3
+```
+
+```bash
+./send_goal_base.sh xy 10 -2
+```
+
+---
+
+### 8. 航点配置
 
 航点文件：
 
 ```text
-r300_1x_navigation/config/subject1_waypoints.yaml
+config/subject1_waypoints.yaml
 ```
 
-格式示例：
+示例：
 
 ```yaml
 subject1_waypoints:
@@ -276,313 +307,208 @@ subject1_waypoints:
       altitude_m: 21.741
 
     - name: wp_02
-      latitude_deg: 38.9866441
+      latitude_deg: 38.98664410
       longitude_deg: 117.3419243
       altitude_m: 21.741
 ```
 
-注意：同一个 `subject1_waypoints` 下只能有一个 `waypoints:` 列表，不能重复写多个 `waypoints:`，否则 YAML 会发生覆盖，只读取最后一组内容。
+同一个 `subject1_waypoints` 下只能保留一个 `waypoints:` 列表。
 
 ---
 
-### 7.一键启动脚本
+### 9. 视觉避障导航
 
-一键脚本位于：
+视觉检测节点和相机节点需要先单独启动，并确保以下话题有数据：
+
+```bash
+rostopic hz /r300_vision/detections
+```
+
+```bash
+rostopic hz /camera/color/camera_info
+```
+
+启动视觉导航：
+
+```bash
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./start_r300_vision_nav.sh --no-rviz
+```
+
+台架测试、不启动底盘：
+
+```bash
+./start_r300_vision_nav.sh --no-base --no-rviz
+```
+
+启动 Web costmap 查看器：
+
+```bash
+python3 ~/r300_ws/src/R300/r300_1x_navigation/scripts/costmap_web_viewer.py _port:=8088
+```
+
+减少小碎片障碍标注：
+
+```bash
+python3 ~/r300_ws/src/R300/r300_1x_navigation/scripts/costmap_web_viewer.py _port:=8088 _min_obstacle_cluster_beams:=4 _max_obstacle_labels:=5
+```
+
+查看工控机 IP：
+
+```bash
+hostname -I
+```
+
+浏览器打开：
 
 ```text
-r300_1x_navigation/scripts/one_key/
+http://工控机IP:8088
 ```
 
-首次使用前增加执行权限：
-
-```bash
-chmod +x ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/*.sh
-```
-
-如果工作空间路径不是 `~/r300_ws`，可以通过环境变量指定：
-
-```bash
-export R300_WS=~/r300_ws
-```
-
----
-
-#### 实车导航一键启动
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/start_real_nav.sh
-```
-
-功能：
+例如：
 
 ```text
-启动 1X 惯导串口驱动
-启动 move_base + DWA
-启动 waypoint_executor 多航点节点
-启动 scout_base_node 底盘驱动
-建立 /one_x/odom → move_base → /subject1/cmd_vel_raw → scout_base_node 控制链路
+http://192.168.1.107:8088
 ```
 
-常用参数：
+视觉 costmap 诊断：
 
 ```bash
-INS_PORT=/dev/ttyACM0 \
-INS_BAUDRATE=460800 \
-AUTO_START=false \
-LAUNCH_RVIZ=true \
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/start_real_nav.sh
+python3 ~/r300_ws/src/R300/r300_1x_navigation/scripts/diagnose_vision_costmap.py _duration_s:=20
 ```
 
-实车测试时建议 `AUTO_START=false`，确认链路正常后再手动开始航点：
-
-```bash
-rosservice call /subject1/start_waypoints
-```
-
----
-
-#### DWA 仿真一键启动
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/start_sim_dwa.sh
-```
-
-功能：
+正常状态应满足：
 
 ```text
-启动空白地图
-启动虚拟 R300 里程计节点
-启动 move_base + DWA
-发布 /one_x/odom 和 odom → base_link
-启动 /one_x/path 轨迹显示
-用于无实车、无惯导条件下调试 DWA 参数
-```
-
-常用参数：
-
-```bash
-RVIZ=true \
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/start_sim_dwa.sh
-```
-
-模拟定位漂移和噪声：
-
-```bash
-DRIFT_Y_MPS=0.03 \
-YAW_NOISE_DEG=0.5 \
-JUMP_PERIOD_S=3.0 \
-JUMP_STD_M=0.2 \
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/start_sim_dwa.sh
+红色视觉障碍点存在
+黑色致命障碍存在
+灰色膨胀区域存在
+视觉障碍簇数量正确
+完整 costmap 持续刷新
 ```
 
 ---
 
-#### 仅惯导定位一键启动
+### 10. 链路检查
 
 ```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/start_localization_only.sh
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./check_r300_nav.sh
 ```
 
-功能：
+实车正常链路：
 
 ```text
-只启动 1X 惯导串口驱动
-发布 /one_x/odom、/one_x/fix、/one_x/ins_fix、/one_x/gps_fix、/one_x/heading_deg
-发布 odom → base_link TF
-不启动 move_base
-不启动 scout_base_node
-不控制车辆
+/one_x/odom：/one_x_serial_driver → /move_base
+/subject1/cmd_vel_raw：/move_base → /scout_base_node
 ```
 
-指定串口：
-
-```bash
-INS_PORT=/dev/ttyACM0 \
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/start_localization_only.sh
-```
-
----
-
-#### 发送测试目标
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/send_goal_base.sh forward 10
-```
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/send_goal_base.sh back 5
-```
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/send_goal_base.sh left 3
-```
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/send_goal_base.sh right 3
-```
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/send_goal_base.sh xy 10 -2
-```
-
-该脚本向 `/move_base_simple/goal` 发布 `base_link` 坐标系下的目标点，适合 DWA 参数调试。
-
----
-
-#### 链路检查脚本
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/check_r300_nav.sh
-```
-
-该脚本用于检查：
+仿真正常链路：
 
 ```text
-ROS 节点状态
-/subject1/cmd_vel_raw 发布者和订阅者
-/one_x/odom 发布者和订阅者
-move_base 关键参数
-odom → base_link TF
+/one_x/odom：/sim_r300_odom_node → /move_base
+/subject1/cmd_vel_raw：/move_base → /sim_r300_odom_node
 ```
 
-实车正常时：
-
-```text
-/subject1/cmd_vel_raw:
-  Publisher: /move_base
-  Subscriber: /scout_base_node
-```
-
-仿真正常时：
-
-```text
-/subject1/cmd_vel_raw:
-  Publisher: /move_base
-  Subscriber: /sim_r300_odom_node
-```
-
----
-
-#### rosbag 一键记录
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/record_r300_bag.sh
-```
-
-功能：
-
-```text
-记录 DWA 控制指令
-记录惯导/GPS 定位结果
-记录全局路径和局部路径
-记录 TF
-记录航点目标和轨迹
-```
-
-指定输出文件名前缀：
-
-```bash
-OUT=~/bags/r300_dwa_test_01 \
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/record_r300_bag.sh
-```
-
----
-
-#### 停止导航相关节点
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/stop_r300_nav.sh
-```
-
-功能：
-
-```text
-停止 move_base
-停止 waypoint_executor
-停止 one_x_serial_driver
-停止 scout_base_node
-停止仿真节点
-停止 RViz
-清理上一轮测试残留节点
-```
-
----
-
-#### 权限修复脚本
-
-```bash
-~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key/fix_permissions.sh
-```
-
-功能：
-
-```text
-为 scripts/ 下的 Python 脚本和 one_key/ 下的 Shell 脚本添加执行权限
-避免 roslaunch 或 bash 启动时报 Permission denied
-```
-
----
-
-### 链路检查指令
-
-检查速度指令链路：
+常用检查：
 
 ```bash
 rostopic info /subject1/cmd_vel_raw
 ```
 
-检查定位输入：
-
 ```bash
 rostopic info /one_x/odom
 ```
-
-检查 TF：
 
 ```bash
 rosrun tf tf_echo odom base_link
 ```
 
-检查 DWA 参数：
-
 ```bash
-rosparam get /move_base/DWAPlannerROS/odom_topic
-rosparam get /move_base/DWAPlannerROS/max_vel_x
-rosparam get /move_base/DWAPlannerROS/max_vel_theta
+rosparam get /move_base/DWAPlannerROS
 ```
 
 ---
 
-### rosbag 推荐记录话题
+### 11. 录制 ROS Bag
 
 ```bash
-rosbag record -O ~/r300_nav_test.bag \
-  /subject1/cmd_vel_raw \
-  /one_x/odom \
-  /one_x/path \
-  /one_x/fix \
-  /one_x/ins_fix \
-  /one_x/gps_fix \
-  /one_x/heading_deg \
-  /one_x/pos_compare \
-  /move_base/NavfnROS/plan \
-  /move_base/DWAPlannerROS/local_plan \
-  /move_base/current_goal \
-  /tf \
-  /tf_static
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./record_r300_bag.sh
 ```
+
+自定义文件名：
+
+```bash
+OUT=~/bags/r300_dwa_test_01 ./record_r300_bag.sh
+```
+
+默认记录惯导、路径、速度、目标点和 TF 等关键话题。
 
 ---
 
-### 注意事项
+### 12. 停止系统
 
-- `scout_base_node` 的 `odom_pub` 应保持 `false`，避免和 1X 惯导发布的 `odom → base_link` 冲突；
-- 实车控制链路中 `/subject1/cmd_vel_raw` 由 `move_base` 发布，并直接发送给 `scout_base_node`；
-- 修改 DWA YAML 后需要重启 `move_base`，或者使用 `rqt_reconfigure` 实时调参；
-- 室内纯惯性位置会漂移，适合做 DWA 定性仿真，不适合作为高速闭环定位来源；
-- 目标在车身后方且不允许倒车时，纯 DWA 可能选择原地转向或小弧线前进，这是 DWA 采样规划的正常特性；
-- 如果要求必须“先原地转正再前进”，需要额外增加一次性预转向逻辑；
-- 高速实车测试必须逐级提速，不建议直接使用高速度参数。
+```bash
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./stop_r300_nav.sh
+```
+
+每次重新测试前建议先执行一次，避免旧节点和旧 TF 残留。
+
+---
+
+### 13. 推荐测试流程
+
+#### 实车导航
+
+```bash
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && INS_PORT=/dev/ttyACM0 CAN_PORT=can0 ./start_real_nav.sh
+```
+
+```bash
+./check_r300_nav.sh
+```
+
+```bash
+rosservice call /subject1/start_waypoints "{}"
+```
+
+#### 视觉避障台架测试
+
+```bash
+./start_r300_vision_nav.sh --no-base --no-rviz
+```
+
+```bash
+python3 ~/r300_ws/src/R300/r300_1x_navigation/scripts/costmap_web_viewer.py _port:=8088
+```
+
+```bash
+./send_goal_base.sh forward 5
+```
+
+#### 视觉避障实车测试
+
+```bash
+./start_r300_vision_nav.sh --no-rviz
+```
+
+```bash
+./send_goal_base.sh forward 5
+```
+
+首次实车避障测试应使用低速参数，并准备物理急停。
+
+---
+
+### 14. 注意事项
+
+- `scout_base_node` 的 `odom_pub` 应保持 `false`，避免与 1X 惯导 TF 冲突；
+- `/subject1/cmd_vel_raw` 由 `move_base` 直接发送给底盘；
+- 修改 YAML 后需要重启 `move_base`；
+- `always_send_full_costmap: true` 时，`costmap_updates` 为 `0 Hz` 属于正常现象，应观察完整 `/costmap` 频率；
+- VisionSnapshotLayer 在 `odom` 坐标系中保持视觉障碍，避免车辆转向时障碍跟随车体漂移；
+- 红色点是视觉障碍采样点，DWA真正使用的是黑色致命障碍和灰色膨胀区域；
+- 视觉障碍只进入局部代价地图，DWA可能绕行，也可能停车，不会自动重新生成长距离全局路径；
+- 室内纯惯性位置会漂移，仅适合低速定性测试；
+- 高速实车测试必须逐级提速，并保留物理急停。
 
 
 ## 控制系统
