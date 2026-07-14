@@ -77,7 +77,7 @@ range_safety_margin_m: 0.2
 # 这里只桥接相邻检测帧，不承担最终1秒保持。
 # 最终 hold_time_s=1.0 已移动到 vision_snapshot_layer，并在 odom 中保持。
 # 这样车辆转向时历史障碍不会跟着 base_link 漂移。
-hold_time_s: 0.20
+hold_time_s: 0.2
 publish_rate_hz: 10.0
 
 # If detections stop arriving, stop publishing the scan.  The costmap source

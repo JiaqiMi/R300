@@ -5,7 +5,7 @@
 # 当前视觉 costmap 链路：
 #   /r300_vision/detections
 #     -> /r300_vision/obstacle_scan
-#     -> VisionSnapshotLayer（odom中保持1秒，每周期整层重建）
+#     -> VisionSnapshotLayer（odom中按配置保持障碍，每周期整层重建）
 #     -> inflation_layer -> DWA
 #
 # 本脚本不启动相机、不启动检测网络。
@@ -40,6 +40,9 @@ SETUP_CAN="${SETUP_CAN:-true}"
 AUTO_RUN="${AUTO_RUN:-false}"
 
 READY_TIMEOUT="${READY_TIMEOUT:-60}"
+# 一键脚本期望 VisionSnapshotLayer 加载的保持时间，默认 5 秒。
+# 仅用于启动自检；真正保持时间仍由 local costmap YAML 中 hold_time_s 决定。
+VISION_HOLD_TIME_S="${VISION_HOLD_TIME_S:-5.0}"
 LOG_DIR="${LOG_DIR:-$WS/log/vision_nav}"
 
 ROSLAUNCH_PID=""
@@ -74,8 +77,8 @@ usage() {
   R300_WS, INS_PORT, INS_BAUD, CAN_PORT, CAN_BITRATE,
   WAYPOINT_FILE, MAX_GOAL_DIST, DETECTIONS_TOPIC,
   CAMERA_INFO_TOPIC, CAMERA_FRAME, OBSTACLE_SCAN_TOPIC,
-  ACTIVE_SCAN_TOPIC, READY_TIMEOUT, LAUNCH_RVIZ,
-  LAUNCH_BASE, ODOM_PATH, SETUP_CAN, AUTO_RUN
+  ACTIVE_SCAN_TOPIC, READY_TIMEOUT, VISION_HOLD_TIME_S,
+  LAUNCH_RVIZ, LAUNCH_BASE, ODOM_PATH, SETUP_CAN, AUTO_RUN
 USAGE
 }
 
@@ -273,6 +276,7 @@ info "外部检测话题：$DETECTIONS_TOPIC"
 info "外部相机内参：$CAMERA_INFO_TOPIC"
 info "视觉障碍扫描：$OBSTACLE_SCAN_TOPIC"
 info "视觉层调试扫描：$ACTIVE_SCAN_TOPIC"
+info "VisionSnapshotLayer 期望保持时间：${VISION_HOLD_TIME_S}s"
 info "日志文件：$LOG_FILE"
 
 roslaunch "${ROSLAUNCH_ARGS[@]}" > >(tee "$LOG_FILE") 2>&1 &
@@ -459,8 +463,22 @@ if [[ "$SNAPSHOT_TOPIC" != "$OBSTACLE_SCAN_TOPIC" ]]; then
   exit 1
 fi
 
-if [[ "$SNAPSHOT_HOLD" != "1.0" && "$SNAPSHOT_HOLD" != "1" ]]; then
-  error "VisionSnapshotLayer hold_time_s 未加载为1秒：${SNAPSHOT_HOLD:-<空>}"
+# 数值比较，兼容 5、5.0、5.00 等写法。
+if ! awk -v actual="$SNAPSHOT_HOLD" -v expected="$VISION_HOLD_TIME_S" '
+  BEGIN {
+    if (actual == "" || expected == "") {
+      exit 1
+    }
+    diff = actual - expected
+    if (diff < 0) {
+      diff = -diff
+    }
+    exit !(diff < 0.000001)
+  }
+'; then
+  error "VisionSnapshotLayer hold_time_s 参数不一致：${SNAPSHOT_HOLD:-<空>}"
+  error "期望值：${VISION_HOLD_TIME_S}s"
+  error "请检查 /move_base/local_costmap/vision_snapshot_layer/hold_time_s"
   exit 1
 fi
 

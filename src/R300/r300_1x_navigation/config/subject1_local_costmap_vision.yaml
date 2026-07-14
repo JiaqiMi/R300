@@ -3,7 +3,7 @@ local_costmap:
   robot_base_frame: base_link
 
   update_frequency: 10.0
-  publish_frequency: 5.0
+  publish_frequency: 3.0
   transform_tolerance: 0.5
 
   # Web/SSH 诊断时持续发布完整地图。此时 costmap_updates 为 0 Hz 是正常的。
@@ -29,11 +29,11 @@ local_costmap:
     enabled: true
     topic: /r300_vision/obstacle_scan
 
-    hold_time_s: 1.0
-    expected_update_rate_s: 0.5
+    hold_time_s: 5.0
+    expected_update_rate_s: 0.0
     max_message_age_s: 0.5
     transform_timeout_s: 0.10
-    stop_on_stale: true
+    stop_on_stale: false
 
     min_range_m: 0.20
     max_range_m: 10.0

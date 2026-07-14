@@ -5,10 +5,10 @@
 
 subject1_waypoints:
   waypoints:    
-    - name: wp_01
-      latitude_deg: 38.9866498299
-      longitude_deg: 117.3427974
-      altitude_m: 21.741
+    # - name: wp_01
+    #   latitude_deg: 38.9866498299
+    #   longitude_deg: 117.3427974
+    #   altitude_m: 21.741
 
     - name: wp_02
       latitude_deg: 38.9866743
