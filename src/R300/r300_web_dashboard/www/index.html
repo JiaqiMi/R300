@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>R300 Web 上位机</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>R300 Web 上位机</h1>
+      <p>定位 / 视觉 / 路径 / costmap / scan / 控制服务</p>
+    </div>
+    <div class="status-bar">
+      <span id="rosStatus" class="badge bad">ROSBridge 未连接</span>
+      <span id="lastMsg" class="badge">等待数据</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card video-card">
+      <div class="card-title">
+        <h2>视觉检测画面</h2>
+        <span id="videoTopic"></span>
+      </div>
+      <img id="video" alt="/r300_vision/annotated_image" />
+    </section>
+
+    <section class="card">
+      <div class="card-title"><h2>车辆状态</h2></div>
+      <div class="kv"><span>位置 x/y</span><b id="poseXY">--</b></div>
+      <div class="kv"><span>航向</span><b id="heading">--</b></div>
+      <div class="kv"><span>速度 vx/wz</span><b id="vel">--</b></div>
+      <div class="kv"><span>GPS</span><b id="gps">--</b></div>
+      <div class="kv"><span>当前目标</span><b id="goal">--</b></div>
+      <div class="kv"><span>动态状态</span><b id="dynState">--</b></div>
+      <div class="kv"><span>限速/急停</span><b id="safety">--</b></div>
+    </section>
+
+    <section class="card control-card">
+      <div class="card-title"><h2>航点控制</h2></div>
+      <div class="buttons">
+        <button onclick="callService('start')">开始航点</button>
+        <button onclick="callService('pause')">暂停</button>
+        <button onclick="callService('resume')">恢复</button>
+        <button onclick="callService('skip')">跳过当前点</button>
+        <button class="danger" onclick="callService('cancel')">取消任务</button>
+      </div>
+      <pre id="serviceLog">服务调用日志...</pre>
+      <p class="hint">第一版不直接发布 /cmd_vel，避免与 move_base 抢控制。</p>
+    </section>
+
+    <section class="card map-card">
+      <div class="card-title">
+        <h2>local_costmap + 路径</h2>
+        <span id="costmapInfo">--</span>
+      </div>
+      <canvas id="costmapCanvas" width="620" height="620"></canvas>
+      <div class="legend">
+        <span><i class="black"></i>致命/高代价</span>
+        <span><i class="gray"></i>膨胀/未知</span>
+        <span><i class="green"></i>全局路径</span>
+        <span><i class="blue"></i>局部路径</span>
+      </div>
+    </section>
+
+    <section class="card scan-card">
+      <div class="card-title">
+        <h2>激光 / 视觉障碍俯视图</h2>
+        <span id="scanInfo">--</span>
+      </div>
+      <canvas id="scanCanvas" width="620" height="620"></canvas>
+      <div class="legend">
+        <span><i class="red"></i>/scan</span>
+        <span><i class="orange"></i>视觉障碍 scan</span>
+        <span><i class="purple"></i>active 视觉障碍</span>
+      </div>
+    </section>
+
+    <section class="card detections-card">
+      <div class="card-title"><h2>视觉检测 / 目标信息</h2></div>
+      <pre id="detections">等待 /r300_vision/detections ...</pre>
+      <pre id="targetPoint">等待 /r300_vision/target_point ...</pre>
+    </section>
+  </main>
+
+  <footer>
+    <span>配置文件：r300_web_dashboard/www/config.json</span>
+    <span>默认网页端口：8090，rosbridge：9090，视频：8080</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

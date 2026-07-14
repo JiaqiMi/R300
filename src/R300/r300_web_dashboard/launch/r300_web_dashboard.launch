@@ -1,0 +1,29 @@
+<launch>
+  <!-- R300 Web 上位机。默认同时启动 rosbridge、web_video_server 和网页服务。 -->
+  <arg name="dashboard_port" default="8090"/>
+  <arg name="rosbridge_port" default="9090"/>
+  <arg name="video_port" default="8080"/>
+  <arg name="start_rosbridge" default="true"/>
+  <arg name="start_video_server" default="true"/>
+
+  <!-- 浏览器端通过 ws://工控机IP:9090 订阅 ROS 话题 -->
+  <group if="$(arg start_rosbridge)">
+    <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+      <arg name="port" value="$(arg rosbridge_port)"/>
+    </include>
+  </group>
+
+  <!-- 浏览器端通过 http://工控机IP:8080/stream?... 查看 ROS 图像流 -->
+  <node if="$(arg start_video_server)" pkg="web_video_server" type="web_video_server" name="web_video_server" output="screen">
+    <param name="port" value="$(arg video_port)"/>
+    <param name="address" value="0.0.0.0"/>
+    <param name="server_threads" value="2"/>
+    <param name="ros_threads" value="2"/>
+  </node>
+
+  <!-- 静态网页服务器：打开 http://工控机IP:8090 -->
+  <node pkg="r300_web_dashboard" type="dashboard_server.py" name="r300_web_dashboard_server" output="screen">
+    <param name="port" value="$(arg dashboard_port)"/>
+    <param name="bind" value="0.0.0.0"/>
+  </node>
+</launch>
