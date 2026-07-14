@@ -21,7 +21,7 @@ VisionSnapshotLayer::VisionSnapshotLayer()
     transform_timeout_s_(0.10),
     min_range_m_(0.20),
     max_range_m_(10.0),
-    dedup_resolution_m_(0.05),
+    dedup_resolution_m_(0.1),
     active_scan_angle_increment_(0.5 * M_PI / 180.0),
     stop_on_stale_(true),
     publish_active_scan_(true),
@@ -161,14 +161,35 @@ void VisionSnapshotLayer::scanCallback(const sensor_msgs::LaserScanConstPtr& msg
 
   std::size_t active_count = 0U;
   {
+    // std::lock_guard<std::mutex> lock(mutex_);
+    // last_scan_receive_time_ = receive_time;
+    // purgeExpiredLocked(receive_time);
+    // for (const TimedPoint& point : frame_points)
+    // {
+    //   active_points_[makeKey(point.x, point.y)] = point;
+    // }
+    // active_count = active_points_.size();
+
     std::lock_guard<std::mutex> lock(mutex_);
     last_scan_receive_time_ = receive_time;
     purgeExpiredLocked(receive_time);
-    for (const TimedPoint& point : frame_points)
+
+    // 收到新的非空视觉结果时，用当前完整快照替换旧快照。
+    // 这样仍然保持1秒，但不会累计最近10帧形成拖影。
+    if (!frame_points.empty())
     {
-      active_points_[makeKey(point.x, point.y)] = point;
+      active_points_.clear();
+
+      for (const TimedPoint& point : frame_points)
+      {
+        active_points_[makeKey(point.x, point.y)] = point;
+      }
     }
+
+    // 如果当前帧为空，不立刻清空。
+    // 原快照继续保留，直到 hold_time_s 到期。
     active_count = active_points_.size();
+
   }
 
   ++accepted_scan_count_;
