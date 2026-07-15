@@ -1,6 +1,7 @@
 #ifndef R300_1X_NAVIGATION_VISION_SNAPSHOT_LAYER_HPP_
 #define R300_1X_NAVIGATION_VISION_SNAPSHOT_LAYER_HPP_
 
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -34,10 +35,29 @@ private:
   {
     double x = 0.0;
     double y = 0.0;
+  };
+
+  struct FrameCluster
+  {
+    std::vector<TimedPoint> points;
+    double centroid_x = 0.0;
+    double centroid_y = 0.0;
+  };
+
+  struct ObstacleTrack
+  {
+    std::uint64_t id = 0U;
+    std::vector<TimedPoint> points;
+    double centroid_x = 0.0;
+    double centroid_y = 0.0;
     ros::Time expiry;
   };
 
   void scanCallback(const sensor_msgs::LaserScanConstPtr& msg);
+  std::vector<FrameCluster> clusterFramePoints(
+      const std::vector<TimedPoint>& points) const;
+  void updateTracksLocked(const std::vector<FrameCluster>& clusters,
+                          const ros::Time& now);
   void purgeExpiredLocked(const ros::Time& now);
   std::int64_t makeKey(double x, double y) const;
   bool sourceIsCurrent(const ros::Time& now) const;
@@ -61,11 +81,22 @@ private:
   double max_range_m_;
   double dedup_resolution_m_;
   double active_scan_angle_increment_;
+
+  // 同一帧内将相邻几何点聚成一个障碍物。
+  double cluster_tolerance_m_;
+
+  // 新障碍簇与已有障碍轨迹的最大匹配距离。
+  // 匹配成功时只替换该障碍，不会删除其他仍在TTL内的障碍。
+  double association_distance_m_;
+
+  std::size_t min_cluster_points_;
+
   bool stop_on_stale_;
   bool publish_active_scan_;
 
   mutable std::mutex mutex_;
-  std::unordered_map<std::int64_t, TimedPoint> active_points_;
+  std::vector<ObstacleTrack> tracks_;
+  std::uint64_t next_track_id_;
   ros::Time last_scan_receive_time_;
   std::uint64_t accepted_scan_count_;
   std::uint64_t dropped_scan_count_;

@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>r300_web_dashboard</name>
+  <version>0.1.0</version>
+  <description>R300 无人车 Web 上位机：显示视觉、定位、路径、costmap、scan 和航点控制按钮。</description>
+  <maintainer email="user@example.com">R300 Team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>rosbridge_server</exec_depend>
+  <exec_depend>web_video_server</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+</package>

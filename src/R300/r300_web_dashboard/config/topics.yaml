@@ -1,0 +1,27 @@
+# 该文件用于记录默认话题，真正网页读取的是 www/config.json。
+# 如果改了这里，也建议同步修改 www/config.json。
+localization:
+  odom: /one_x/odom
+  fix: /one_x/fix
+  gps_fix: /one_x/gps_fix
+  heading_deg: /one_x/heading_deg
+planning:
+  cmd_vel: /subject1/cmd_vel_raw
+  global_plan: /move_base/NavfnROS/plan
+  local_plan: /move_base/DWAPlannerROS/local_plan
+  current_goal: /move_base/current_goal
+vision:
+  annotated_image: /r300_vision/annotated_image
+  detections: /r300_vision/detections
+  target_point: /r300_vision/target_point
+obstacles:
+  costmap: /move_base/local_costmap/costmap
+  scan: /scan
+  vision_scan: /r300_vision/obstacle_scan
+  active_vision_scan: /r300_vision/active_obstacle_scan
+services:
+  start_waypoints: /subject1/start_waypoints
+  pause_waypoints: /subject1/pause_waypoints
+  resume_waypoints: /subject1/resume_waypoints
+  cancel_waypoints: /subject1/cancel_waypoints
+  skip_waypoint: /subject1/skip_waypoint
