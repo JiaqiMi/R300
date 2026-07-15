@@ -5,8 +5,6 @@ local_costmap:
   update_frequency: 10.0
   publish_frequency: 3.0
   transform_tolerance: 0.5
-
-  # Web/SSH 诊断时持续发布完整地图。此时 costmap_updates 为 0 Hz 是正常的。
   always_send_full_costmap: true
 
   static_map: false
@@ -21,23 +19,33 @@ local_costmap:
     - {name: inflation_layer,
        type: "costmap_2d::InflationLayer"}
 
-  # 视觉专用快照层：不再使用 ObstacleLayer 的 360° 伪清除射线。
-  # 当前障碍点先变换到 odom，再在 odom 中保持 1 秒。车辆原地旋转时，
-  # 历史点不会跟着 base_link 一起转。每次 costmap 更新都会重建整层，
-  # 因此过期黑团不会残留，新障碍也会在下一周期立即写入。
   vision_snapshot_layer:
     enabled: true
     topic: /r300_vision/obstacle_scan
 
+    # 每个独立障碍自最后一次匹配观测起保持5秒。
     hold_time_s: 5.0
+
+    # 保持逻辑由每个障碍自己的TTL负责，不因短时断流提前清空。
     expected_update_rate_s: 0.0
+    stop_on_stale: false
+
     max_message_age_s: 0.5
     transform_timeout_s: 0.10
-    stop_on_stale: false
 
     min_range_m: 0.20
     max_range_m: 10.0
     dedup_resolution_m: 0.05
+
+    # 同一帧中，距离小于该值的几何点聚为同一个障碍。
+    cluster_tolerance_m: 0.45
+
+    # 新障碍簇与旧轨迹质心距离小于该值时，认为是同一个障碍：
+    # 只更新该障碍，不删除其他仍在TTL内的障碍。
+    association_distance_m: 0.50
+
+    # 远处小障碍可能只有少数扫描束，先保留1。
+    min_cluster_points: 1
 
     publish_active_scan: true
     active_scan_topic: /r300_vision/active_obstacle_scan
