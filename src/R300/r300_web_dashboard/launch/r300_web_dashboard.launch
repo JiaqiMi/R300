@@ -4,11 +4,12 @@
   <arg name="rosbridge_port" default="9090"/>
   <arg name="video_port" default="8080"/>
   <arg name="start_rosbridge" default="true"/>
-  <arg name="start_video_server" default="true"/>
+  <arg name="start_video_server" default="false"/>
 
   <!-- 浏览器端通过 ws://工控机IP:9090 订阅 ROS 话题 -->
   <group if="$(arg start_rosbridge)">
     <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+      <arg name="address" value="0.0.0.0"/>
       <arg name="port" value="$(arg rosbridge_port)"/>
     </include>
   </group>
