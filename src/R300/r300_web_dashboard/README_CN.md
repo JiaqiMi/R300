@@ -205,3 +205,43 @@ rostopic hz /scan
 ## 11. 安全说明
 
 第一版只做服务调用和状态显示，不直接发布底盘速度。实车测试时仍需要保留遥控器、急停和人工接管。
+
+## v4 猕猴桃主题与网页启动节点
+
+本版本将界面改为绿色猕猴桃主题，标题改为“别打了我是酱油”，并增加两个网页启动按钮：
+
+- 启动相机/视觉：执行 `~/r300_ws/scripts/start_r300.sh web`
+- 启动点云/代价地图：执行 `cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./start_r300_vision_nav.sh --no-rviz`
+
+启动 Web：
+
+```bash
+source ~/venvs/yolo26/bin/activate
+source /opt/ros/noetic/setup.bash
+source ~/r300_ws/devel/setup.bash
+roslaunch r300_web_dashboard r300_web_dashboard.launch
+```
+
+浏览器打开：
+
+```text
+http://100.106.189.126:8090
+```
+
+注意：本版本为了快速测试，在本地 Web 服务中处理了点云/导航脚本的 sudo 密码输入。该方式只适合实验室内网调试。长期使用建议改成 sudoers 中只对指定脚本配置 NOPASSWD。
+
+## v5：网页按钮启动点云/代价地图
+
+本版将网页按钮改为调用 wrapper 脚本：
+
+- `scripts/web_start_camera.sh`：启动 `~/r300_ws/scripts/start_r300.sh web`
+- `scripts/web_start_nav.sh`：启动 `start_r300_vision_nav.sh --no-rviz`
+
+点云/导航脚本需要 sudo 时，`web_start_nav.sh` 会用密码 `1234` 做 `sudo -S -v`，并保持 sudo 缓存，避免后台无交互终端时启动失败。
+
+按钮日志在：
+
+```bash
+~/.ros/r300_web_dashboard/web_start_camera.log
+~/.ros/r300_web_dashboard/web_start_nav.log
+```
