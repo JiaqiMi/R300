@@ -23,6 +23,8 @@
        default="$(find r300_1x_navigation)/config/subject1_dwa.yaml"/>
   <arg name="local_costmap_config_file"
        default="$(find r300_1x_navigation)/config/subject1_local_costmap.yaml"/>
+  <!-- DWA velocity-feedback odometry. Pose still comes from odom->base_link TF. -->
+  <arg name="dwa_odom_topic" default="/one_x/odom"/>
 
   <arg name="launch_base" default="true"/>
   <arg name="launch_lidar" default="true"/>
@@ -53,10 +55,10 @@
   </group>
 
   <!-- During this verification stage map and odom are coincident. -->
-  <node pkg="tf"
+  <node pkg="tf2_ros"
         type="static_transform_publisher"
         name="subject1_map_to_odom"
-        args="0 0 0 0 0 0 map odom 100"/>
+        args="0 0 0 0 0 0 map odom"/>
 
   <!-- Sole dynamic base pose source. -->
   <node pkg="r300_1x_navigation"
@@ -80,10 +82,10 @@
         args="$(find r300_1x_navigation)/maps/subject1_blank_map.yaml"
         output="screen"/>
 
-  <!-- DWA consumes the unmodified 1X odometry and publishes directly to the chassis topic. -->
+  <!-- DWA consumes the selected velocity-feedback odometry topic. -->
   <include file="$(find r300_1x_navigation)/launch/subject1_move_base.launch">
     <arg name="cmd_vel_topic" value="/subject1/cmd_vel_raw"/>
-    <arg name="odom_topic" value="/one_x/odom"/>
+    <arg name="odom_topic" value="$(arg dwa_odom_topic)"/>
     <arg name="dwa_config_file" value="$(arg dwa_config_file)"/>
     <arg name="local_costmap_config_file" value="$(arg local_costmap_config_file)"/>
   </include>
@@ -109,8 +111,8 @@
     <node pkg="rviz" type="rviz" name="rviz" output="screen"/>
   </group>
 
-  <node pkg="tf"
+  <node pkg="tf2_ros"
         type="static_transform_publisher"
         name="subject1_base_to_livox"
-        args="0.20 0 0.35 0 0 0 base_link livox_frame 100"/>
+        args="0.20 0 0.35 0 0 0 base_link livox_frame"/>
 </launch>

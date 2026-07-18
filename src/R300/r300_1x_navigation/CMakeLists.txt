@@ -72,6 +72,7 @@ install(DIRECTORY launch config maps include/
 # 仿真和工具+实际
 catkin_install_python(PROGRAMS
   scripts/waypoint_executor.py
+  scripts/dwa_odom_adapter.py
   scripts/odom_to_path.py
   scripts/sim_blank_map_node.py
   scripts/sim_r300_odom_node.py
@@ -82,12 +83,14 @@ catkin_install_python(PROGRAMS
   scripts/vision_obstacle_layer_node.py
   scripts/vision_clear_scan_node.py
   scripts/costmap_web_viewer.py
+  scripts/dwa_web_tuner.py
   scripts/vision_costmap_scan_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
 install(PROGRAMS
   scripts/one_key/start_r300_vision_nav.sh
+  scripts/one_key/start_dwa_web_tuner.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

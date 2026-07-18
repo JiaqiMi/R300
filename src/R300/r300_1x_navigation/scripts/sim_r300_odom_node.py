@@ -17,12 +17,14 @@ motion under ideal or drifted odometry.
 
 import math
 import random
+import threading
 import rospy
 import tf.transformations as tft
 import tf2_ros
 
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
+from std_srvs.srv import Empty, EmptyResponse
 
 
 def clamp(x, lo, hi):
@@ -72,9 +74,13 @@ class SimR300OdomNode(object):
         self.jump_std_m = float(rospy.get_param("~jump_std_m", 0.0))
 
         # Real vehicle state.
-        self.x = float(rospy.get_param("~initial_x", 0.0))
-        self.y = float(rospy.get_param("~initial_y", 0.0))
-        self.yaw = math.radians(float(rospy.get_param("~initial_yaw_deg", 0.0)))
+        self.initial_x = float(rospy.get_param("~initial_x", 0.0))
+        self.initial_y = float(rospy.get_param("~initial_y", 0.0))
+        self.initial_yaw = math.radians(float(rospy.get_param("~initial_yaw_deg", 0.0)))
+        self.x = self.initial_x
+        self.y = self.initial_y
+        self.yaw = self.initial_yaw
+        self.lock = threading.RLock()
 
         # Real executed velocity.
         self.v = 0.0
@@ -98,6 +104,9 @@ class SimR300OdomNode(object):
         self.truth_odom_pub = rospy.Publisher(self.truth_odom_topic, Odometry, queue_size=20)
 
         rospy.Subscriber(self.cmd_topic, Twist, self.cmd_cb, queue_size=10)
+        self.reset_service_name = rospy.get_param("~reset_service", "/sim/reset_pose")
+        self.reset_service = rospy.Service(
+            self.reset_service_name, Empty, self.reset_cb)
 
         self.last_time = rospy.Time.now()
 
@@ -108,9 +117,30 @@ class SimR300OdomNode(object):
             self.rate_hz, self.max_v, self.max_w)
 
     def cmd_cb(self, msg):
-        self.cmd_v = clamp(msg.linear.x, -self.max_v, self.max_v)
-        self.cmd_w = clamp(msg.angular.z, -self.max_w, self.max_w)
-        self.last_cmd_time = rospy.Time.now()
+        with self.lock:
+            self.cmd_v = clamp(msg.linear.x, -self.max_v, self.max_v)
+            self.cmd_w = clamp(msg.angular.z, -self.max_w, self.max_w)
+            self.last_cmd_time = rospy.Time.now()
+
+    def reset_cb(self, _request):
+        with self.lock:
+            self.x = self.initial_x
+            self.y = self.initial_y
+            self.yaw = self.initial_yaw
+            self.v = 0.0
+            self.w = 0.0
+            self.cmd_v = 0.0
+            self.cmd_w = 0.0
+            self.drift_x = 0.0
+            self.drift_y = 0.0
+            self.drift_yaw = 0.0
+            self.jump_x = 0.0
+            self.jump_y = 0.0
+            self.last_cmd_time = rospy.Time.now()
+            self.last_jump_time = rospy.Time.now()
+            self.last_time = rospy.Time.now()
+        rospy.logwarn("sim_r300_odom_node pose reset")
+        return EmptyResponse()
 
     def update_vehicle(self, dt):
         # Stop if command is stale.
@@ -215,37 +245,39 @@ class SimR300OdomNode(object):
             if dt <= 0.0 or dt > 0.2:
                 dt = 1.0 / self.rate_hz
 
-            self.update_vehicle(dt)
-            self.update_drift(dt)
+            with self.lock:
+                self.update_vehicle(dt)
+                self.update_drift(dt)
 
-            yaw_noise = math.radians(self.yaw_noise_std_deg) * random.gauss(0.0, 1.0)
-            nav_x = (
-                self.x
-                + self.drift_x
-                + self.jump_x
-                + random.gauss(0.0, self.pos_noise_std)
-            )
-            nav_y = (
-                self.y
-                + self.drift_y
-                + self.jump_y
-                + random.gauss(0.0, self.pos_noise_std)
-            )
-            nav_yaw = wrap_pi(self.yaw + self.drift_yaw + yaw_noise)
+                yaw_noise = math.radians(self.yaw_noise_std_deg) * random.gauss(0.0, 1.0)
+                nav_x = (
+                    self.x
+                    + self.drift_x
+                    + self.jump_x
+                    + random.gauss(0.0, self.pos_noise_std)
+                )
+                nav_y = (
+                    self.y
+                    + self.drift_y
+                    + self.jump_y
+                    + random.gauss(0.0, self.pos_noise_std)
+                )
+                nav_yaw = wrap_pi(self.yaw + self.drift_yaw + yaw_noise)
 
-            # DWA sees this odom.
-            nav_odom = self.make_odom(
-                now, nav_x, nav_y, nav_yaw,
-                self.v, self.w,
-                self.odom_frame, self.base_frame)
+                # DWA sees this odom.
+                nav_odom = self.make_odom(
+                    now, nav_x, nav_y, nav_yaw,
+                    self.v, self.w,
+                    self.odom_frame, self.base_frame)
+
+                # Truth odom is only for RViz / analysis.
+                truth_odom = self.make_odom(
+                    now, self.x, self.y, self.yaw,
+                    self.v, self.w,
+                    self.odom_frame, "truth_base_link")
+
             self.nav_odom_pub.publish(nav_odom)
             self.publish_tf(now, nav_x, nav_y, nav_yaw)
-
-            # Truth odom is only for RViz / analysis.
-            truth_odom = self.make_odom(
-                now, self.x, self.y, self.yaw,
-                self.v, self.w,
-                self.odom_frame, "truth_base_link")
             self.truth_odom_pub.publish(truth_odom)
 
             rate.sleep()
