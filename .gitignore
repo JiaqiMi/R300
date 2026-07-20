@@ -64,3 +64,4 @@ credentials.*
 *.stl
 *.tar.gz
 *.pdf
+src/R300/r300_1x_navigation/scripts/one_key/subject1_blank_map.pgm

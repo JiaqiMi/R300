@@ -560,11 +560,11 @@ function callService(name) {
   const id = `svc:${name}:${Date.now()}`;
   const ok = send({op: "call_service", service: service, args: {}, id: id});
   const line = `${nowTime()} call ${service} ${ok ? "sent" : "failed: websocket not connected"}`;
-  $("serviceLog").textContent = line + "\n" + $("serviceLog").textContent;
+  $("serviceLog").textContent = (line + "\n" + $("serviceLog").textContent).split("\n").slice(0, 120).join("\n");
 }
 function handleServiceResponse(m) {
   const line = `${nowTime()} response ${m.service || ""} result=${m.result}`;
-  $("serviceLog").textContent = line + "\n" + $("serviceLog").textContent;
+  $("serviceLog").textContent = (line + "\n" + $("serviceLog").textContent).split("\n").slice(0, 120).join("\n");
 }
 
 async function postApi(path) {
@@ -612,9 +612,9 @@ function renderProcessStatus(processes, message) {
   const lines = [];
   if (message) lines.push(`${nowTime()} ${message}`);
   lines.push("[camera]");
-  (cam.logs || []).slice(-8).forEach(x => lines.push(x));
+  (cam.logs || []).slice(-30).forEach(x => lines.push(x));
   lines.push("[nav]");
-  (nav.logs || []).slice(-12).forEach(x => lines.push(x));
+  (nav.logs || []).slice(-60).forEach(x => lines.push(x));
   if ($("nodeLog")) $("nodeLog").textContent = lines.join("\n") || "节点启动日志...";
 }
 

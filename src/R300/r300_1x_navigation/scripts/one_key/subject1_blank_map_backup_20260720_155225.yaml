@@ -1,0 +1,6 @@
+image: subject1_blank_map.pgm
+resolution: 4.0
+origin: [-10000.0, -10000.0, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196

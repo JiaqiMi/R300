@@ -7,8 +7,9 @@
     synthetic /r300_vision/obstacle_scan, so move_base uses exactly the visual
     DWA and VisionSnapshotLayer parameter files.
   -->
-  <arg name="web_host" default="127.0.0.1"/>
-  <arg name="web_port" default="8090"/>
+  <!-- 监听所有本机网卡，便于通过LAN、Tailscale或SSH访问。 -->
+  <arg name="web_host" default="0.0.0.0"/>
+  <arg name="web_port" default="8070"/>
   <arg name="use_rviz" default="false"/>
 
   <arg name="map_frame" default="map"/>
@@ -19,12 +20,12 @@
   <arg name="cmd_vel_topic" default="/subject1/cmd_vel_raw"/>
 
   <arg name="sim_rate_hz" default="50.0"/>
-  <arg name="sim_max_v" default="1.2"/>
-  <arg name="sim_max_w" default="0.6"/>
-  <arg name="sim_acc_lim_v" default="0.8"/>
-  <arg name="sim_acc_lim_w" default="0.6"/>
-  <arg name="sim_tau_v" default="0.20"/>
-  <arg name="sim_tau_w" default="0.18"/>
+  <arg name="sim_max_v" default="2.5"/>
+  <arg name="sim_max_w" default="0.5"/>
+  <arg name="sim_acc_lim_v" default="1.0"/>
+  <arg name="sim_acc_lim_w" default="0.8"/>
+  <arg name="sim_tau_v" default="0.08"/>
+  <arg name="sim_tau_w" default="0.08"/>
 
   <arg name="pos_noise_std" default="0.0"/>
   <arg name="yaw_noise_std_deg" default="0.0"/>
@@ -81,10 +82,10 @@
     <param name="input_odom_topic" value="$(arg raw_odom_topic)"/>
     <param name="output_odom_topic" value="$(arg dwa_odom_topic)"/>
     <param name="forward_deadband_mps" value="0.02"/>
-    <param name="yaw_rate_deadband_radps" value="0.015"/>
-    <param name="forward_filter_tau_s" value="0.10"/>
-    <param name="yaw_rate_filter_tau_s" value="0.15"/>
-    <param name="max_yaw_rate_radps" value="0.45"/>
+    <param name="yaw_rate_deadband_radps" value="0.01"/>
+    <param name="forward_filter_tau_s" value="0.04"/>
+    <param name="yaw_rate_filter_tau_s" value="0.06"/>
+    <param name="max_yaw_rate_radps" value="0.50"/>
   </node>
 
   <include file="$(find r300_1x_navigation)/launch/subject1_move_base.launch">

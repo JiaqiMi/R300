@@ -24,7 +24,7 @@ CAN_PORT="${CAN_PORT:-can0}"
 CAN_BITRATE="${CAN_BITRATE:-500000}"
 
 WAYPOINT_FILE="${WAYPOINT_FILE:-}"
-MAX_GOAL_DIST="${MAX_GOAL_DIST:-180.0}"
+MAX_GOAL_DIST="${MAX_GOAL_DIST:-5000.0}"
 
 DETECTIONS_TOPIC="${DETECTIONS_TOPIC:-/r300_vision/detections}"
 CAMERA_INFO_TOPIC="${CAMERA_INFO_TOPIC:-/camera/color/camera_info}"
@@ -42,7 +42,7 @@ AUTO_RUN="${AUTO_RUN:-false}"
 READY_TIMEOUT="${READY_TIMEOUT:-60}"
 # 一键脚本期望 VisionSnapshotLayer 加载的保持时间，默认 5 秒。
 # 仅用于启动自检；真正保持时间仍由 local costmap YAML 中 hold_time_s 决定。
-VISION_HOLD_TIME_S="${VISION_HOLD_TIME_S:-"
+VISION_HOLD_TIME_S="${VISION_HOLD_TIME_S:-}"
 LOG_DIR="${LOG_DIR:-$WS/log/vision_nav}"
 
 ROSLAUNCH_PID=""

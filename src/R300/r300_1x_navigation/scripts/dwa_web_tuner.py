@@ -252,8 +252,9 @@ class DwaWebTuner:
     def __init__(self) -> None:
         self.state = SharedState()
 
-        self.host = str(rospy.get_param("~host", "127.0.0.1"))
-        self.port = int(rospy.get_param("~port", 8090))
+        # 监听所有网卡。实际浏览器访问地址由启动脚本自动识别。
+        self.host = str(rospy.get_param("~host", "0.0.0.0"))
+        self.port = int(rospy.get_param("~port", 8070))
         self.robot_frame = str(rospy.get_param("~robot_frame", "base_link"))
         self.goal_frame = str(rospy.get_param("~goal_frame", "map"))
 

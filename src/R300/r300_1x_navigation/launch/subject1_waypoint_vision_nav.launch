@@ -20,7 +20,7 @@
   <arg name="launch_base" default="true"/>
   <arg name="launch_rviz" default="false"/>
   <arg name="auto_start" default="false"/>
-  <arg name="max_goal_distance_from_origin_m" default="180.0"/>
+  <arg name="max_goal_distance_from_origin_m" default="5000.0"/>
   <arg name="dwa_odom_topic" default="/subject1/dwa_odom"/>
 
   <include file="$(find r300_1x_navigation)/launch/subject1_waypoint_nav.launch">
