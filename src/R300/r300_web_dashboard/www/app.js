@@ -17,6 +17,9 @@ let activeVisionScanData = null;
 let robotPose = null;  // {x, y, yaw, stampMs}
 let headingDeg = null;
 let safetyState = {limit: null, estop: null};
+let insGpsFirstValidMs = null;
+let insGpsLastMsg = null;
+let latestInsStatus = null;
 let satMap = null;
 let satTrack = [];
 let satPolyline = null;
@@ -129,6 +132,7 @@ function subscribeAll() {
   sub(t.dynamic_state, "std_msgs/String", 250);
   sub(t.speed_limit, "std_msgs/Float32", 250);
   sub(t.emergency_stop, "std_msgs/Bool", 250);
+  if (t.ins_status) sub(t.ins_status, "r300_1x_navigation/InsStatus", 500);
 }
 
 function handleTopic(topic, msg) {
@@ -151,6 +155,7 @@ function handleTopic(topic, msg) {
   else if (topic === t.dynamic_state) $("dynState").textContent = msg.data;
   else if (topic === t.speed_limit) updateSafety("limit", msg.data);
   else if (topic === t.emergency_stop) updateSafety("estop", msg.data);
+  else if (topic === t.ins_status) updateInsStatus(msg);
 }
 
 function logLast(text) {
@@ -182,6 +187,7 @@ function updateHeading() {
 function updateGps(m, label) {
   if (!Number.isFinite(m.latitude) || !Number.isFinite(m.longitude)) return;
   $("gps").textContent = `${label}: ${fmt(m.latitude, 7)}, ${fmt(m.longitude, 7)}`;
+  updateInsGpsPanel(m, label);
   // 卫星地图默认使用 /one_x/fix；如果 fix 不发布，也接受 gps_fix 作为兜底。
   const fixTopic = (cfg.satellite_map && cfg.satellite_map.fix_topic) || cfg.topics.fix;
   const topicKey = label === "GPS" ? cfg.topics.gps_fix : cfg.topics.fix;
@@ -189,6 +195,58 @@ function updateGps(m, label) {
     updateSatelliteMap(m);
   }
 }
+
+function isValidNavSat(m) {
+  return Number.isFinite(m.latitude) && Number.isFinite(m.longitude) &&
+         Math.abs(Number(m.latitude)) > 1e-9 && Math.abs(Number(m.longitude)) > 1e-9;
+}
+
+function updateInsGpsPanel(m, label) {
+  if (!$('insGpsValid')) return;
+  insGpsLastMsg = m;
+  const valid = isValidNavSat(m);
+  if (valid && insGpsFirstValidMs === null) insGpsFirstValidMs = Date.now();
+  const lat = Number(m.latitude);
+  const lon = Number(m.longitude);
+  const alt = Number.isFinite(m.altitude) ? Number(m.altitude) : NaN;
+  $('insGpsValid').textContent = valid ? `${label} 有效` : `${label} 无效/零值`;
+  $('insGpsLla').textContent = valid
+    ? `lat=${fmt(lat, 8)}, lon=${fmt(lon, 8)}, h=${Number.isFinite(alt) ? fmt(alt, 2) : '--'} m`
+    : '--';
+  updateInsTimer();
+  if ($('insPanelStatus')) $('insPanelStatus').textContent = valid ? 'GPS已接收，等待/显示惯导状态' : '等待有效GPS';
+}
+
+function updateInsTimer() {
+  if (!$('insGpsTimer')) return;
+  if (insGpsFirstValidMs === null) { $('insGpsTimer').textContent = '未开始'; return; }
+  const sec = Math.max(0, Math.floor((Date.now() - insGpsFirstValidMs) / 1000));
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  $('insGpsTimer').textContent = `${mm}:${ss}`;
+}
+
+function updateInsStatus(m) {
+  latestInsStatus = m;
+  if ($('insWorkState')) $('insWorkState').textContent = m.work_state || '--';
+  if ($('insNavMode')) $('insNavMode').textContent = m.navigation_mode || '--';
+  if ($('insRefMode')) $('insRefMode').textContent = `${m.position_reference || '--'} / ${m.velocity_reference || '--'}`;
+  if ($('insHealth')) $('insHealth').textContent = `${m.ins_data_valid ? '有效' : '无效'} / ${m.fault ? '故障' : '正常'}`;
+  if ($('insStatusRaw')) $('insStatusRaw').textContent = m.summary || JSON.stringify(m, null, 2);
+  if ($('insPanelStatus')) $('insPanelStatus').textContent = m.summary || '已接收 /one_x/ins_status';
+}
+
+function sendInsResetCommand() {
+  const topic = (cfg.topics && cfg.topics.ins_command) || '/one_x/command_hex';
+  const hex = '55 AA 55 AA 5A A5 5A A5 BB 78 56 34 12 78 56 34 12';
+  const okAdv = send({op: 'advertise', topic: topic, type: 'std_msgs/String'});
+  const okPub = send({op: 'publish', topic: topic, msg: {data: hex}});
+  const text = `${nowTime()} 发送惯导复位命令到 ${topic}: ${okPub ? 'sent' : 'failed: ROSBridge not connected'}`;
+  if ($('insResetState')) $('insResetState').textContent = text;
+  if ($('serviceLog')) $('serviceLog').textContent = (text + '\n' + $('serviceLog').textContent).split('\n').slice(0, 120).join('\n');
+  setTimeout(() => send({op: 'unadvertise', topic: topic}), 500);
+}
+
 function updateCmdVel(m) { $("vel").textContent = `cmd vx=${fmt(m.linear.x)} m/s, wz=${fmt(m.angular.z)} rad/s`; }
 function updateGoal(m) {
   const p = m.pose.position;
@@ -632,7 +690,7 @@ async function main() {
   setupInteractiveCanvas("scanCanvas", drawScan);
   connectRosbridge();
   drawCostmap(); drawScan();
-  setInterval(() => { updatePlanStats(); drawScan(); }, 500);
+  setInterval(() => { updatePlanStats(); drawScan(); updateInsTimer(); }, 500);
   setInterval(drawCostmap, 1000);
   refreshProcessStatus();
   setInterval(refreshProcessStatus, 2000);
