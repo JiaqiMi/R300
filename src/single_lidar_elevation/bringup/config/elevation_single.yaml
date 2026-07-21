@@ -1,0 +1,25 @@
+# 单雷达高程图输入/输出。
+# 架构: 前向新鲜数据 + 地图记忆补盲区（依赖低漂移里程计）。
+# 起步建议先原地慢转一圈，把周围高程图种满。
+pointcloud_channel_fusions:
+  rgb: 'color'
+  default: 'average'
+
+image_channel_fusions:
+  rgb: 'color'
+  default: 'exponential'
+
+subscribers:
+  front_lidar:
+    topic_name: '/cloud_registered_body'
+    data_type: pointcloud
+
+publishers:
+  elevation_map_raw:
+    layers: ['elevation', 'traversability']
+    basic_layers: ['elevation']
+    fps: 5.0
+  elevation_map_filter:
+    layers: ['min_filter']
+    basic_layers: ['min_filter']
+    fps: 3.0

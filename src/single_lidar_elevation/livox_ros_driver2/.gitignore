@@ -1,0 +1,4 @@
+.vscode
+build
+livox_sdk
+__pycache__

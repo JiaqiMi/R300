@@ -1,0 +1,33 @@
+common:
+    lid_topic:  "livox/lidar_192_168_1_192"   # launch 会按 lidar_ip 参数覆盖
+    imu_topic:  "livox/imu_192_168_1_192"     # launch 会按 lidar_ip 参数覆盖
+    time_sync_en: false
+    time_offset_lidar_to_imu: 0.0
+
+preprocess:
+    lidar_type: 1                # 1 = Livox 系列
+    scan_line: 4
+    blind: 0.2
+
+mapping:
+    acc_cov: 0.1
+    gyr_cov: 0.1
+    b_acc_cov: 0.0001
+    b_gyr_cov: 0.0001
+    fov_degree:    360
+    det_range:     100.0
+    extrinsic_est_en:  false
+    extrinsic_T: [ -0.011, -0.02329, 0.04412 ]   # MID-360 内置 IMU 与雷达外参（官方值）
+    extrinsic_R: [ 1, 0, 0,
+                   0, 1, 0,
+                   0, 0, 1]
+
+publish:
+    path_en:  false
+    scan_publish_en:  true
+    dense_publish_en: true
+    scan_bodyframe_pub_en: true  # 发布 /cloud_registered_body（body 系），高程图订阅它
+
+pcd_save:
+    pcd_save_en: false
+    interval: -1

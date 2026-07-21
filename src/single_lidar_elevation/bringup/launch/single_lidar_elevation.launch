@@ -1,0 +1,96 @@
+<launch>
+  <!-- ============================================================
+       单 MID-360 独立感知栈：驱动 + IMU链 + FAST-LIO + GPU高程图
+       一条 launch 即发布：
+         /livox/lidar_<IP>                     原始点云 (livox CustomMsg)
+         /cloud_registered                     配准点云 (PointCloud2, camera_init 系)
+         /cloud_registered_body                配准点云 (PointCloud2, body 系)
+         /Odometry                             里程计 (~10Hz)  /Odometry_precede (~200Hz)
+         /elevation_mapping/elevation_map_raw  高程图 (grid_map_msgs/GridMap, ~5Hz)
+       TF: odom -> camera_init -> body（无需 URDF）
+       ============================================================ -->
+
+  <!-- 雷达 IP 下划线格式，须与驱动 json 的 lidar_configs[].ip 一致 -->
+  <arg name="lidar_ip" default="192_168_1_192"/>
+  <!-- 驱动网络配置 json；换雷达/主机 IP 时可指向自己的文件，不必改包内配置 -->
+  <arg name="user_config_path" default="$(find single_lidar_elevation)/config/MID360_single.json"/>
+  <!-- 雷达安装俯仰角修正（前雷达斜装 45° 时用 -45；水平安装填 0） -->
+  <arg name="tilt_pitch_deg" default="-45.0"/>
+  <!-- 给下游导航栈补一个 body->base_link 恒等 TF（move_base 类下游默认用 base_link）。
+       注意：R300 的 1X 惯导（one_x_serial_driver）已发布 odom->base_link，
+       与其共跑时必须保持 false，否则 base_link 出现两个父帧，TF 树会抖动；
+       仅在单独台架测试且无其他 base_link TF 来源时才置 true。 -->
+  <arg name="publish_base_link_tf" default="false"/>
+  <!-- FAST-LIO 输入前裁剪：车体结构 / 随体物进入雷达视场会污染里程计（scan-to-map 配准），
+       此时在 config/crop_front.yaml 里按传感器系实测填盒后置 true。视场干净则保持 false。 -->
+  <arg name="lio_input_crop" default="false"/>
+  <arg name="rviz" default="false"/>
+
+  <!-- ==================== Livox 驱动（单雷达） ==================== -->
+  <!-- xfer_format=1: CustomMsg，FAST-LIO 需要; multi_topic=1: 话题带 IP 后缀 -->
+  <param name="xfer_format" value="1"/>
+  <param name="multi_topic" value="1"/>
+  <param name="data_src" value="0"/>
+  <param name="publish_freq" type="double" value="10.0"/>
+  <param name="output_data_type" value="0"/>
+  <param name="cmdline_str" type="string" value="100000000000000"/>
+  <param name="cmdline_file_path" type="string" value="livox_test.lvx"/>
+  <param name="user_config_path" type="string" value="$(arg user_config_path)"/>
+  <param name="frame_id" type="string" value="livox_frame"/>
+  <param name="enable_lidar_bag" type="bool" value="true"/>
+  <param name="enable_imu_bag" type="bool" value="true"/>
+  <node name="livox_lidar_publisher2" pkg="livox_ros_driver2" type="livox_ros_driver2_node"
+        required="true" output="screen"/>
+
+  <!-- ==================== IMU 姿态链 ==================== -->
+  <!-- madgwick 滤波出姿态 -> 倾角修正 -> /imu/data；同时供重力对齐用 -->
+  <node name="imu_filter" pkg="imu_filter_madgwick" type="imu_filter_node" output="screen">
+    <param name="use_mag" value="false"/>
+    <!-- 默认 true 会以 200Hz 发布无用的 odom->livox_frame TF 污染 /tf，显式关闭 -->
+    <param name="publish_tf" value="false"/>
+    <remap from="imu/data_raw" to="/livox/imu_$(arg lidar_ip)"/>
+    <remap from="imu/data" to="/livox/imu_filtered"/>
+  </node>
+  <node name="livox_imu_transform" pkg="single_lidar_elevation" type="livox_imu_transform.py" output="screen">
+    <param name="tilt_pitch_deg" value="$(arg tilt_pitch_deg)"/>
+  </node>
+
+  <!-- ==================== FAST-LIO 里程计 ==================== -->
+  <rosparam command="load" file="$(find single_lidar_elevation)/config/fastlio_mid360.yaml"/>
+  <param name="publish/path_en" type="bool" value="true"/>
+  <param name="common/lid_topic"
+         value="$(eval 'livox/lidar_front_cropped' if arg('lio_input_crop') else 'livox/lidar_' + arg('lidar_ip'))"/>
+  <param name="common/imu_topic" value="livox/imu_$(arg lidar_ip)"/>
+  <param name="feature_extract_enable" type="bool" value="0"/>
+  <param name="point_filter_num" type="int" value="3"/>
+  <param name="max_iteration" type="int" value="3"/>
+  <param name="filter_size_surf" type="double" value="0.5"/>
+  <param name="filter_size_map" type="double" value="0.5"/>
+  <param name="cube_side_length" type="double" value="1000"/>
+  <param name="runtime_pos_log_enable" type="bool" value="0"/>
+  <node pkg="fast_lio" type="fastlio_mapping" name="laserMapping" output="screen"/>
+
+  <!-- 可选：FAST-LIO 输入前裁剪（CustomMsg -> CustomMsg），见顶部 lio_input_crop 说明 -->
+  <node if="$(arg lio_input_crop)" name="front_crop" pkg="single_lidar_elevation" type="custom_msg_crop.py" output="screen">
+    <param name="input_topic" value="livox/lidar_$(arg lidar_ip)"/>
+    <param name="output_topic" value="livox/lidar_front_cropped"/>
+    <rosparam command="load" file="$(find single_lidar_elevation)/config/crop_front.yaml"/>
+  </node>
+
+  <!-- 重力对齐 odom->camera_init（等 IMU 3 秒后发布一次静态 TF） -->
+  <node name="livox_odom_transform" pkg="single_lidar_elevation" type="livox_odom_transform.py" output="screen"/>
+
+  <!-- 可选：body->base_link 恒等 TF，方便 move_base 类下游直接使用（默认关，见顶部警告） -->
+  <node if="$(arg publish_base_link_tf)" pkg="tf2_ros" type="static_transform_publisher"
+        name="body_to_base_link" args="0 0 0 0 0 0 body base_link"/>
+
+  <!-- ==================== GPU 高程图 ==================== -->
+  <node pkg="elevation_mapping_cupy" type="elevation_mapping_node" name="elevation_mapping" output="screen">
+    <rosparam command="load" file="$(find single_lidar_elevation)/config/elevation_core.yaml"/>
+    <rosparam command="load" file="$(find single_lidar_elevation)/config/elevation_single.yaml"/>
+  </node>
+
+  <!-- 可视化（包内自带配置，可随包移植） -->
+  <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz"
+        args="-d $(find single_lidar_elevation)/config/single_lidar_elevation.rviz"/>
+</launch>
