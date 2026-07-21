@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=RoadNet Studio
+Comment=无人车路网生成与编辑系统
+# ⚠️ 请把下两行的路径改为你的实际路径：
+Exec=/your/project/path/roadnet_tool/run_roadnet_studio.sh
+Path=/your/project/path/roadnet_tool
+Icon=utilities-terminal
+Terminal=true
+Categories=Development;Education;
+StartupNotify=true

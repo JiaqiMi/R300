@@ -1,0 +1,216 @@
+# ------------------------------------------------------------------
+# 道路分割默认配置文件
+# V2.4: 折线补线 + 骨架化预览 + 温和后处理
+# ------------------------------------------------------------------
+
+segment:
+  # 色彩空间模式: "hsv" / "lab" / "combined"
+  mode: "combined"
+
+  # combined 模式下的组合方式: "and"（取交集） / "or"（取并集）
+  combine_method: "and"
+
+  # 采样点邻域半径（像素）
+  sample_radius: 3
+
+  # --- HSV 模式下的容差边距（已收紧，避免过分割）---
+  h_margin: 6
+  s_margin: 25
+  v_margin: 30
+
+  # --- Lab 模式下的容差边距 ---
+  lab_margin: 12
+
+  # --- 正负样本距离分割 ---
+  # 是否启用正负样本约束（强烈建议开启）
+  use_negative_samples: true
+
+  # 正样本距离阈值：像素到正样本 Lab 颜色距离小于此值时允许判定为道路
+  positive_distance_threshold: 20
+
+  # 负样本排除边距：像素到负样本 Lab 颜色距离小于此值时强制排除
+  negative_margin: 6
+
+  # 叠加图透明度 (0.0 ~ 1.0)
+  overlay_alpha: 0.45
+
+  # 后台分块分割（超过 4096x4096 时强制使用）
+  tile_size: 1024
+  overlap: 64
+  preview_scale: 0.25
+  use_roi_only: true
+  skip_black_area: true
+  black_threshold: 10
+  min_black_component_area: 4096
+  valid_pixel_ratio_threshold: 0.10
+
+# ------------------------------------------------------------------
+# 正式道路提取参数（SAM-Road tile 推理）
+# ------------------------------------------------------------------
+extraction:
+  tile_size: 2048
+  tile_overlap: 128
+  tile_batch_size: 1
+  max_tiles: 0             # 0 = 不限
+  infer_mode: persistent_worker
+  merge_method: max
+  skip_black_tile: true
+  skip_black_ratio_threshold: 0.80
+  black_threshold: 10
+  valid_pixel_ratio_threshold: 0.10
+  resume_from_existing_tiles: true
+  debug_mode: false
+  auto_skeleton: false
+  auto_graph: false
+
+# ------------------------------------------------------------------
+# V2.4: ROI 区域限制
+# ------------------------------------------------------------------
+roi:
+  enable: true
+  save_roi: true
+
+# ------------------------------------------------------------------
+# V2.4: ignore 区域屏蔽
+# ------------------------------------------------------------------
+ignore:
+  enable: true
+  save_ignore: true
+
+# ------------------------------------------------------------------
+# V2.4: 人工编辑 mask
+# ------------------------------------------------------------------
+edit:
+  enable: true
+  brush_radius: 3
+  max_undo_steps: 20
+
+# ------------------------------------------------------------------
+# V2.4: 折线补线
+# ------------------------------------------------------------------
+repair:
+  enable: true
+  # 折线补线的默认道路宽度（像素）
+  road_width: 25
+
+# ------------------------------------------------------------------
+# V2.5: 后处理增强（稳健参数 — 防止城市小区大面积误填）
+# ------------------------------------------------------------------
+# 城市小区、校园、园区影像建议先用 Ignore 删除：
+#   1. 大草坪  2. 建筑屋顶  3. 水体  4. 大停车场铺装区  5. 不参与路径规划的内部区域
+# ------------------------------------------------------------------
+postprocess:
+  enable: true
+  # threshold: SAM-Road 原始 mask 二值化阈值（0-255，越大越保守）
+  # ★ 与「SAM-Road Mask 后处理」窗口比赛默认对齐
+  threshold: 240
+  # blur: 预处理高斯模糊核大小（0 表示关闭）
+  blur: 3
+  # 开运算：去除小噪声和细小毛刺
+  open_kernel_size: 3
+  # 闭运算：连接小断裂（城市密集区建议 3~5，>=9 有风险）
+  close_kernel_size: 5
+  # 孔洞填充：★ 默认关闭全局填充
+  fill_holes: false
+  # 只填充面积 <= max_hole_area 的小孔洞（默认关闭）
+  fill_small_holes: false
+  # 小孔洞面积上限（像素）
+  max_hole_area: 500
+  # 连通域筛选：删除小于此面积的区域
+  min_area: 500
+  # 保留最大的前 N 个连通域
+  keep_largest_components: 10
+  # 边界平滑（高斯滤波+二值化核大小，设为 0 关闭）
+  smooth_kernel_size: 0
+  # 删除细长孤立误检区域
+  remove_thin_noise: true
+  # === 面积异常检测阈值 ===
+  # road_mask_area_ratio > 此值时触发警告（0.25 表示 25%）
+  max_road_ratio_warn: 0.25
+  # largest_component_area_ratio > 此值时触发警告
+  max_largest_ratio_warn: 0.10
+  # fill_added_area_ratio > 此值时触发警告
+  max_fill_added_ratio_warn: 0.05
+
+# ------------------------------------------------------------------
+# SAM-Road Mask 后处理窗口（比赛固定默认；打开窗口时优先这组）
+# 用户仅在窗口内点击「保存为默认参数」后才会持久化覆盖。
+# ------------------------------------------------------------------
+samroad_mask_postprocess:
+  threshold: 240
+  blur: 3
+  close: 5
+  open: 3
+  min_area: 500
+  fill_holes: false
+  use_roi: true
+  use_ignore: true
+
+# ------------------------------------------------------------------
+# V3.1: 骨架化预览 + 优化
+# ------------------------------------------------------------------
+skeleton:
+  enable: true
+  # 骨架化方法: "skeletonize"（推荐，单像素） 或 "medial_axis"
+  method: "skeletonize"
+  # 最短保留分支长度（像素）— 小于此长度的毛刺会被删除
+  min_branch_length: 20
+  # 最小中心距离：distance_transform < 此值的骨架点被删除（避免贴着边）
+  min_center_dist: 2.0
+  # 边界边距：图像边界此像素范围内的骨架点被删除
+  border_margin: 10
+  # 断点自动连接：最大连接距离（像素）
+  max_connect_dist: 25
+  # 断点自动连接：最大方向夹角（角度）
+  max_connect_angle: 45
+  # 断点自动连接：连线经过 road mask 的最小比例
+  min_line_mask_overlap: 0.65
+
+# ------------------------------------------------------------------
+# V3.1: Draft graph 提取
+# ------------------------------------------------------------------
+graph:
+  junction_cluster_radius: 10
+  endpoint_merge_distance: 12
+  endpoint_connect_distance: 25
+  node_merge_distance: 8
+  min_edge_length: 8
+  prune_length: 15
+  rdp_epsilon: 2.0
+  enable_short_edge_filter: true
+  enable_prune: true
+  enable_graph_line_optimizer: false
+
+# ------------------------------------------------------------------
+# V2.4: 可视化参数
+# ------------------------------------------------------------------
+visualization:
+  overlay_alpha: 0.45
+  save_intermediate: true
+  planned_path_width: 5.0
+  arrow_spacing_px: 80.0
+  arrow_size_px: 12.0
+
+# ------------------------------------------------------------------
+# Adaptive vehicle waypoint export.  Dense planned paths remain available
+# for debugging; the vehicle-facing YAML/CSV use these sparse spacings.
+# ------------------------------------------------------------------
+waypoints:
+  straight_spacing_m: 10.0
+  curve_spacing_m: 2.0
+  sharp_turn_spacing_m: 2.0
+  intersection_spacing_m: 2.0
+  task_point_spacing_m: 2.0
+  corner_angle_threshold_deg: 15.0
+  sharp_turn_angle_threshold_deg: 35.0
+  corner_buffer_m: 5.0
+  intersection_buffer_m: 8.0
+  task_point_buffer_m: 5.0
+  min_waypoint_spacing_m: 1.0
+  max_waypoint_spacing_m: 12.0
+  hard_fail_spacing_m: 20.0
+  allow_long_straight: false
+  max_chord_error_m: 1.0
+  min_mask_support_ratio: 0.75
+  max_insert_iterations: 6
+  dense_densify_step_m: 0.5

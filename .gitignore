@@ -1,68 +1,51 @@
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
-.pytest_cache/
-.mypy_cache/
-
-# Python virtual environments
-venv/
 .venv/
+venv/
 env/
-.env/
+*.egg-info/
 
-# ROS runtime files
-*.bag
-*.bag.active
-*.bag.orig
-*.log
-.ros/
-
-# Catkin build output
-build/
-devel/
-install/
-logs/
-.catkin_tools/
-
-# Ultralytics output
-runs/
-wandb/
-
-# Recorded images and videos
-*.mp4
-*.avi
-*.mkv
-*.mov
-
-# TensorRT engines are machine/platform dependent
-*.engine
-*.trt
-
-# Temporary files
-*.tmp
-*.swp
-*~
-.DS_Store
-
-# IDE local configuration
+# IDE
 .vscode/
 .idea/
 
-# Core dumps
-core
-core.*
+# Outputs / cache
+outputs/
+output/
+runs/
+logs/
+temp/
+tmp/
+cache/
 
-# Local credentials and secrets
-*.key
-*.pem
-*.token
-credentials.*
+# Model files
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.engine
+*.weights
 
-# Big Files
-*.stl
-*.tar.gz
-*.pdf
+# Media / archives
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.zip
+*.rar
+*.7z
 
-src/R300/r300_1x_navigation/scripts/one_key/subject1_blank_map.pgm
+# Generated RoadNet files
+dense_path.csv
+dense_path_labeled.csv
+vehicle_waypoints.csv
+vehicle_waypoints_repaired.csv
+subject1_waypoints.yaml
+waypoint_validation_report.json
+waypoint_repair_report.json
+bad_waypoint_segments.csv
+processed_mask.png
+road_mask.png

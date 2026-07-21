@@ -1,0 +1,5 @@
+# GCP 三点校准坐标示例 — CSV 格式
+point_name,lon,lat
+top_left,105.123456,38.123456
+top_right,105.124456,38.123456
+bottom_left,105.123456,38.122456

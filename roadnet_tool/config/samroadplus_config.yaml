@@ -1,0 +1,16 @@
+samroadplus:
+  model_type: samroadplus_portable
+  project_dir: D:/samroadplus_portable_infer
+  python_exe: C:/Users/小马/.conda/envs/samroad/python.exe
+  infer_script: D:/samroadplus_portable_infer/infer.py
+  config_file: D:/samroadplus_portable_infer/config.yaml
+  model_ckpt: D:/samroadplus_portable_infer/model_state_dict.pth
+  sam_backbone_ckpt: ''
+  output_dir: D:/road_zy/roadnet_tool/outputs/samroadplus_runs/samroadplus_006_20260714_154122
+  device: cuda
+  auto_import_after_run: true
+  ignore_graph: true
+  inference_mode: auto
+  tile_size: 1024
+  overlap: 128
+  skip_black_tile: true

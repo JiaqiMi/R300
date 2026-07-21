@@ -1,0 +1,18 @@
+samroad_single:
+  auto_import_after_run: true
+  black_threshold: 10
+  config_path: D:/sam_road_single_image_share/config/toponet_vitb_256_spacenet_4060_night.yaml
+  device: cuda
+  dry_run: false
+  infer_script: D:/sam_road_single_image_share/infer_single.py
+  inference_mode: auto
+  mask_only_partial_load: false
+  merge_method: max
+  overlap: 128
+  project_dir: D:/sam_road_single_image_share
+  python_executable: C:/Users/小马/.conda/envs/samroad/python.exe
+  sam_backbone_ckpt_path: D:/sam_road_single_image_share/sam_ckpts/sam_vit_b_01ec64.pth
+  samroad_model_ckpt_path: D:/sam_road_single_image_share/checkpoints/epoch=1-step=5292.ckpt
+  skip_black_tile: true
+  tile_size: 1024
+  valid_pixel_ratio_threshold: 0.1

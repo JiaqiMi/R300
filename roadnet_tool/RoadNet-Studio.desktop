@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=RoadNet Studio
+Name[zh_CN]=RoadNet Studio
+Comment=无人车路网生成与编辑系统
+Comment[zh_CN]=无人车路网生成与编辑系统
+Exec=/media/aaa/ForUbuntu/zy_samroad_workspace/codes/sam_road/run_roadnet_studio.sh
+Path=/media/aaa/ForUbuntu/zy_samroad_workspace/codes/sam_road
+Icon=utilities-terminal
+Terminal=true
+Categories=Development;Education;Science;
+StartupNotify=true

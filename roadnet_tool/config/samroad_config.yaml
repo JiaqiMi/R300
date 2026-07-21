@@ -1,0 +1,14 @@
+samroad:
+  auto_import_after_run: true
+  bridge_script: samroad_bridge/run_samroad_bridge.py
+  config_file: D:/sam_road_single_image_share/config/toponet_vitb_256_spacenet_4060_night.yaml
+  device: cuda
+  dry_run: false
+  mask_only_partial_load: false
+  overlap: 128
+  project_dir: D:/sam_road_single_image_share
+  python_executable: C:/Users/小马/.conda/envs/samroad/python.exe
+  run_mode: bridge
+  sam_backbone_ckpt_path: D:/sam_road_single_image_share/sam_ckpts/sam_vit_b_01ec64.pth
+  samroad_model_ckpt_path: D:/sam_road_single_image_share/checkpoints/epoch=1-step=5292.ckpt
+  tile_size: 1024

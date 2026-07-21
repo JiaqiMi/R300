@@ -1,0 +1,8 @@
+{
+  "control_points": [
+    {"name": "top_left",     "lon": 105.123456, "lat": 38.123456},
+    {"name": "top_right",    "lon": 105.124456, "lat": 38.123456},
+    {"name": "bottom_left",  "lon": 105.123456, "lat": 38.122456},
+    {"name": "bottom_right", "lon": 105.124456, "lat": 38.122456}
+  ]
+}
