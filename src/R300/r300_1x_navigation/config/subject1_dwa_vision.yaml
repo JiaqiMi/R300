@@ -28,7 +28,7 @@ DWAPlannerROS:
   yaw_goal_tolerance: 3.14
 
 
-  trans_stopped_vel: 0.1
+  trans_stopped_vel: 0.16
   theta_stopped_vel: 0.08
 
   # ---------------- 轨迹预测 ----------------

@@ -50,45 +50,45 @@
 #       longitude_deg: 117.3430605
 #       altitude_m: 21.741   
 
-#     - name: wp_10
-#       latitude_deg: 38.9880623
-#       longitude_deg: 117.3430631
-#       altitude_m: 21.741   
+    # - name: wp_10
+    #   latitude_deg: 38.9880623
+    #   longitude_deg: 117.3430631
+    #   altitude_m: 21.741   
 
-#     - name: wp_11
-#       latitude_deg: 38.9877887
-#       longitude_deg: 117.3430600
-#       altitude_m: 21.741
+    # - name: wp_11
+    #   latitude_deg: 38.9877887
+    #   longitude_deg: 117.3430600
+    #   altitude_m: 21.741
 
-#     - name: wp_12
-#       latitude_deg: 38.9876096
-#       longitude_deg: 117.3430388
-#       altitude_m: 21.741
+    # - name: wp_12
+    #   latitude_deg: 38.9876096
+    #   longitude_deg: 117.3430388
+    #   altitude_m: 21.741
 
-#     - name: wp_13
-#       latitude_deg: 38.9873128
-#       longitude_deg: 117.3430101
-#       altitude_m: 21.741
+    # - name: wp_13
+    #   latitude_deg: 38.9873128
+    #   longitude_deg: 117.3430101
+    #   altitude_m: 21.741
 
-#     - name: wp_14
-#       latitude_deg: 38.9871324
-#       longitude_deg: 117.3429775
-#       altitude_m: 21.741
+    # - name: wp_14
+    #   latitude_deg: 38.9871324
+    #   longitude_deg: 117.3429775
+    #   altitude_m: 21.741
 
-#     - name: wp_15
-#       latitude_deg: 38.9869733
-#       longitude_deg: 117.3429644
-#       altitude_m: 21.741
+    # - name: wp_15
+    #   latitude_deg: 38.9869733
+    #   longitude_deg: 117.3429644
+    #   altitude_m: 21.741
 
-#     - name: wp_16
-#       latitude_deg: 38.9868009
-#       longitude_deg: 117.3429523
-#       altitude_m: 21.741
+    # - name: wp_16
+    #   latitude_deg: 38.9868009
+    #   longitude_deg: 117.3429523
+    #   altitude_m: 21.741
     
-#     - name: wp_17
-#       latitude_deg: 38.9866702
-#       longitude_deg: 117.3429326
-#       altitude_m: 21.741
+    # - name: wp_17
+    #   latitude_deg: 38.9866702
+    #   longitude_deg: 117.3429326
+    #   altitude_m: 21.741
 
 
 # 科目一多航点列表。
