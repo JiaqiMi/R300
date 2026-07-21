@@ -91,6 +91,8 @@ fi
 cat <<EOF
 [INFO] 启动 R300 DWA Web 仿真实验台
 [INFO] 本模式不启动惯导、GPS、相机、YOLO或底盘。
+[INFO] move_base直接加载实车视觉导航使用的DWA与local costmap参数文件。
+[INFO] Web支持常用参数调节、多点目标、人工视觉障碍和YAML/JSON导出。
 [INFO] Web监听地址：$HOST:$PORT
 [INFO] 自动识别工控机IP：$ACCESS_IP
 
