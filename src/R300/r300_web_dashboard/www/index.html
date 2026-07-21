@@ -95,6 +95,27 @@
       </div>
     </section>
 
+
+
+    <section class="card ins-card">
+      <div class="card-title">
+        <h2>惯导 / GPS 对准状态</h2>
+        <span id="insPanelStatus">等待 /one_x/gps_fix、/one_x/ins_status ...</span>
+      </div>
+      <div class="kv"><span>GPS接收</span><b id="insGpsValid">--</b></div>
+      <div class="kv"><span>GPS经纬高</span><b id="insGpsLla">--</b></div>
+      <div class="kv"><span>GPS有效计时</span><b id="insGpsTimer">--</b></div>
+      <div class="kv"><span>工作状态</span><b id="insWorkState">--</b></div>
+      <div class="kv"><span>导航模式</span><b id="insNavMode">--</b></div>
+      <div class="kv"><span>位置/速度参考</span><b id="insRefMode">--</b></div>
+      <div class="kv"><span>INS有效 / 故障</span><b id="insHealth">--</b></div>
+      <div class="node-actions ins-actions">
+        <button class="danger" onclick="sendInsResetCommand()">惯导复位 / 重新对准</button>
+        <span id="insResetState" class="proc-state">仅通过 ROSBridge 发送命令，不改串口驱动</span>
+      </div>
+      <pre id="insStatusRaw">等待惯导状态...</pre>
+    </section>
+
     <section class="card control-card">
       <div class="card-title"><h2>航点控制</h2><span>不直接抢 /cmd_vel</span></div>
       <div class="buttons">

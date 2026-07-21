@@ -534,3 +534,52 @@ footer { display: flex; justify-content: space-between; gap: 10px; padding: 10px
     min-height: 480px !important;
   }
 }
+
+
+/* =========================================================
+ * v15 INS panel: 只改 Web 前端，保持 config/端口/后端不变。
+ * 读取 /one_x/gps_fix、/one_x/fix、/one_x/ins_status。
+ * 复位按钮仅通过 ROSBridge 向 /one_x/command_hex 发布 std_msgs/String。
+ * ========================================================= */
+.ins-card {
+  min-height: 360px !important;
+  overflow: visible !important;
+}
+.ins-card .kv b {
+  max-width: 72% !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+.ins-actions {
+  margin-top: 12px !important;
+}
+.ins-actions button.danger {
+  grid-column: auto !important;
+  min-width: 190px !important;
+}
+#insStatusRaw {
+  margin-top: 10px !important;
+  min-height: 105px !important;
+  max-height: 180px !important;
+  white-space: pre-wrap !important;
+}
+#insPanelStatus {
+  max-width: 55% !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+@media (min-width: 1501px) {
+  .status-card { grid-column: 2 !important; grid-row: 2 !important; }
+  .ins-card { grid-column: 2 !important; grid-row: 3 !important; }
+  .scan-card { grid-column: 2 !important; grid-row: 4 !important; }
+  .control-card { grid-column: 1 !important; grid-row: 5 !important; }
+  .detection-card { grid-column: 2 !important; grid-row: 5 !important; }
+}
+
+@media (max-width: 1500px) {
+  .ins-card {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+}
