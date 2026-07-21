@@ -1,27 +1,14 @@
 {
-  "rosbridge": {
-    "host": "auto",
-    "port": 9090
-  },
-  "video": {
-    "host": "auto",
-    "port": 8080,
-    "topic": "/r300_vision/annotated_image",
-    "quality": 30,
-    "width": 640,
-    "height": 480
-  },
+  "rosbridge": {"host": "192.168.30.10", "port": 9090},
+  "video": {"host": "192.168.30.10", "port": 8080, "topic": "/r300_vision/annotated_image", "quality": 15, "width": 480, "height": 360},
   "satellite_map": {
     "enabled": true,
     "fix_topic": "/one_x/fix",
     "tile_url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     "attribution": "Tiles © Esri",
-    "default_center": [
-      38.9866,
-      117.3418
-    ],
+    "default_center": [38.9866, 117.3418],
     "default_zoom": 18,
-    "min_distance_m": 0.2
+    "min_distance_m": 0.20
   },
   "topics": {
     "odom": "/one_x/odom",

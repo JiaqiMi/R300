@@ -59,8 +59,8 @@
 
     <section class="card scan-card">
       <div class="card-title">
-        <h2>雷达 / 视觉障碍统计</h2>
-        <span id="scanInfo">等待雷达/视觉障碍数据</span>
+        <h2>激光 / 视觉障碍俯视图</h2>
+        <span id="scanInfo">等待 /scan</span>
       </div>
       <canvas id="scanCanvas" width="760" height="520"></canvas>
       <div class="toolbar">

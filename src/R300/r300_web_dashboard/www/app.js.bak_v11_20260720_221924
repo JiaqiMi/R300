@@ -497,26 +497,24 @@ function drawRobotArrow(ctx, x, y, canvasYaw, size, fill, stroke) {
 }
 
 function drawScan() {
-  // v11：保留雷达/视觉障碍统计，不绘制雷达大图，减轻浏览器压力。
+  const c = $("scanCanvas"), ctx = c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.fillStyle = "#031207"; ctx.fillRect(0,0,c.width,c.height);
+  const origin = {x: c.width/2, y: c.height*0.77};
+  const meters = 12.0;
+  const scale = Math.min(c.width, c.height) * 0.42 / meters;
+
+  ctx.save(); applyView(ctx, "scanCanvas");
+  drawGrid(ctx, c, origin, scale, meters);
+  if ($("showScanRaw").checked) drawLaser(ctx, scanData, origin, scale, "#ff3b1f", 1.5);
+  if ($("showScanVision").checked) drawLaser(ctx, visionScanData, origin, scale, "#f6d33b", 2.8);
+  if ($("showScanActive").checked) drawLaser(ctx, activeVisionScanData, origin, scale, "#a8f02a", 3.0);
+  drawRobotArrow(ctx, origin.x, origin.y, -Math.PI/2, 24, "#a8f02a", "#f2ffd2");
+  ctx.restore();
+  drawHint(ctx, "scanCanvas");
   const rawN = scanData && scanData.ranges ? scanData.ranges.length : 0;
-  const rawFinite = countFiniteScan(scanData);
-  const visionFinite = countFiniteScan(visionScanData);
-  const activeFinite = countFiniteScan(activeVisionScanData);
-
-  let nearest = Infinity;
-  [scanData, visionScanData, activeVisionScanData].forEach(scan => {
-    if (!scan || !scan.ranges) return;
-    for (const r of scan.ranges) {
-      if (Number.isFinite(r) && r >= scan.range_min && r <= scan.range_max && r < nearest) nearest = r;
-    }
-  });
-  const nearestText = Number.isFinite(nearest) ? `${fmt(nearest, 2)} m` : "--";
-
-  if ($("scanInfo")) {
-    $("scanInfo").textContent = rawN
-      ? `/scan beams=${rawN}, finite=${rawFinite}, vision=${visionFinite}, active=${activeFinite}, nearest=${nearestText}`
-      : `等待 /scan，vision=${visionFinite}, active=${activeFinite}, nearest=${nearestText}`;
-  }
+  const finite = countFiniteScan(scanData);
+  $("scanInfo").textContent = rawN ? `/scan beams=${rawN}, finite=${finite}, zoom=${viewState.scanCanvas.scale.toFixed(2)}x` : "等待 /scan ...";
 }
 
 function drawGrid(ctx, canvas, origin, scale, meters) {

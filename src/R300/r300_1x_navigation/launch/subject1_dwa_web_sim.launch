@@ -66,6 +66,10 @@
     <param name="max_w" value="$(arg sim_max_w)"/>
     <param name="acc_lim_v" value="$(arg sim_acc_lim_v)"/>
     <param name="acc_lim_w" value="$(arg sim_acc_lim_w)"/>
+    <!-- Web仿真不维护第二套运动上限，自动跟随视觉导航DWA运行参数。 -->
+    <param name="sync_limits_from_dwa" value="true"/>
+    <param name="dwa_param_ns" value="/move_base/DWAPlannerROS"/>
+    <param name="limit_sync_period_s" value="0.5"/>
     <param name="tau_v" value="$(arg sim_tau_v)"/>
     <param name="tau_w" value="$(arg sim_tau_w)"/>
     <param name="pos_noise_std" value="$(arg pos_noise_std)"/>
@@ -107,6 +111,10 @@
     <param name="goal_frame" value="$(arg map_frame)"/>
     <param name="odom_topic" value="$(arg raw_odom_topic)"/>
     <param name="cmd_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="dwa_dynamic_server" value="/move_base/DWAPlannerROS"/>
+    <param name="move_base_dynamic_server" value="/move_base"/>
+    <param name="local_costmap_dynamic_server" value="/move_base/local_costmap"/>
+    <param name="inflation_dynamic_server" value="/move_base/local_costmap/inflation_layer"/>
     <param name="enable_synthetic_scan" value="true"/>
     <param name="scan_topic" value="/r300_vision/obstacle_scan"/>
     <param name="scan_rate_hz" value="10.0"/>

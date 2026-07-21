@@ -56,6 +56,20 @@ class SimR300OdomNode(object):
         self.acc_lim_v = float(rospy.get_param("~acc_lim_v", 0.8))
         self.acc_lim_w = float(rospy.get_param("~acc_lim_w", 1.2))
 
+        # Keep the lightweight simulator consistent with the same DWA runtime
+        # parameters loaded by visual navigation.  This avoids maintaining a
+        # second set of speed/acceleration limits for Web simulation.
+        self.sync_limits_from_dwa = bool(rospy.get_param(
+            "~sync_limits_from_dwa", True
+        ))
+        self.dwa_param_ns = str(rospy.get_param(
+            "~dwa_param_ns", "/move_base/DWAPlannerROS"
+        )).rstrip("/")
+        self.limit_sync_period_s = max(0.1, float(rospy.get_param(
+            "~limit_sync_period_s", 0.5
+        )))
+        self.last_limit_sync = rospy.Time(0)
+
         # First-order response time constants. Larger value = slower response.
         self.tau_v = float(rospy.get_param("~tau_v", 0.20))
         self.tau_w = float(rospy.get_param("~tau_w", 0.15))
@@ -115,6 +129,37 @@ class SimR300OdomNode(object):
             "rate=%.1fHz max_v=%.2f max_w=%.2f",
             self.cmd_topic, self.nav_odom_topic, self.truth_odom_topic,
             self.rate_hz, self.max_v, self.max_w)
+
+
+    def sync_dwa_limits(self):
+        """Mirror speed/acceleration limits from the live DWA configuration."""
+        if not self.sync_limits_from_dwa:
+            return
+        now = rospy.Time.now()
+        if (now - self.last_limit_sync).to_sec() < self.limit_sync_period_s:
+            return
+        self.last_limit_sync = now
+        try:
+            max_v = float(rospy.get_param(
+                self.dwa_param_ns + "/max_vel_x", self.max_v
+            ))
+            max_w = float(rospy.get_param(
+                self.dwa_param_ns + "/max_vel_theta", self.max_w
+            ))
+            acc_v = float(rospy.get_param(
+                self.dwa_param_ns + "/acc_lim_x", self.acc_lim_v
+            ))
+            acc_w = float(rospy.get_param(
+                self.dwa_param_ns + "/acc_lim_theta", self.acc_lim_w
+            ))
+            self.max_v = max(0.0, abs(max_v))
+            self.max_w = max(0.0, abs(max_w))
+            self.acc_lim_v = max(0.0, abs(acc_v))
+            self.acc_lim_w = max(0.0, abs(acc_w))
+        except (TypeError, ValueError, rospy.ROSException) as exc:
+            rospy.logwarn_throttle(
+                2.0, "failed to sync DWA limits into simulator: %s", exc
+            )
 
     def cmd_cb(self, msg):
         with self.lock:
@@ -244,6 +289,8 @@ class SimR300OdomNode(object):
 
             if dt <= 0.0 or dt > 0.2:
                 dt = 1.0 / self.rate_hz
+
+            self.sync_dwa_limits()
 
             with self.lock:
                 self.update_vehicle(dt)

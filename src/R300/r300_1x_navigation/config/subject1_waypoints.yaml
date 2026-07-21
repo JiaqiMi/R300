@@ -1,298 +1,684 @@
-# 科目一多航点列表。
-# 第一次测试只保留 1 个航点，距离起点 3~5 m。
-# 确认方向、定位、避障正常后，再逐渐增加航点。
+# # 科目一多航点列表。
+# # 第一次测试只保留 1 个航点，距离起点 3~5 m。
+# # 确认方向、定位、避障正常后，再逐渐增加航点。
 
 
 # subject1_waypoints:
 #   waypoints:    
+#     - name: wp_01
+#       latitude_deg: 38.9866702
+#       longitude_deg: 117.3429326
+#       altitude_m: 21.741
+
 #     - name: wp_02
-#       latitude_deg: 38.9866743
-#       longitude_deg: 117.34292644
+#       latitude_deg: 38.9868009
+#       longitude_deg: 117.3429523
 #       altitude_m: 21.741
   
 #     - name: wp_03
-#       latitude_deg: 38.98704746
-#       longitude_deg: 117.34297782
+#       latitude_deg: 38.9869733
+#       longitude_deg: 117.3429644
 #       altitude_m: 21.741
     
 #     - name: wp_04
-#       latitude_deg: 38.9866743
-#       longitude_deg: 117.34292644
+#       latitude_deg: 38.9871324
+#       longitude_deg: 117.3429775
 #       altitude_m: 21.741
 
 #     - name: wp_05
-#       latitude_deg: 38.9866498299
-#       longitude_deg: 117.3427974
+#       latitude_deg: 38.9873128
+#       longitude_deg: 117.3430101
 #       altitude_m: 21.741
+
+#     - name: wp_06
+#       latitude_deg: 38.9876096
+#       longitude_deg: 117.3430388
+#       altitude_m: 21.741
+
+#     - name: wp_07
+#       latitude_deg: 38.9877887
+#       longitude_deg: 117.3430600
+#       altitude_m: 21.741
+
+#     - name: wp_08
+#       latitude_deg: 38.9880623
+#       longitude_deg: 117.3430631
+#       altitude_m: 21.741
+
+#     - name: wp_09
+#       latitude_deg: 38.9881896
+#       longitude_deg: 117.3430605
+#       altitude_m: 21.741   
+
+#     - name: wp_10
+#       latitude_deg: 38.9880623
+#       longitude_deg: 117.3430631
+#       altitude_m: 21.741   
+
+#     - name: wp_11
+#       latitude_deg: 38.9877887
+#       longitude_deg: 117.3430600
+#       altitude_m: 21.741
+
+#     - name: wp_12
+#       latitude_deg: 38.9876096
+#       longitude_deg: 117.3430388
+#       altitude_m: 21.741
+
+#     - name: wp_13
+#       latitude_deg: 38.9873128
+#       longitude_deg: 117.3430101
+#       altitude_m: 21.741
+
+#     - name: wp_14
+#       latitude_deg: 38.9871324
+#       longitude_deg: 117.3429775
+#       altitude_m: 21.741
+
+#     - name: wp_15
+#       latitude_deg: 38.9869733
+#       longitude_deg: 117.3429644
+#       altitude_m: 21.741
+
+#     - name: wp_16
+#       latitude_deg: 38.9868009
+#       longitude_deg: 117.3429523
+#       altitude_m: 21.741
+    
+#     - name: wp_17
+#       latitude_deg: 38.9866702
+#       longitude_deg: 117.3429326
+#       altitude_m: 21.741
+
+
+# 科目一多航点列表。
+# 由原始步行轨迹筛选生成：直线路段约 20 m 一个点，拐弯区域适当加密。
+# 保持原始记录的第一个点为起点，未调整起点位置。
+
 
 subject1_waypoints:
   waypoints:
     - name: wp_01
-      latitude_deg: 38.98659073
-      longitude_deg: 117.34289928
-      altitude_m: 0.000
+      latitude_deg: 38.98837147280574
+      longitude_deg: 117.34256937168539
+      altitude_m: -4.975
 
     - name: wp_02
-      latitude_deg: 38.98730941
-      longitude_deg: 117.34295775
-      altitude_m: 0.000
+      latitude_deg: 38.98837130516768
+      longitude_deg: 117.34234188683331
+      altitude_m: -4.963
 
     - name: wp_03
-      latitude_deg: 38.98753334
-      longitude_deg: 117.34299995
-      altitude_m: 0.000
+      latitude_deg: 38.98838555440307
+      longitude_deg: 117.34212261624634
+      altitude_m: -4.615
 
     - name: wp_04
-      latitude_deg: 38.98777888
-      longitude_deg: 117.34300972
-      altitude_m: 0.000
+      latitude_deg: 38.98840902373195
+      longitude_deg: 117.34189471229911
+      altitude_m: -3.907
 
     - name: wp_05
-      latitude_deg: 38.98829935
-      longitude_deg: 117.34297035
-      altitude_m: 0.000
+      latitude_deg: 38.9884284697473
+      longitude_deg: 117.34165205620229
+      altitude_m: -3.276
 
     - name: wp_06
-      latitude_deg: 38.98799949
-      longitude_deg: 117.34299304
-      altitude_m: 0.000
+      latitude_deg: 38.98844171315432
+      longitude_deg: 117.34143781475723
+      altitude_m: -2.816
 
     - name: wp_07
-      latitude_deg: 38.98829935
-      longitude_deg: 117.34297035
-      altitude_m: 0.000
+      latitude_deg: 38.98845587857068
+      longitude_deg: 117.34119490720332
+      altitude_m: -2.182
 
     - name: wp_08
-      latitude_deg: 38.98834706
-      longitude_deg: 117.34266587
-      altitude_m: 0.000
+      latitude_deg: 38.98845906369388
+      longitude_deg: 117.34096708707511
+      altitude_m: -1.212
 
     - name: wp_09
-      latitude_deg: 38.98843771
-      longitude_deg: 117.34106610
-      altitude_m: 0.000
+      latitude_deg: 38.98847607895732
+      longitude_deg: 117.34073733910918
+      altitude_m: -0.237
 
     - name: wp_10
-      latitude_deg: 38.98845314
-      longitude_deg: 117.34081224
-      altitude_m: 0.000
+      latitude_deg: 38.98850491270423
+      longitude_deg: 117.34050633385777
+      altitude_m: 0.172
 
     - name: wp_11
-      latitude_deg: 38.98848001
-      longitude_deg: 117.34037002
-      altitude_m: 0.000
+      latitude_deg: 38.98850491270423
+      longitude_deg: 117.34029117040336
+      altitude_m: 0.603
 
     - name: wp_12
-      latitude_deg: 38.98851140
-      longitude_deg: 117.34015052
-      altitude_m: 0.000
+      latitude_deg: 38.98853223770857
+      longitude_deg: 117.34004859812558
+      altitude_m: 1.502
 
     - name: wp_13
-      latitude_deg: 38.98851574
-      longitude_deg: 117.33967069
-      altitude_m: 0.000
+      latitude_deg: 38.98854481056333
+      longitude_deg: 117.33981180936098
+      altitude_m: 1.706
 
     - name: wp_14
-      latitude_deg: 38.98854665
-      longitude_deg: 117.33923287
-      altitude_m: 0.000
+      latitude_deg: 38.98853290826082
+      longitude_deg: 117.33958893455565
+      altitude_m: 2.366
 
     - name: wp_15
-      latitude_deg: 38.98854815
-      longitude_deg: 117.33867251
-      altitude_m: 0.000
+      latitude_deg: 38.98857632651925
+      longitude_deg: 117.33936396427453
+      altitude_m: 2.957
 
     - name: wp_16
-      latitude_deg: 38.98809457
-      longitude_deg: 117.33859038
-      altitude_m: 0.000
+      latitude_deg: 38.98859384469688
+      longitude_deg: 117.33914519660175
+      altitude_m: 3.291
 
     - name: wp_17
-      latitude_deg: 38.98747090
-      longitude_deg: 117.33853074
-      altitude_m: 0.000
+      latitude_deg: 38.98860792629421
+      longitude_deg: 117.33898133039474
+      altitude_m: 3.576
 
     - name: wp_18
-      latitude_deg: 38.98632976
-      longitude_deg: 117.33842162
-      altitude_m: 0.000
+      latitude_deg: 38.98861513473094
+      longitude_deg: 117.33889910392463
+      altitude_m: 3.605
 
     - name: wp_19
-      latitude_deg: 38.98562631
-      longitude_deg: 117.33836264
-      altitude_m: 0.000
+      latitude_deg: 38.98861337453127
+      longitude_deg: 117.33881805092096
+      altitude_m: 3.701
 
     - name: wp_20
-      latitude_deg: 38.98562631
-      longitude_deg: 117.33836264
-      altitude_m: 0.000
+      latitude_deg: 38.98860440589488
+      longitude_deg: 117.33877974562347
+      altitude_m: 3.82
 
     - name: wp_21
-      latitude_deg: 38.98562631
-      longitude_deg: 117.33836264
-      altitude_m: 0.000
+      latitude_deg: 38.98855880834162
+      longitude_deg: 117.33870816417038
+      altitude_m: 4.094
 
     - name: wp_22
-      latitude_deg: 38.98486884
-      longitude_deg: 117.33826669
-      altitude_m: 0.000
+      latitude_deg: 38.98854296654463
+      longitude_deg: 117.33869793824852
+      altitude_m: 4.16
 
     - name: wp_23
-      latitude_deg: 38.98477738
-      longitude_deg: 117.33821398
-      altitude_m: 0.000
+      latitude_deg: 38.98845889605582
+      longitude_deg: 117.33867245726287
+      altitude_m: 4.33
 
     - name: wp_24
-      latitude_deg: 38.98461912
-      longitude_deg: 117.33823646
-      altitude_m: 0.000
+      latitude_deg: 38.98836778476834
+      longitude_deg: 117.3386484850198
+      altitude_m: 4.357
 
     - name: wp_25
-      latitude_deg: 38.98461912
-      longitude_deg: 117.33823646
-      altitude_m: 0.000
+      latitude_deg: 38.9882040861994
+      longitude_deg: 117.33861328102648
+      altitude_m: 4.596
 
     - name: wp_26
-      latitude_deg: 38.98461912
-      longitude_deg: 117.33823646
-      altitude_m: 0.000
+      latitude_deg: 38.98801574483514
+      longitude_deg: 117.33859886415303
+      altitude_m: 4.828
 
     - name: wp_27
-      latitude_deg: 38.98421156
-      longitude_deg: 117.33818479
-      altitude_m: 0.000
+      latitude_deg: 38.98783234879375
+      longitude_deg: 117.33855259604752
+      altitude_m: 4.451
 
     - name: wp_28
-      latitude_deg: 38.98398039
-      longitude_deg: 117.33823968
-      altitude_m: 0.000
+      latitude_deg: 38.98766973987222
+      longitude_deg: 117.33852518722415
+      altitude_m: 4.193
 
     - name: wp_29
-      latitude_deg: 38.98388318
-      longitude_deg: 117.33831264
-      altitude_m: 0.000
+      latitude_deg: 38.98747100494802
+      longitude_deg: 117.33850942924619
+      altitude_m: 4.424
 
     - name: wp_30
-      latitude_deg: 38.98379014
-      longitude_deg: 117.33844451
-      altitude_m: 0.000
+      latitude_deg: 38.98730034939945
+      longitude_deg: 117.33849132433534
+      altitude_m: 4.222
 
     - name: wp_31
-      latitude_deg: 38.98369743
-      longitude_deg: 117.33874414
-      altitude_m: 0.000
+      latitude_deg: 38.98711946792901
+      longitude_deg: 117.33847372233868
+      altitude_m: 3.901
 
     - name: wp_32
-      latitude_deg: 38.98368668
-      longitude_deg: 117.33896346
-      altitude_m: 0.000
+      latitude_deg: 38.98692592978477
+      longitude_deg: 117.33846073038876
+      altitude_m: 4.158
 
     - name: wp_33
-      latitude_deg: 38.98357134
-      longitude_deg: 117.33995851
-      altitude_m: 0.000
+      latitude_deg: 38.98675845935941
+      longitude_deg: 117.33844170346856
+      altitude_m: 4.39
 
     - name: wp_34
-      latitude_deg: 38.98351875
-      longitude_deg: 117.34063355
-      altitude_m: 0.000
+      latitude_deg: 38.98658973164856
+      longitude_deg: 117.33844480477273
+      altitude_m: 4.083
 
     - name: wp_35
-      latitude_deg: 38.98350825
-      longitude_deg: 117.34091765
-      altitude_m: 0.000
+      latitude_deg: 38.98640013299882
+      longitude_deg: 117.33839174732566
+      altitude_m: 3.772
 
     - name: wp_36
-      latitude_deg: 38.98349655
-      longitude_deg: 117.34123452
-      altitude_m: 0.000
+      latitude_deg: 38.98623257875443
+      longitude_deg: 117.33838269487023
+      altitude_m: 3.835
 
     - name: wp_37
-      latitude_deg: 38.98350330
-      longitude_deg: 117.34206037
-      altitude_m: 0.000
+      latitude_deg: 38.98605002090335
+      longitude_deg: 117.3383273743093
+      altitude_m: 3.927
 
     - name: wp_38
-      latitude_deg: 38.98355757
-      longitude_deg: 117.34233231
-      altitude_m: 0.000
+      latitude_deg: 38.98588422685862
+      longitude_deg: 117.33828898519278
+      altitude_m: 3.041
 
     - name: wp_39
-      latitude_deg: 38.98362482
-      longitude_deg: 117.34243296
-      altitude_m: 0.000
+      latitude_deg: 38.98570778779685
+      longitude_deg: 117.3382599838078
+      altitude_m: 1.141
 
     - name: wp_40
-      latitude_deg: 38.98375934
-      longitude_deg: 117.34256579
-      altitude_m: 0.000
+      latitude_deg: 38.98551634512842
+      longitude_deg: 117.33826568350196
+      altitude_m: -0.098
 
     - name: wp_41
-      latitude_deg: 38.98390097
-      longitude_deg: 117.34262529
-      altitude_m: 0.000
+      latitude_deg: 38.98535499349236
+      longitude_deg: 117.33824908733368
+      altitude_m: -0.823
 
     - name: wp_42
-      latitude_deg: 38.98402446
-      longitude_deg: 117.34264353
-      altitude_m: 0.000
+      latitude_deg: 38.98518417030573
+      longitude_deg: 117.33822461217642
+      altitude_m: -1.567
 
     - name: wp_43
-      latitude_deg: 38.98427826
-      longitude_deg: 117.34270575
-      altitude_m: 0.000
+      latitude_deg: 38.98510864935815
+      longitude_deg: 117.33821882866323
+      altitude_m: -1.953
 
     - name: wp_44
-      latitude_deg: 38.98443212
-      longitude_deg: 117.34277402
-      altitude_m: 0.000
+      latitude_deg: 38.98490329273045
+      longitude_deg: 117.33818102627993
+      altitude_m: -3.067
 
     - name: wp_45
-      latitude_deg: 38.98463211
-      longitude_deg: 117.34270970
-      altitude_m: 0.000
+      latitude_deg: 38.98480145260692
+      longitude_deg: 117.33816962689161
+      altitude_m: -3.475
 
     - name: wp_46
-      latitude_deg: 38.98479859
-      longitude_deg: 117.34269906
-      altitude_m: 0.000
+      latitude_deg: 38.98462895303965
+      longitude_deg: 117.33818295411766
+      altitude_m: -3.631
 
     - name: wp_47
-      latitude_deg: 38.98512391
-      longitude_deg: 117.34275791
-      altitude_m: 0.000
+      latitude_deg: 38.98445351980627
+      longitude_deg: 117.33816560357809
+      altitude_m: -3.931
 
     - name: wp_48
-      latitude_deg: 38.98524369
-      longitude_deg: 117.34276037
-      altitude_m: 0.000
+      latitude_deg: 38.98435494862497
+      longitude_deg: 117.33815881423652
+      altitude_m: -4.235
 
     - name: wp_49
-      latitude_deg: 38.98568116
-      longitude_deg: 117.34276935
-      altitude_m: 0.000
+      latitude_deg: 38.98425947874784
+      longitude_deg: 117.33815889805555
+      altitude_m: -4.585
 
     - name: wp_50
-      latitude_deg: 38.98604742
-      longitude_deg: 117.34280510
-      altitude_m: 0.000
+      latitude_deg: 38.98423617705703
+      longitude_deg: 117.33815412037075
+      altitude_m: -4.648
 
     - name: wp_51
-      latitude_deg: 38.98583967
-      longitude_deg: 117.34278482
-      altitude_m: 0.000
+      latitude_deg: 38.98418454453349
+      longitude_deg: 117.33809360302985
+      altitude_m: -5.486
 
     - name: wp_52
-      latitude_deg: 38.98604742
-      longitude_deg: 117.34280510
-      altitude_m: 0.000
+      latitude_deg: 38.98411782458425
+      longitude_deg: 117.33806267380714
+      altitude_m: -7.277
 
     - name: wp_53
-      latitude_deg: 38.98652592
-      longitude_deg: 117.34289400
-      altitude_m: 0.000
+      latitude_deg: 38.98409494198859
+      longitude_deg: 117.33806711621583
+      altitude_m: -7.725
 
     - name: wp_54
-      latitude_deg: 38.98665730
-      longitude_deg: 117.34290469
-      altitude_m: 0.000
+      latitude_deg: 38.98400626145303
+      longitude_deg: 117.33811246231198
+      altitude_m: -9.618
+
+    - name: wp_55
+      latitude_deg: 38.98396016098559
+      longitude_deg: 117.33815554529428
+      altitude_m: -10.589
+
+    - name: wp_56
+      latitude_deg: 38.98385773412883
+      longitude_deg: 117.33832502737641
+      altitude_m: -12.2
+
+    - name: wp_57
+      latitude_deg: 38.98381842300296
+      longitude_deg: 117.33833625912666
+      altitude_m: -12.24
+
+    - name: wp_58
+      latitude_deg: 38.98375036194921
+      longitude_deg: 117.33838579617441
+      altitude_m: -12.106
+
+    - name: wp_59
+      latitude_deg: 38.98370828479528
+      longitude_deg: 117.33845419250429
+      altitude_m: -12
+
+    - name: wp_60
+      latitude_deg: 38.98369789123535
+      longitude_deg: 117.33848772011697
+      altitude_m: -12.004
+
+    - name: wp_61
+      latitude_deg: 38.98367903195322
+      longitude_deg: 117.33858997933567
+      altitude_m: -12.224
+
+    - name: wp_62
+      latitude_deg: 38.98366386070848
+      longitude_deg: 117.33869123272598
+      altitude_m: -13.117
+
+    - name: wp_63
+      latitude_deg: 38.98363024927676
+      longitude_deg: 117.33891595155001
+      altitude_m: -13.84
+
+    - name: wp_64
+      latitude_deg: 38.98361574858427
+      longitude_deg: 117.33914863318205
+      altitude_m: -13.951
+
+    - name: wp_65
+      latitude_deg: 38.98363309912384
+      longitude_deg: 117.33939338475466
+      altitude_m: -15.219
+
+    - name: wp_66
+      latitude_deg: 38.98360166698694
+      longitude_deg: 117.33962707221508
+      altitude_m: -15.868
+
+    - name: wp_67
+      latitude_deg: 38.98358792066574
+      longitude_deg: 117.33983762562275
+      altitude_m: -14.895
+
+    - name: wp_68
+      latitude_deg: 38.98355514742434
+      longitude_deg: 117.34006217680871
+      altitude_m: -14.626
+
+    - name: wp_69
+      latitude_deg: 38.98352178744972
+      longitude_deg: 117.34028195030987
+      altitude_m: -14.918
+
+    - name: wp_70
+      latitude_deg: 38.98348767310381
+      longitude_deg: 117.34050775878131
+      altitude_m: -14.695
+
+    - name: wp_71
+      latitude_deg: 38.98351139388978
+      longitude_deg: 117.34070423059165
+      altitude_m: -16.636
+
+    - name: wp_72
+      latitude_deg: 38.98350913077593
+      longitude_deg: 117.34092609956861
+      altitude_m: -16.629
+
+    - name: wp_73
+      latitude_deg: 38.9834844879806
+      longitude_deg: 117.34116917476058
+      altitude_m: -16.92
+
+    - name: wp_74
+      latitude_deg: 38.98346780799329
+      longitude_deg: 117.34140244312584
+      altitude_m: -16.644
+
+    - name: wp_75
+      latitude_deg: 38.98346479050815
+      longitude_deg: 117.34160788357258
+      altitude_m: -16.377
+
+    - name: wp_76
+      latitude_deg: 38.98346009664237
+      longitude_deg: 117.34183947555721
+      altitude_m: -16.325
+
+    - name: wp_77
+      latitude_deg: 38.98344450630248
+      longitude_deg: 117.34208112582564
+      altitude_m: -15.497
+
+    - name: wp_78
+      latitude_deg: 38.98344299755991
+      longitude_deg: 117.34210995957255
+      altitude_m: -15.315
+
+    - name: wp_79
+      latitude_deg: 38.98344308137894
+      longitude_deg: 117.34221833758056
+      altitude_m: -14.616
+
+    - name: wp_80
+      latitude_deg: 38.98346948437393
+      longitude_deg: 117.34230416826904
+      altitude_m: -14.149
+
+    - name: wp_81
+      latitude_deg: 38.98348582908511
+      longitude_deg: 117.34232277609408
+      altitude_m: -14.041
+
+    - name: wp_82
+      latitude_deg: 38.98356922902167
+      longitude_deg: 117.3423801921308
+      altitude_m: -13.66
+
+    - name: wp_83
+      latitude_deg: 38.9836438279599
+      longitude_deg: 117.3424443975091
+      altitude_m: -13.277
+
+    - name: wp_84
+      latitude_deg: 38.98378824815154
+      longitude_deg: 117.34254917129874
+      altitude_m: -12.455
+
+    - name: wp_85
+      latitude_deg: 38.98396393284202
+      longitude_deg: 117.34261069446802
+      altitude_m: -10.479
+
+    - name: wp_86
+      latitude_deg: 38.98415202274919
+      longitude_deg: 117.34261639416218
+      altitude_m: -9.604
+
+    - name: wp_87
+      latitude_deg: 38.9843307249248
+      longitude_deg: 117.34262117184699
+      altitude_m: -9.218
+
+    - name: wp_88
+      latitude_deg: 38.98450842127204
+      longitude_deg: 117.34266861341894
+      altitude_m: -9.025
+
+    - name: wp_89
+      latitude_deg: 38.98467656224966
+      longitude_deg: 117.34268395230174
+      altitude_m: -8.645
+
+    - name: wp_90
+      latitude_deg: 38.98486012592912
+      longitude_deg: 117.34270717017353
+      altitude_m: -8.374
+
+    - name: wp_91
+      latitude_deg: 38.98502424359322
+      longitude_deg: 117.34272443689406
+      altitude_m: -8.081
+
+    - name: wp_92
+      latitude_deg: 38.9852065499872
+      longitude_deg: 117.34274589456618
+      altitude_m: -7.367
+
+    - name: wp_93
+      latitude_deg: 38.98539338260889
+      longitude_deg: 117.34275410883129
+      altitude_m: -7.395
+
+    - name: wp_94
+      latitude_deg: 38.98556663654745
+      longitude_deg: 117.34278344549239
+      altitude_m: -7.632
+
+    - name: wp_95
+      latitude_deg: 38.98573528043926
+      longitude_deg: 117.34282904304564
+      altitude_m: -7.573
+
+    - name: wp_96
+      latitude_deg: 38.98591859266162
+      longitude_deg: 117.34278939664364
+      altitude_m: -7.063
+
+    - name: wp_97
+      latitude_deg: 38.98609695956111
+      longitude_deg: 117.34277699142694
+      altitude_m: -9.651
+
+    - name: wp_98
+      latitude_deg: 38.98625881411135
+      longitude_deg: 117.34283088706434
+      altitude_m: -12.179
+
+    - name: wp_99
+      latitude_deg: 38.98645394481719
+      longitude_deg: 117.34284765087068
+      altitude_m: -13.453
+
+    - name: wp_100
+      latitude_deg: 38.9866347424686
+      longitude_deg: 117.34286449849606
+      altitude_m: -13.732
+
+    - name: wp_101
+      latitude_deg: 38.98678855039179
+      longitude_deg: 117.34285670332611
+      altitude_m: -13.786
+
+    - name: wp_102
+      latitude_deg: 38.9869695995003
+      longitude_deg: 117.34289752319455
+      altitude_m: -14.102
+
+    - name: wp_103
+      latitude_deg: 38.98714888840914
+      longitude_deg: 117.34292157925665
+      altitude_m: -13.975
+
+    - name: wp_104
+      latitude_deg: 38.98733287118375
+      longitude_deg: 117.34294228255749
+      altitude_m: -13.47
+
+    - name: wp_105
+      latitude_deg: 38.98751936852932
+      longitude_deg: 117.34298720955849
+      altitude_m: -13.495
+
+    - name: wp_106
+      latitude_deg: 38.98769631050527
+      longitude_deg: 117.34296851791441
+      altitude_m: -13.699
+
+    - name: wp_107
+      latitude_deg: 38.98785674013197
+      longitude_deg: 117.34298394061625
+      altitude_m: -13.684
+
+    - name: wp_108
+      latitude_deg: 38.98804642260075
+      longitude_deg: 117.3430194798857
+      altitude_m: -13.802
+
+    - name: wp_109
+      latitude_deg: 38.98817248642445
+      longitude_deg: 117.34300154261291
+      altitude_m: -14.363
+
+    - name: wp_110
+      latitude_deg: 38.98827005177736
+      longitude_deg: 117.34299584291875
+      altitude_m: -15.076
+
+    - name: wp_111
+      latitude_deg: 38.98833534680307
+      longitude_deg: 117.34297472052276
+      altitude_m: -14.757
+
+    - name: wp_112
+      latitude_deg: 38.98834054358304
+      longitude_deg: 117.34295787289739
+      altitude_m: -14.695
+
+    - name: wp_113
+      latitude_deg: 38.9883423037827
+      longitude_deg: 117.34283256344497
+      altitude_m: -14.496
+
+    - name: wp_114
+      latitude_deg: 38.98833635263145
+      longitude_deg: 117.34272167086601
+      altitude_m: -14.2
+
+    - name: wp_115
+      latitude_deg: 38.9883491769433
+      longitude_deg: 117.34249200671911
+      altitude_m: -13.306
+
+    - name: wp_116
+      latitude_deg: 38.98837122134864
+      longitude_deg: 117.34228388406336
+      altitude_m: -13.168
+
+    - name: wp_117
+      latitude_deg: 38.98838697932661
+      longitude_deg: 117.34212001785636
+      altitude_m: -14.683
