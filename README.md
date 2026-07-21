@@ -29,6 +29,25 @@ pass
 
 ---
 
+## 单雷达高程图感知模块（single_lidar_elevation）
+
+自包含感知功能组：单颗 Livox MID-360 → FAST-LIO 里程计 → GPU 高程图，
+一条 launch 发布点云 / 里程计 / 高程图话题，与本仓库既有导航、视觉主业务零耦合
+（不启动该模块时一切照旧）。所有第三方依赖源码已 vendor 在模块目录内，单独 clone 本仓库即可编译。
+
+- 模块说明：[src/single_lidar_elevation/README.md](src/single_lidar_elevation/README.md)（依赖 / 编译 / 运行）、
+  [src/single_lidar_elevation/bringup/README.md](src/single_lidar_elevation/bringup/README.md)（话题 / TF / 与既有导航栈共跑警告，必读）
+- 验证记录：[src/single_lidar_elevation/VERIFICATION.md](src/single_lidar_elevation/VERIFICATION.md)
+- 一键运行：`roslaunch single_lidar_elevation single_lidar_elevation.launch`
+- 注意：整仓 `catkin_make` 现在会连带编译该模块的 11 个 catkin 包（需 PCL、pybind11-catkin、CUDA 等，
+  见模块 README 的系统要求）。只做视觉 / 导航开发、不想编译它时可用黑名单跳过：
+
+  ```bash
+  catkin_make -DCATKIN_BLACKLIST_PACKAGES="single_lidar_elevation;livox_ros_driver2;fast_lio;elevation_mapping_cupy;elevation_map_msgs;grid_map_core;grid_map_msgs;grid_map_cv;grid_map_sdf;grid_map_ros;grid_map_rviz_plugin"
+  ```
+
+---
+
 ## 惯性导航与控制系统
 
 本模块用于在 R300 无人车上接入自研 1X 惯导/GPS，替代原飞控位姿输入，并基于 ROS1 `move_base + DWA` 实现：

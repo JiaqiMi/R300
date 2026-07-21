@@ -1,0 +1,4 @@
+# 前雷达(FAST-LIO 输入)应急裁剪，仅 lio_input_crop:=true 时生效。
+# 用途：裁掉随体移动的铝腿/小车/推车人，避免污染 scan-to-map 配准。坐标为前雷达传感器系，rviz 实测后填写。
+min_range: 0.0
+boxes: []

@@ -64,3 +64,10 @@ credentials.*
 *.stl
 *.tar.gz
 *.pdf
+
+# vendored elevation_mapping_cupy: keep its config/core/ (matches the "core" dump pattern above)
+!**/config/core/
+# vendored Livox-SDK2 bundled fmt header, required for build (matches the "core.*" dump pattern above)
+!**/spdlog/fmt/bundled/core.h
+# Livox SDK build/install output generated inside the vendored driver at build time
+src/single_lidar_elevation/livox_ros_driver2/livox_sdk/

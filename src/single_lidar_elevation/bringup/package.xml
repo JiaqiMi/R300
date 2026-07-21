@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>single_lidar_elevation</name>
+  <version>0.1.0</version>
+  <description>
+    单 MID-360 独立感知 bringup：Livox 驱动 + FAST-LIO 里程计 + GPU 高程图。
+    只发布话题（点云 / 里程计 / 高程图），不含任何运动控制，
+    供导航等下游模块直接订阅使用。不依赖 URDF。
+  </description>
+  <maintainer email="wangqin@todo.todo">wangqin</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf</exec_depend>
+  <exec_depend>livox_ros_driver2</exec_depend>
+  <exec_depend>imu_filter_madgwick</exec_depend>
+  <exec_depend>fast_lio</exec_depend>
+  <exec_depend>elevation_mapping_cupy</exec_depend>
+  <!-- rviz:=true 可视化路径用到；不开 rviz 时缺失也不影响主链路 -->
+  <exec_depend>rviz</exec_depend>
+  <exec_depend>grid_map_rviz_plugin</exec_depend>
+</package>
