@@ -1,104 +1,69 @@
-# # Conservative first-stage parameters for camera-only local obstacle avoidance.
-# # Raise speed only after validating detection latency, braking distance and TF.
-# DWAPlannerROS:
-#   odom_topic: /one_x/odom
-
-#   max_vel_x: 1.00
-#   min_vel_x: 0.00
-#   max_vel_y: 0.00
-#   min_vel_y: 0.00
-#   max_vel_trans: 1.00
-#   min_vel_trans: 0.00
-
-#   max_vel_theta: 0.4
-#   min_vel_theta: 0.05
-
-#   acc_lim_x: 1.00
-#   acc_lim_y: 0.00
-#   acc_lim_theta: 1.50
-
-#   xy_goal_tolerance: 0.30
-#   yaw_goal_tolerance: 3.14
-#   latch_xy_goal_tolerance: true
-
-#   sim_time: 1.50
-#   sim_granularity: 0.05
-#   angular_sim_granularity: 0.025
-
-#   vx_samples: 20
-#   vy_samples: 1
-#   vth_samples: 40
-#   controller_frequency: 5.0
-
-#   # Compared with the original settings, reduce path-locking and greatly
-#   # increase obstacle cost so DWA is willing to leave the global path.
-#   path_distance_bias: 24.0
-#   goal_distance_bias: 12.0
-#   occdist_scale: 0.15
-
-#   forward_point_distance: 0.60
-#   stop_time_buffer: 0.80
-
-#   scaling_speed: 0.35
-#   max_scaling_factor: 0.20
-
-#   oscillation_reset_dist: 0.30
-#   oscillation_reset_angle: 0.40
-#   twirling_scale: 0.0
-
-#   publish_traj_pc: true
-#   publish_cost_grid_pc: true
-
 DWAPlannerROS:
-  odom_topic: /one_x/odom
+  odom_topic: /subject1/dwa_odom
 
-  max_vel_x: 1
+  # ---------------- 速度限制 ----------------
+  # 仅作为开阔区域最高速度。
+  max_vel_x: 2.00
   min_vel_x: 0.00
+
   max_vel_y: 0.00
   min_vel_y: 0.00
 
-  max_vel_trans: 1
-  min_vel_trans: 0.00
+  max_vel_trans: 2.00
+  min_vel_trans: 0.05
 
-  max_vel_theta: 0.30
-  min_vel_theta: 0.00
+  # 只有实车可以稳定达到时才使用0.45。
+  max_vel_theta: 0.75
+  min_vel_theta: 0.05
 
-  acc_lim_x: 1.00
+  # ---------------- 真实动力学 ----------------
+  # 保持与实车可靠制动能力一致。
+  acc_lim_x: 6.00
   acc_lim_y: 0.00
-  acc_lim_theta: 1.20
+  acc_lim_trans: 6.00
+  acc_lim_theta: 6.00
 
-  xy_goal_tolerance: 0.30
+  # ---------------- 到点条件 ----------------
+  xy_goal_tolerance: 1.00
   yaw_goal_tolerance: 3.14
-  latch_xy_goal_tolerance: true
 
-  controller_frequency: 3.0
 
-  sim_time: 3.0
-  sim_granularity: 0.05
-  angular_sim_granularity: 0.025
+  trans_stopped_vel: 0.16
+  theta_stopped_vel: 0.08
 
-  vx_samples: 15
+  # ---------------- 轨迹预测 ----------------
+  # 不再单纯通过超长预测距离承担制动安全。
+  sim_time: 2.00
+  sim_granularity: 0.03
+  angular_sim_granularity: 0.03
+
+  # 适合8～10Hz，降低计算负担。
+  vx_samples: 12
   vy_samples: 1
-  vth_samples: 50
+  vth_samples: 51
 
-  # 降低对全局路径的强制贴合
-  path_distance_bias: 8.0
+  # ---------------- 轨迹评分 ----------------
+  # 允许更明显地离开穿过障碍的全局直线路径。
+  path_distance_bias: 24.0
+  goal_distance_bias: 18.0
+  occdist_scale: 0.15
 
-  # 保持向目标前进的趋势
-  goal_distance_bias: 12.0
-
-  # 明显提高对障碍代价的敏感度
-  occdist_scale: 0.60
-
+  # 保留少量前视引导，但避免0.30造成过度回正。
   forward_point_distance: 0.30
-  stop_time_buffer: 1.00
 
-  scaling_speed: 0.20
+  # 可以保留，但不能依靠它代替距离限速。
+  stop_time_buffer: 0.80
+
+  # 不再从1.2m/s开始放大35%。
+  scaling_speed: 1.50
   max_scaling_factor: 0.20
 
-  oscillation_reset_dist: 0.20
-  oscillation_reset_angle: 0.30
+  # 选定一侧后，不要太快解除振荡方向约束。
+  oscillation_reset_dist: 0.35
+  oscillation_reset_angle: 0.50
+
+  prune_plan: false
   twirling_scale: 0.0
 
-  publish_traj_pc: true
-  publish_cost_grid_pc: true
+  publish_traj_pc: false
+  publish_cost_grid_pc: false

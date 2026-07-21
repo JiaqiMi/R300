@@ -20,7 +20,8 @@
   <arg name="launch_base" default="true"/>
   <arg name="launch_rviz" default="false"/>
   <arg name="auto_start" default="false"/>
-  <arg name="max_goal_distance_from_origin_m" default="180.0"/>
+  <arg name="max_goal_distance_from_origin_m" default="5000.0"/>
+  <arg name="dwa_odom_topic" default="/subject1/dwa_odom"/>
 
   <include file="$(find r300_1x_navigation)/launch/subject1_waypoint_nav.launch">
     <arg name="ins_serial_port" value="$(arg ins_serial_port)"/>
@@ -37,7 +38,27 @@
          value="$(find r300_1x_navigation)/config/subject1_dwa_vision.yaml"/>
     <arg name="local_costmap_config_file"
          value="$(find r300_1x_navigation)/config/subject1_local_costmap_vision.yaml"/>
+    <arg name="dwa_odom_topic" value="$(arg dwa_odom_topic)"/>
   </include>
+
+
+  <!--
+    DWA is a differential-drive planner, while the raw 1X odometry contains a
+    lateral velocity estimate and an unfiltered heading-difference yaw rate.
+    Adapt only the twist used by DWA; do not publish another TF.
+  -->
+  <node pkg="r300_1x_navigation"
+        type="dwa_odom_adapter.py"
+        name="dwa_odom_adapter"
+        output="screen">
+    <param name="input_odom_topic" value="/one_x/odom"/>
+    <param name="output_odom_topic" value="$(arg dwa_odom_topic)"/>
+    <param name="forward_deadband_mps" value="0.02"/>
+    <param name="yaw_rate_deadband_radps" value="0.015"/>
+    <param name="forward_filter_tau_s" value="0.10"/>
+    <param name="yaw_rate_filter_tau_s" value="0.15"/>
+    <param name="max_yaw_rate_radps" value="0.45"/>
+  </node>
 
   <include file="$(find r300_1x_navigation)/launch/subject1_vision_avoidance.launch">
     <arg name="config_file" value="$(arg vision_config_file)"/>

@@ -1,15 +1,16 @@
 :root {
-  --bg: #090f1d;
-  --panel: #121c2e;
-  --panel2: #0d1526;
-  --cardTop: #17253b;
-  --text: #e5edf8;
-  --muted: #91a4bd;
-  --line: rgba(148, 163, 184, .22);
-  --accent: #38bdf8;
-  --good: #22c55e;
+  --bg: #041006;
+  --panel: #0c2a11;
+  --panel2: #061707;
+  --cardTop: #123919;
+  --text: #f3ffe9;
+  --muted: #b6d4a3;
+  --line: rgba(151, 219, 72, .28);
+  --accent: #9bea22;
+  --accent2: #d7f549;
+  --good: #91e928;
   --bad: #ef4444;
-  --warn: #f59e0b;
+  --warn: #f5d32f;
 }
 * { box-sizing: border-box; }
 html, body { min-height: 100%; }
@@ -17,8 +18,8 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
   background:
-    radial-gradient(circle at 20% 0%, rgba(56,189,248,.16), transparent 24rem),
-    radial-gradient(circle at 90% 10%, rgba(34,197,94,.10), transparent 20rem),
+    radial-gradient(circle at 18% 0%, rgba(151,234,34,.22), transparent 24rem),
+    radial-gradient(circle at 90% 10%, rgba(214,245,73,.14), transparent 20rem),
     var(--bg);
   color: var(--text);
 }
@@ -26,55 +27,62 @@ body {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
   padding: 14px 18px;
-  background: rgba(6, 12, 24, .92);
+  background: rgba(3, 16, 5, .94);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(8px);
 }
-h1 { margin: 0; font-size: 24px; letter-spacing: .3px; }
+.brand { display:flex; align-items:center; gap:14px; }
+.brand-mark { width:44px; height:44px; border-radius:12px; display:grid; place-items:center; font-size:28px; font-weight:900; color:#08240b; background:linear-gradient(135deg,#e2ff61,#78d51d); box-shadow:0 0 28px rgba(151,234,34,.28); }
+h1 { margin: 0; font-size: 27px; letter-spacing: .5px; }
+h1 span { color:#ecffcf; font-weight:900; }
+h1 em { color:#b8df65; margin:0 12px; font-style:normal; opacity:.7; }
 p { margin: 4px 0 0; color: var(--muted); }
 .status-bar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.badge { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #263244; color: var(--text); font-size: 13px; white-space: nowrap; }
-.badge.good { background: rgba(34,197,94,.18); color: #86efac; border: 1px solid rgba(34,197,94,.26); }
+.badge { display: inline-block; padding: 6px 10px; border-radius: 999px; background: rgba(94,130,42,.32); color: var(--text); font-size: 13px; white-space: nowrap; }
+.badge.good { background: rgba(145,233,40,.20); color: #c8ff7b; border: 1px solid rgba(145,233,40,.36); }
 .badge.bad { background: rgba(239,68,68,.18); color: #fecaca; border: 1px solid rgba(239,68,68,.28); }
 .dashboard {
   display: grid;
-  grid-template-columns: minmax(520px, 1.05fr) minmax(520px, 1.05fr) minmax(340px, .7fr);
+  grid-template-columns: minmax(430px, 1fr) minmax(430px, 1fr) minmax(430px, 1fr);
   gap: 14px;
   padding: 14px;
   align-items: stretch;
 }
 .card {
-  background: linear-gradient(180deg, rgba(23,32,51,.96), rgba(13,21,38,.96));
+  background: linear-gradient(180deg, rgba(16,49,19,.96), rgba(5,22,7,.97));
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 13px;
   overflow: hidden;
-  box-shadow: 0 12px 26px rgba(0,0,0,.22);
+  box-shadow: 0 14px 32px rgba(0,0,0,.28), inset 0 1px 0 rgba(214,245,73,.08);
 }
-.hero-card { min-height: 650px; }
+.hero-card { min-height: 635px; }
 .card-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 h2 { margin: 0; font-size: 18px; }
 .card-title span { color: var(--muted); font-size: 12px; }
 .video-wrap {
-  width: 100%; height: 560px;
+  width: 100%; height: 500px;
   display: flex; align-items: center; justify-content: center;
-  background: #020617; border: 1px solid rgba(148,163,184,.18); border-radius: 10px;
+  background: #020617; border: 1px solid rgba(151,219,72,.20); border-radius: 10px;
 }
 .video-card img { width: 100%; height: 100%; object-fit: contain; background: #000; border-radius: 10px; }
-canvas { width: 100%; height: 560px; background: #020617; border-radius: 10px; border: 1px solid rgba(148,163,184,.18); display: block; }
+canvas { width: 100%; height: 500px; background: #020617; border-radius: 10px; border: 1px solid rgba(151,219,72,.20); display: block; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 9px 12px; margin-top: 10px; color: var(--muted); font-size: 12px; align-items: center; }
 .toolbar button { padding: 5px 9px; font-size: 12px; border-radius: 7px; }
-.status-card { grid-row: span 2; }
-.scan-card, .control-card, .detection-card { min-height: 360px; }
+.status-card { grid-row: auto; }
+.scan-card, .detection-card { min-height: 360px; }
+.control-card { min-height: 520px; }
 .kv { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px solid rgba(148,163,184,.13); }
 .kv span { color: var(--muted); }
 .kv b { font-family: Consolas, "JetBrains Mono", monospace; text-align: right; font-size: 13px; }
 .mini-title { color: #facc15; font-weight: 700; margin: 14px 0 4px; }
 .buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-button { cursor: pointer; background: linear-gradient(180deg, #3b82f6, #2563eb); color: white; border: 0; border-radius: 9px; padding: 10px 12px; font-weight: 700; }
+button { cursor: pointer; background: linear-gradient(180deg, #a8f02a, #5fad13); color: white; border: 0; border-radius: 9px; padding: 10px 12px; font-weight: 700; }
 button:hover { filter: brightness(1.12); }
-button.danger { background: linear-gradient(180deg, #ef4444, #dc2626); grid-column: span 2; }
-pre { background: var(--panel2); border: 1px solid rgba(148,163,184,.18); color: #d1d5db; border-radius: 10px; padding: 10px; overflow: auto; max-height: 240px; font-size: 12px; line-height: 1.45; }
+button.danger { background: linear-gradient(180deg, #f87171, #dc2626); grid-column: span 2; }
+button.soft { background: linear-gradient(180deg, rgba(139,181,70,.92), rgba(67,103,37,.92)); }
+button.kiwi { background: linear-gradient(180deg, #d7f549, #75c51c); color:#08240b; box-shadow:0 0 18px rgba(151,234,34,.22); }
+pre { background: var(--panel2); border: 1px solid rgba(151,219,72,.20); color: #d1d5db; border-radius: 10px; padding: 10px; overflow: auto; max-height: 360px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
 .legend { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 12px; color: var(--muted); font-size: 12px; }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -2px; }
 .robot { background: #3b82f6; clip-path: polygon(50% 0, 100% 100%, 50% 70%, 0 100%); }
@@ -88,3 +96,441 @@ pre { background: var(--panel2); border: 1px solid rgba(148,163,184,.18); color:
 footer { display: flex; justify-content: space-between; gap: 10px; padding: 10px 16px; color: var(--muted); border-top: 1px solid var(--line); font-size: 12px; }
 @media (max-width: 1500px) { .dashboard { grid-template-columns: 1fr 1fr; } .status-card { grid-row: auto; } }
 @media (max-width: 1000px) { .dashboard { grid-template-columns: 1fr; } .hero-card { min-height: auto; } .video-wrap, canvas { height: 58vw; min-height: 360px; } header, footer { flex-direction: column; align-items: flex-start; } }
+
+.node-actions { display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap; }
+.node-actions button { min-width:130px; padding:8px 12px; }
+.map-node-actions { margin-top:10px; margin-bottom:2px; }
+.proc-state { color:#cef995; background:rgba(145,233,40,.10); border:1px solid rgba(145,233,40,.22); padding:6px 10px; border-radius:999px; font-size:12px; }
+#serviceLog { height: 210px; max-height: 210px; margin-top: 12px; }
+#nodeLog { height: 360px; max-height: 360px; margin-top:10px; }
+
+
+/* =========================================================
+ * v8 一行主视图布局
+ * 第一行：摄像头 / local_costmap + DWA / 卫星轨迹
+ * 第二行：雷达俯视图 / 车辆状态 / 航点与日志
+ * 第三行：视觉检测信息
+ * ========================================================= */
+.video-card { grid-column: 1; grid-row: 1; }
+.map-card { grid-column: 2; grid-row: 1; }
+.satellite-card { grid-column: 3; grid-row: 1; min-height: 635px; }
+.scan-card { grid-column: 1; grid-row: 2; min-height: 520px; }
+.status-card { grid-column: 2; grid-row: 2; min-height: 520px; }
+.control-card { grid-column: 3; grid-row: 2; min-height: 520px; }
+.detection-card { grid-column: 1 / -1; grid-row: 3; min-height: 320px; }
+
+/* 卫星图放在第一行第三列，因此内部改成上下布局，避免横向太挤。 */
+.satellite-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto;
+  gap: 10px;
+  align-items: stretch;
+}
+#satelliteMap {
+  width: 100%;
+  height: 500px;
+  min-height: 500px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(151,219,72,.24);
+  background: #061707;
+  box-shadow: inset 0 0 0 1px rgba(214,245,73,.05);
+}
+.satellite-side {
+  background: rgba(5,22,7,.62);
+  border: 1px solid rgba(151,219,72,.18);
+  border-radius: 12px;
+  padding: 10px;
+  max-height: 140px;
+  overflow: auto;
+}
+.satellite-side .mini-title { margin-top: 0; }
+.satellite-side .kv { padding: 4px 0; }
+.map-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 8px;
+}
+.map-buttons button { padding: 7px 6px; font-size: 12px; }
+.map-note { display: none; }
+.leaflet-container { background:#061707; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif; }
+.leaflet-control-zoom a { background:#102f15 !important; color:#d7f549 !important; border-color:rgba(151,219,72,.28) !important; }
+.leaflet-control-attribution { background:rgba(3,16,5,.70) !important; color:#b6d4a3 !important; }
+.vehicle-marker { width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-bottom:28px solid #a8ff34; filter: drop-shadow(0 0 8px rgba(168,255,52,.8)); transform-origin:50% 70%; }
+.start-marker, .current-marker { font-weight:800; color:#08240b; background:#d7f549; border:2px solid #102f15; border-radius:999px; width:28px; height:28px; display:grid; place-items:center; box-shadow:0 0 12px rgba(168,255,52,.55); }
+
+/* 日志继续放大，便于第二行观察。 */
+#serviceLog { height: 150px; max-height: 150px; margin-top: 12px; }
+#nodeLog { height: 270px; max-height: 270px; margin-top: 10px; }
+
+@media (max-width: 1600px) {
+  .dashboard { grid-template-columns: 1fr 1fr; }
+  .video-card { grid-column: 1; grid-row: 1; }
+  .map-card { grid-column: 2; grid-row: 1; }
+  .satellite-card { grid-column: 1 / -1; grid-row: 2; min-height: 600px; }
+  .scan-card { grid-column: 1; grid-row: 3; }
+  .status-card { grid-column: 2; grid-row: 3; }
+  .control-card { grid-column: 1 / -1; grid-row: 4; }
+  .detection-card { grid-column: 1 / -1; grid-row: 5; }
+  #satelliteMap { height: 480px; min-height: 480px; }
+  .satellite-side { max-height: 165px; }
+}
+@media (max-width: 1100px) {
+  .dashboard { grid-template-columns: 1fr; }
+  .video-card, .map-card, .satellite-card, .scan-card, .status-card, .control-card, .detection-card { grid-column: 1; grid-row: auto; }
+  .hero-card { min-height: auto; }
+  .video-wrap, canvas { height: 58vw; min-height: 360px; }
+  #satelliteMap { height: 520px; min-height: 520px; }
+  .satellite-side { max-height: none; }
+  .map-buttons { grid-template-columns: 1fr 1fr; }
+  header, footer { flex-direction: column; align-items: flex-start; }
+}
+
+/* =========================================================
+ * v9 两行总览布局
+ * 第一行：摄像头 / local_costmap + DWA / 卫星轨迹
+ * 第二行：雷达俯视图 / 车辆状态 / 航点控制日志 / 视觉检测日志
+ * ========================================================= */
+.dashboard {
+  grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr) minmax(360px, 1fr) minmax(360px, 1fr);
+  gap: 14px;
+}
+.video-card { grid-column: 1; grid-row: 1; min-height: 635px; }
+.map-card { grid-column: 2; grid-row: 1; min-height: 635px; }
+.satellite-card { grid-column: 3 / 5; grid-row: 1; min-height: 635px; }
+.scan-card { grid-column: 1; grid-row: 2; min-height: 520px; }
+.status-card { grid-column: 2; grid-row: 2; min-height: 520px; }
+.control-card { grid-column: 3; grid-row: 2; min-height: 520px; }
+.detection-card { grid-column: 4; grid-row: 2; min-height: 520px; }
+
+.video-wrap, canvas {
+  height: 500px;
+}
+#satelliteMap {
+  height: 500px;
+  min-height: 500px;
+}
+
+/* 第二行四个卡片变窄后，控制区和日志区做紧凑化。 */
+.buttons {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.buttons button {
+  padding: 8px 8px;
+  font-size: 13px;
+}
+#serviceLog {
+  height: 130px;
+  max-height: 130px;
+  margin-top: 10px;
+}
+#nodeLog {
+  height: 250px;
+  max-height: 250px;
+  margin-top: 10px;
+}
+
+/* 视觉检测信息放到第二行后，增加日志高度，减少空白。 */
+#detections {
+  height: 250px;
+  max-height: 250px;
+}
+#targetPoint {
+  height: 150px;
+  max-height: 150px;
+}
+.detection-card pre {
+  margin: 10px 0 0;
+}
+
+/* 卫星地图第一行占两列，右侧信息栏重新横向排列，避免遮挡地图高度。 */
+.satellite-layout {
+  display: grid;
+  grid-template-columns: minmax(520px, 1fr) 300px;
+  grid-template-rows: auto;
+  gap: 12px;
+  align-items: stretch;
+}
+.satellite-side {
+  max-height: 500px;
+  overflow: auto;
+}
+.map-buttons {
+  grid-template-columns: 1fr 1fr;
+}
+.map-note {
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* 二行布局需要更宽屏；中等屏幕自动退回三行，避免卡片太窄。 */
+@media (max-width: 1800px) {
+  .dashboard {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .video-card { grid-column: 1; grid-row: 1; }
+  .map-card { grid-column: 2; grid-row: 1; }
+  .satellite-card { grid-column: 3; grid-row: 1; }
+  .scan-card { grid-column: 1; grid-row: 2; }
+  .status-card { grid-column: 2; grid-row: 2; }
+  .control-card { grid-column: 3; grid-row: 2; }
+  .detection-card { grid-column: 1 / -1; grid-row: 3; }
+  .satellite-layout { grid-template-columns: 1fr; }
+  .satellite-side { max-height: 140px; }
+  .map-buttons { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .map-note { display: none; }
+  #detections { height: 220px; max-height: 220px; }
+  #targetPoint { height: 90px; max-height: 90px; }
+}
+
+@media (max-width: 1200px) {
+  .dashboard { grid-template-columns: 1fr; }
+  .video-card, .map-card, .satellite-card, .scan-card, .status-card, .control-card, .detection-card {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .hero-card { min-height: auto; }
+  .video-wrap, canvas { height: 58vw; min-height: 360px; }
+  #satelliteMap { height: 520px; min-height: 520px; }
+  .satellite-layout { grid-template-columns: 1fr; }
+  .satellite-side { max-height: none; }
+  .map-buttons { grid-template-columns: 1fr 1fr; }
+  #serviceLog, #nodeLog, #detections, #targetPoint { height: auto; max-height: 360px; }
+}
+
+
+/* =========================================================
+ * R300 Web Dashboard v11-video-map-firstrow
+ * 目标：第一行只保留 摄像头 + local_costmap/DWA，视频恢复清晰参数；
+ *      卫星轨迹放第二行；雷达大图隐藏，仅保留统计信息。
+ * ========================================================= */
+
+.dashboard {
+  grid-template-columns: minmax(620px, 1fr) minmax(620px, 1fr) !important;
+  grid-auto-flow: row dense !important;
+  gap: 14px !important;
+  align-items: stretch !important;
+}
+
+/* 第一行：只放两个最重要的大图 */
+.video-card {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  min-height: 660px !important;
+}
+.map-card {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  min-height: 660px !important;
+}
+.video-wrap,
+#costmapCanvas {
+  height: 560px !important;
+  min-height: 560px !important;
+}
+
+/* 第二行：卫星轨迹占左侧，状态和雷达统计等放右侧 */
+.satellite-card {
+  grid-column: 1 !important;
+  grid-row: 2 / span 2 !important;
+  min-height: 650px !important;
+}
+.status-card {
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  min-height: 360px !important;
+}
+.scan-card {
+  grid-column: 2 !important;
+  grid-row: 3 !important;
+  min-height: 170px !important;
+}
+.control-card {
+  grid-column: 1 !important;
+  grid-row: 4 !important;
+  min-height: 360px !important;
+}
+.detection-card {
+  grid-column: 2 !important;
+  grid-row: 4 !important;
+  min-height: 360px !important;
+}
+
+/* 卫星地图改为第二行的大卡片，不再挤在第一行 */
+.satellite-layout {
+  grid-template-columns: minmax(640px, 1fr) 320px !important;
+  gap: 14px !important;
+  align-items: stretch !important;
+}
+#satelliteMap {
+  height: 560px !important;
+  min-height: 560px !important;
+}
+.satellite-side {
+  display: block !important;
+  padding: 12px !important;
+}
+.satellite-side .mini-title,
+.satellite-side .map-buttons,
+.satellite-side .map-note {
+  grid-column: auto !important;
+}
+
+/* 雷达大图隐藏，只保留统计文本，减轻页面渲染 */
+#scanCanvas,
+.scan-card .toolbar {
+  display: none !important;
+}
+.scan-card .card-title {
+  align-items: flex-start !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+#scanInfo {
+  display: block !important;
+  width: 100% !important;
+  white-space: normal !important;
+  font-family: Consolas, "JetBrains Mono", monospace !important;
+  font-size: 14px !important;
+  line-height: 1.6 !important;
+  color: #d7f549 !important;
+  background: rgba(6, 23, 7, .82) !important;
+  border: 1px solid rgba(151,219,72,.22) !important;
+  border-radius: 10px !important;
+  padding: 10px !important;
+}
+
+/* 日志显示更多行 */
+#serviceLog { max-height: 260px !important; min-height: 120px !important; }
+#nodeLog { max-height: 360px !important; min-height: 220px !important; }
+#detections, #targetPoint { max-height: 260px !important; min-height: 110px !important; }
+
+@media (max-width: 1500px) {
+  .dashboard { grid-template-columns: 1fr !important; }
+  .video-card,
+  .map-card,
+  .satellite-card,
+  .scan-card,
+  .status-card,
+  .control-card,
+  .detection-card {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+  .satellite-layout { grid-template-columns: 1fr !important; }
+  #satelliteMap { height: 480px !important; min-height: 480px !important; }
+}
+
+
+/* =========================================================
+ * v12 satellite-unblocked layout
+ * 修复：卫星地图右侧信息栏在半屏卡片里挤压/遮挡地图；
+ *      车辆状态长文本被右侧裁切。
+ * 保持：不修改 config.json，不修改端口/IP/视频参数。
+ * ========================================================= */
+
+/* 第二行左侧卫星卡片内部改为上下布局：地图完整占满上方，信息栏放下方。 */
+.satellite-card {
+  overflow: visible !important;
+}
+.satellite-layout {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  grid-template-rows: auto auto !important;
+  gap: 12px !important;
+  align-items: stretch !important;
+}
+#satelliteMap {
+  width: 100% !important;
+  height: 560px !important;
+  min-height: 560px !important;
+  display: block !important;
+}
+.satellite-side {
+  width: 100% !important;
+  max-height: none !important;
+  overflow: visible !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 6px 14px !important;
+  align-content: start !important;
+  padding: 12px !important;
+}
+.satellite-side .mini-title {
+  grid-column: 1 / -1 !important;
+  margin: 0 0 2px !important;
+}
+.satellite-side .kv {
+  padding: 5px 0 !important;
+  min-width: 0 !important;
+}
+.satellite-side .kv b,
+.satellite-side .kv span {
+  min-width: 0 !important;
+}
+.satellite-side .map-buttons {
+  grid-column: 1 / -1 !important;
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  margin-top: 8px !important;
+}
+.satellite-side .map-note {
+  grid-column: 1 / -1 !important;
+  display: block !important;
+  margin-top: 2px !important;
+}
+
+/* 防止右侧车辆状态数值过长被卡片裁切。 */
+.status-card,
+.control-card,
+.detection-card,
+.scan-card {
+  overflow: visible !important;
+}
+.kv {
+  align-items: flex-start !important;
+  min-width: 0 !important;
+}
+.kv span {
+  flex: 0 0 auto !important;
+}
+.kv b {
+  flex: 1 1 auto !important;
+  max-width: 70% !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  line-height: 1.45 !important;
+}
+
+/* 两列模式下保持第一行视频+地图，第二行卫星+状态，第三行雷达统计。 */
+@media (min-width: 1501px) {
+  .dashboard {
+    grid-template-columns: minmax(620px, 1fr) minmax(620px, 1fr) !important;
+  }
+  .video-card { grid-column: 1 !important; grid-row: 1 !important; }
+  .map-card { grid-column: 2 !important; grid-row: 1 !important; }
+  .satellite-card { grid-column: 1 !important; grid-row: 2 / span 2 !important; }
+  .status-card { grid-column: 2 !important; grid-row: 2 !important; }
+  .scan-card { grid-column: 2 !important; grid-row: 3 !important; }
+  .control-card { grid-column: 1 !important; grid-row: 4 !important; }
+  .detection-card { grid-column: 2 !important; grid-row: 4 !important; }
+}
+
+@media (max-width: 1100px) {
+  .satellite-side {
+    grid-template-columns: 1fr !important;
+  }
+  .satellite-side .map-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  #satelliteMap {
+    height: 480px !important;
+    min-height: 480px !important;
+  }
+}

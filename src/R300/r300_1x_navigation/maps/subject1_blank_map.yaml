@@ -1,6 +1,6 @@
 image: subject1_blank_map.pgm
-resolution: 0.200000
-origin: [-200.000000, -200.000000, 0.000000]
+resolution: 0.2
+origin: [-1000.0, -1000.0, 0.0]
 negate: 0
 occupied_thresh: 0.65
 free_thresh: 0.196

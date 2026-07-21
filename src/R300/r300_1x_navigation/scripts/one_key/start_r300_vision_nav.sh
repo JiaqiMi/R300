@@ -24,7 +24,7 @@ CAN_PORT="${CAN_PORT:-can0}"
 CAN_BITRATE="${CAN_BITRATE:-500000}"
 
 WAYPOINT_FILE="${WAYPOINT_FILE:-}"
-MAX_GOAL_DIST="${MAX_GOAL_DIST:-180.0}"
+MAX_GOAL_DIST="${MAX_GOAL_DIST:-5000.0}"
 
 DETECTIONS_TOPIC="${DETECTIONS_TOPIC:-/r300_vision/detections}"
 CAMERA_INFO_TOPIC="${CAMERA_INFO_TOPIC:-/camera/color/camera_info}"
@@ -42,7 +42,7 @@ AUTO_RUN="${AUTO_RUN:-false}"
 READY_TIMEOUT="${READY_TIMEOUT:-60}"
 # 一键脚本期望 VisionSnapshotLayer 加载的保持时间，默认 5 秒。
 # 仅用于启动自检；真正保持时间仍由 local costmap YAML 中 hold_time_s 决定。
-VISION_HOLD_TIME_S="${VISION_HOLD_TIME_S:-5.0}"
+VISION_HOLD_TIME_S="${VISION_HOLD_TIME_S:-}"
 LOG_DIR="${LOG_DIR:-$WS/log/vision_nav}"
 
 ROSLAUNCH_PID=""
@@ -276,7 +276,11 @@ info "外部检测话题：$DETECTIONS_TOPIC"
 info "外部相机内参：$CAMERA_INFO_TOPIC"
 info "视觉障碍扫描：$OBSTACLE_SCAN_TOPIC"
 info "视觉层调试扫描：$ACTIVE_SCAN_TOPIC"
-info "VisionSnapshotLayer 期望保持时间：${VISION_HOLD_TIME_S}s"
+if [[ -n "$VISION_HOLD_TIME_S" ]]; then
+  info "VisionSnapshotLayer 期望保持时间：${VISION_HOLD_TIME_S}s"
+else
+  info "VisionSnapshotLayer 保持时间：自动读取 YAML 实际加载值"
+fi
 info "日志文件：$LOG_FILE"
 
 roslaunch "${ROSLAUNCH_ARGS[@]}" > >(tee "$LOG_FILE") 2>&1 &
@@ -463,26 +467,42 @@ if [[ "$SNAPSHOT_TOPIC" != "$OBSTACLE_SCAN_TOPIC" ]]; then
   exit 1
 fi
 
-# 数值比较，兼容 5、5.0、5.00 等写法。
-if ! awk -v actual="$SNAPSHOT_HOLD" -v expected="$VISION_HOLD_TIME_S" '
+# 确认YAML实际加载的是有效正数。
+if ! awk -v actual="$SNAPSHOT_HOLD" '
   BEGIN {
-    if (actual == "" || expected == "") {
-      exit 1
-    }
-    diff = actual - expected
-    if (diff < 0) {
-      diff = -diff
-    }
-    exit !(diff < 0.000001)
+    exit !(actual ~ /^[0-9]+([.][0-9]+)?$/ && actual > 0.0)
   }
 '; then
-  error "VisionSnapshotLayer hold_time_s 参数不一致：${SNAPSHOT_HOLD:-<空>}"
-  error "期望值：${VISION_HOLD_TIME_S}s"
+  error "VisionSnapshotLayer hold_time_s 未正确加载：${SNAPSHOT_HOLD:-<空>}"
   error "请检查 /move_base/local_costmap/vision_snapshot_layer/hold_time_s"
   exit 1
 fi
 
+# 默认接受YAML中的实际值。
+# 只有显式设置VISION_HOLD_TIME_S时才严格比较。
+if [[ -n "$VISION_HOLD_TIME_S" ]]; then
+  if ! awk -v actual="$SNAPSHOT_HOLD" -v expected="$VISION_HOLD_TIME_S" '
+    BEGIN {
+      if (!(expected ~ /^[0-9]+([.][0-9]+)?$/) || expected <= 0.0) {
+        exit 2
+      }
+
+      diff = actual - expected
+      if (diff < 0) {
+        diff = -diff
+      }
+
+      exit !(diff < 0.000001)
+    }
+  '; then
+    error "VisionSnapshotLayer hold_time_s 参数不一致：${SNAPSHOT_HOLD}"
+    error "显式期望值：${VISION_HOLD_TIME_S}s"
+    exit 1
+  fi
+fi
+
 ok "move_base 已加载 VisionSnapshotLayer，odom 中保持 ${SNAPSHOT_HOLD}s"
+
 
 if ! rostopic info "$OBSTACLE_SCAN_TOPIC" 2>/dev/null | grep -q '/move_base'; then
   error "/move_base 未直接订阅 $OBSTACLE_SCAN_TOPIC"

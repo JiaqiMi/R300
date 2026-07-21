@@ -3,14 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>R300 Web 上位机</title>
+  <title>别打了我是酱油</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <h1>R300 Web 上位机</h1>
-      <p>视频 / costmap / 路径 / 激光障碍 / 车辆状态 / 航点控制</p>
+    <div class="brand">
+      <div class="brand-mark">R</div>
+      <div>
+        <h1><span>R300</span><em>|</em>别打了我是酱油</h1>
+        <p>视频 / costmap / 路径 / 激光障碍 / 车辆状态 / 航点控制</p>
+      </div>
     </div>
     <div class="status-bar">
       <span id="rosStatus" class="badge bad">ROSBridge 未连接</span>
@@ -25,6 +29,11 @@
         <span id="videoTopic"></span>
       </div>
       <div class="video-wrap"><img id="video" alt="/r300_vision/annotated_image" /></div>
+      <div class="node-actions">
+        <button class="kiwi" onclick="startProcess('camera')">启动相机/视觉</button>
+        <button class="soft" onclick="stopProcess('camera')">停止相机/视觉</button>
+        <span id="cameraProcState" class="proc-state">相机节点：未运行</span>
+      </div>
     </section>
 
     <section class="card hero-card map-card">
@@ -33,6 +42,11 @@
         <span id="costmapInfo">等待 costmap</span>
       </div>
       <canvas id="costmapCanvas" width="760" height="520"></canvas>
+      <div class="node-actions map-node-actions">
+        <button class="kiwi" onclick="startProcess('nav')">启动点云/代价地图</button>
+        <button class="soft" onclick="stopProcess('nav')">停止点云/导航</button>
+        <span id="navProcState" class="proc-state">点云/导航：未运行</span>
+      </div>
       <div class="toolbar">
         <label><input id="showCostRobot" type="checkbox" checked> 车体箭头</label>
         <label><input id="showCostVision" type="checkbox" checked> 视觉障碍</label>
@@ -45,8 +59,8 @@
 
     <section class="card scan-card">
       <div class="card-title">
-        <h2>激光 / 视觉障碍俯视图</h2>
-        <span id="scanInfo">等待 /scan</span>
+        <h2>雷达 / 视觉障碍统计</h2>
+        <span id="scanInfo">等待雷达/视觉障碍数据</span>
       </div>
       <canvas id="scanCanvas" width="760" height="520"></canvas>
       <div class="toolbar">
@@ -91,6 +105,7 @@
         <button class="danger" onclick="callService('cancel')">取消任务</button>
       </div>
       <pre id="serviceLog">服务调用日志...</pre>
+      <pre id="nodeLog">节点启动日志...</pre>
     </section>
 
     <section class="card detection-card">
@@ -98,13 +113,40 @@
       <pre id="detections">等待 /r300_vision/detections ...</pre>
       <pre id="targetPoint">等待 /r300_vision/target_point ...</pre>
     </section>
+
+    <section class="card satellite-card">
+      <div class="card-title">
+        <h2>卫星地图 / 车辆轨迹</h2>
+        <span id="satStatus">等待 /one_x/fix ...</span>
+      </div>
+      <div class="satellite-layout">
+        <div id="satelliteMap"></div>
+        <aside class="satellite-side">
+          <div class="mini-title">当前位置</div>
+          <div class="kv"><span>纬度</span><b id="satLat">--</b></div>
+          <div class="kv"><span>经度</span><b id="satLon">--</b></div>
+          <div class="kv"><span>海拔</span><b id="satAlt">--</b></div>
+          <div class="kv"><span>轨迹点数</span><b id="satCount">0</b></div>
+          <div class="kv"><span>累计距离</span><b id="satDistance">0.00 m</b></div>
+          <div class="kv"><span>最后更新</span><b id="satUpdate">--</b></div>
+          <div class="map-buttons">
+            <button class="kiwi" onclick="centerSatelliteMap()">居中车辆</button>
+            <button class="soft" onclick="clearSatelliteTrack()">清空轨迹</button>
+            <button class="soft" onclick="downloadTrackCsv()">下载CSV</button>
+            <button class="soft" onclick="downloadTrackKml()">下载KML</button>
+          </div>
+          <p class="map-note">在线卫星底图需要浏览器联网；无网络时仍会保留车辆轨迹数据。</p>
+        </aside>
+      </div>
+    </section>
   </main>
 
   <footer>
     <span>操作：滚轮缩放，鼠标拖拽平移，双击画布复位。</span>
-    <span>v3：视频与代价地图并排；车体箭头由 /one_x/odom 姿态实时旋转。</span>
+    <span>猕猴桃主题 v4：支持从网页启动相机与点云/costmap 节点。</span>
   </footer>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

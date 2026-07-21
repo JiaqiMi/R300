@@ -1,0 +1,39 @@
+{
+  "rosbridge": {"host": "192.168.30.10", "port": 9090},
+  "video": {"host": "192.168.30.10", "port": 8080, "topic": "/r300_vision/annotated_image", "quality": 15, "width": 480, "height": 360},
+  "satellite_map": {
+    "enabled": true,
+    "fix_topic": "/one_x/fix",
+    "tile_url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    "attribution": "Tiles © Esri",
+    "default_center": [38.9866, 117.3418],
+    "default_zoom": 18,
+    "min_distance_m": 0.20
+  },
+  "topics": {
+    "odom": "/one_x/odom",
+    "fix": "/one_x/fix",
+    "gps_fix": "/one_x/gps_fix",
+    "heading_deg": "/one_x/heading_deg",
+    "cmd_vel": "/subject1/cmd_vel_raw",
+    "global_plan": "/move_base/NavfnROS/plan",
+    "local_plan": "/move_base/DWAPlannerROS/local_plan",
+    "current_goal": "/move_base/current_goal",
+    "costmap": "/move_base/local_costmap/costmap",
+    "scan": "/scan",
+    "vision_scan": "/r300_vision/obstacle_scan",
+    "active_vision_scan": "/r300_vision/active_obstacle_scan",
+    "detections": "/r300_vision/detections",
+    "target_point": "/r300_vision/target_point",
+    "dynamic_state": "/subject1/dynamic/state",
+    "speed_limit": "/subject1/dynamic/speed_limit_mps",
+    "emergency_stop": "/subject1/dynamic/emergency_stop"
+  },
+  "services": {
+    "start": "/subject1/start_waypoints",
+    "pause": "/subject1/pause_waypoints",
+    "resume": "/subject1/resume_waypoints",
+    "cancel": "/subject1/cancel_waypoints",
+    "skip": "/subject1/skip_waypoint"
+  }
+}

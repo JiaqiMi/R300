@@ -28,6 +28,11 @@
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_datatypes.h>
 
+#include "r300_1x_navigation/Attitude.h"
+#include "r300_1x_navigation/InsImu.h"
+#include "r300_1x_navigation/InsStatus.h"
+#include "r300_1x_navigation/UpdateFlag.h"
+#include "r300_1x_navigation/Velocity.h"
 #include "r300_1x_navigation/geodesy.hpp"
 
 namespace
@@ -118,6 +123,31 @@ std::string ToString(uint64_t value)
   return std::to_string(value);
 }
 
+double RoundTo7Decimals(double value)
+{
+  constexpr double kScale = 10000000.0;
+  return std::round(value * kScale) / kScale;
+}
+
+std::string JoinStrings(const std::vector<std::string> &values, const std::string &fallback)
+{
+  if (values.empty())
+  {
+    return fallback;
+  }
+
+  std::ostringstream ss;
+  for (std::size_t i = 0U; i < values.size(); ++i)
+  {
+    if (i > 0U)
+    {
+      ss << ", ";
+    }
+    ss << values[i];
+  }
+  return ss.str();
+}
+
 }  // namespace
 
 class OneXSerialDriver
@@ -169,10 +199,14 @@ public:
     gps_fix_pub_ = nh_.advertise<sensor_msgs::NavSatFix>("/one_x/gps_fix", 20);
     origin_pub_ = nh_.advertise<sensor_msgs::NavSatFix>("/one_x/origin", 1, true);
     odom_pub_ = nh_.advertise<nav_msgs::Odometry>("/one_x/odom", 50);
-    imu_pub_ = nh_.advertise<sensor_msgs::Imu>("/one_x/imu", 50);
+    imu_pub_ = nh_.advertise<sensor_msgs::Imu>("/one_x/imu", 100);
+    ins_imu_pub_ = nh_.advertise<r300_1x_navigation::InsImu>("/one_x/ins_imu", 100);
+    attitude_pub_ = nh_.advertise<r300_1x_navigation::Attitude>("/one_x/attitude", 100);
+    velocity_pub_ = nh_.advertise<r300_1x_navigation::Velocity>("/one_x/vel", 100);
+    update_flag_pub_ = nh_.advertise<r300_1x_navigation::UpdateFlag>("/one_x/update_flag", 100);
     heading_pub_ = nh_.advertise<std_msgs::Float64>("/one_x/heading_deg", 20);
     pos_compare_pub_ = nh_.advertise<std_msgs::String>("/one_x/pos_compare", 2);
-    ins_status_pub_ = nh_.advertise<std_msgs::String>("/one_x/ins_status", 2);
+    ins_status_pub_ = nh_.advertise<r300_1x_navigation::InsStatus>("/one_x/ins_status", 100);
     diagnostics_pub_ = nh_.advertise<diagnostic_msgs::DiagnosticArray>("/one_x/diagnostics", 2);
 
     if (origin_ready_)
@@ -180,10 +214,9 @@ public:
       PublishOrigin(ros::Time::now());
     }
 
-    // Human-readable monitoring topics. They use standard String messages so they can be
-    // inspected directly with `rostopic echo` and do not introduce a custom ROS message.
+    // /one_x/ins_status is published once per checksum-valid serial frame so its
+    // rosbag rate and timestamp align with the other decoded 1X topics.
     pos_compare_timer_ = nh_.createTimer(ros::Duration(2.0), &OneXSerialDriver::PosCompareTimerCallback, this);
-    ins_status_timer_ = nh_.createTimer(ros::Duration(1.0), &OneXSerialDriver::InsStatusTimerCallback, this);
     diagnostics_timer_ = nh_.createTimer(ros::Duration(1.0), &OneXSerialDriver::DiagnosticsTimerCallback, this);
     OpenSerial();
   }
@@ -221,12 +254,15 @@ private:
   ros::Publisher origin_pub_;
   ros::Publisher odom_pub_;
   ros::Publisher imu_pub_;
+  ros::Publisher ins_imu_pub_;
+  ros::Publisher attitude_pub_;
+  ros::Publisher velocity_pub_;
+  ros::Publisher update_flag_pub_;
   ros::Publisher heading_pub_;
   ros::Publisher pos_compare_pub_;
   ros::Publisher ins_status_pub_;
   ros::Publisher diagnostics_pub_;
   ros::Timer pos_compare_timer_;
-  ros::Timer ins_status_timer_;
   ros::Timer diagnostics_timer_;
   tf::TransformBroadcaster tf_broadcaster_;
 
@@ -433,21 +469,38 @@ private:
     // NavSatFix messages only because a separate raw GPS altitude field has
     // not been verified yet.
     const double altitude_m = static_cast<double>(I32Le(frame + 14U)) * 1.0e-3;
-    // 经实车“车头朝北直线前进”测试确认：协议速度字段顺序为 Ve、Vn。
-    const double ve_mps = static_cast<double>(I16Le(frame + 20U)) * 1.0e-3;
-    const double vn_mps = static_cast<double>(I16Le(frame + 22U)) * 1.0e-3;
-    const double vd_mps = static_cast<double>(I16Le(frame + 24U)) * 1.0e-3;
-    const double roll_deg = static_cast<double>(I16Le(frame + 26U)) * 180.0 / 32768.0;
-    const double pitch_deg = static_cast<double>(I16Le(frame + 28U)) * 180.0 / 32768.0;
-    const double heading_deg = static_cast<double>(U16Le(frame + 30U)) * 360.0 / 65536.0;
+    // 经实车“车头朝北直线前进”测试确认：协议速度字段顺序为 Ve、Vn、Vd。
+    const int16_t ve_raw = I16Le(frame + 20U);
+    const int16_t vn_raw = I16Le(frame + 22U);
+    const int16_t vd_raw = I16Le(frame + 24U);
+    const double ve_mps = static_cast<double>(ve_raw) * 1.0e-3;
+    const double vn_mps = static_cast<double>(vn_raw) * 1.0e-3;
+    const double vd_mps = static_cast<double>(vd_raw) * 1.0e-3;
+
+    const int16_t roll_raw = I16Le(frame + 26U);
+    const int16_t pitch_raw = I16Le(frame + 28U);
+    const uint16_t heading_raw = U16Le(frame + 30U);
+    const double roll_deg = static_cast<double>(roll_raw) * 180.0 / 32768.0;
+    const double pitch_deg = static_cast<double>(pitch_raw) * 180.0 / 32768.0;
+    const double heading_deg = static_cast<double>(heading_raw) * 360.0 / 65536.0;
     const uint16_t ins_status = U16Le(frame + 32U);
     const uint8_t gps_status = frame[50U];
-    const double gx_rfu_dps = static_cast<double>(I32Le(frame + 62U)) * 1.0e-6;
-    const double gy_rfu_dps = static_cast<double>(I32Le(frame + 66U)) * 1.0e-6;
-    const double gz_rfu_dps = static_cast<double>(I32Le(frame + 70U)) * 1.0e-6;
-    const double ax_rfu_mps2 = static_cast<double>(I32Le(frame + 74U)) * 1.0e-7;
-    const double ay_rfu_mps2 = static_cast<double>(I32Le(frame + 78U)) * 1.0e-7;
-    const double az_rfu_mps2 = static_cast<double>(I32Le(frame + 82U)) * 1.0e-7;
+
+    const int32_t gx_raw = I32Le(frame + 62U);
+    const int32_t gy_raw = I32Le(frame + 66U);
+    const int32_t gz_raw = I32Le(frame + 70U);
+    const int32_t ax_raw = I32Le(frame + 74U);
+    const int32_t ay_raw = I32Le(frame + 78U);
+    const int32_t az_raw = I32Le(frame + 82U);
+    // Quantise the scaled physical values to 7 decimal places before publishing.
+    // The integer raw fields are also published, so the original serial values
+    // can always be reconstructed exactly during offline analysis.
+    const double gx_rfu_dps = RoundTo7Decimals(static_cast<double>(gx_raw) * 1.0e-6);
+    const double gy_rfu_dps = RoundTo7Decimals(static_cast<double>(gy_raw) * 1.0e-6);
+    const double gz_rfu_dps = RoundTo7Decimals(static_cast<double>(gz_raw) * 1.0e-6);
+    const double ax_rfu_mps2 = RoundTo7Decimals(static_cast<double>(ax_raw) * 1.0e-7);
+    const double ay_rfu_mps2 = RoundTo7Decimals(static_cast<double>(ay_raw) * 1.0e-7);
+    const double az_rfu_mps2 = RoundTo7Decimals(static_cast<double>(az_raw) * 1.0e-7);
     const double temperature_c = static_cast<double>(I16Le(frame + 86U)) * 0.01;
     const uint16_t imu_status = U16Le(frame + 88U);
     const uint8_t update_flag = frame[107U];
@@ -638,6 +691,76 @@ private:
     imu_msg.linear_acceleration.z = az_rfu_mps2;
     imu_pub_.publish(imu_msg);
 
+    // Raw protocol IMU in the original RFU axes and original physical units.
+    r300_1x_navigation::InsImu ins_imu_msg;
+    ins_imu_msg.header.stamp = stamp;
+    ins_imu_msg.header.frame_id = "one_x_rfu";
+    ins_imu_msg.counter = counter;
+    ins_imu_msg.gyro_x_raw = gx_raw;
+    ins_imu_msg.gyro_y_raw = gy_raw;
+    ins_imu_msg.gyro_z_raw = gz_raw;
+    ins_imu_msg.gyro_x_dps = gx_rfu_dps;
+    ins_imu_msg.gyro_y_dps = gy_rfu_dps;
+    ins_imu_msg.gyro_z_dps = gz_rfu_dps;
+    ins_imu_msg.accel_x_raw = ax_raw;
+    ins_imu_msg.accel_y_raw = ay_raw;
+    ins_imu_msg.accel_z_raw = az_raw;
+    ins_imu_msg.accel_x_mps2 = ax_rfu_mps2;
+    ins_imu_msg.accel_y_mps2 = ay_rfu_mps2;
+    ins_imu_msg.accel_z_mps2 = az_rfu_mps2;
+    ins_imu_pub_.publish(ins_imu_msg);
+
+    r300_1x_navigation::Attitude attitude_msg;
+    attitude_msg.header.stamp = stamp;
+    attitude_msg.header.frame_id = base_frame_;
+    attitude_msg.counter = counter;
+    attitude_msg.pitch_raw = pitch_raw;
+    attitude_msg.roll_raw = roll_raw;
+    attitude_msg.heading_raw = heading_raw;
+    attitude_msg.pitch_deg = pitch_deg;
+    attitude_msg.roll_deg = roll_deg;
+    attitude_msg.heading_deg = heading_deg;
+    attitude_pub_.publish(attitude_msg);
+
+    r300_1x_navigation::Velocity velocity_msg;
+    velocity_msg.header.stamp = stamp;
+    velocity_msg.header.frame_id = odom_frame_;
+    velocity_msg.counter = counter;
+    velocity_msg.ve_raw = ve_raw;
+    velocity_msg.vn_raw = vn_raw;
+    velocity_msg.vd_raw = vd_raw;
+    velocity_msg.ve_mps = ve_mps;
+    velocity_msg.vn_mps = vn_mps;
+    velocity_msg.vu_mps = -vd_mps;
+    velocity_pub_.publish(velocity_msg);
+
+    r300_1x_navigation::UpdateFlag update_flag_msg;
+    update_flag_msg.header.stamp = stamp;
+    update_flag_msg.header.frame_id = base_frame_;
+    update_flag_msg.counter = counter;
+    update_flag_msg.raw = update_flag;
+    update_flag_msg.gnss_position_updated = (update_flag & (1U << 0U)) != 0U;
+    update_flag_msg.gnss_velocity_updated = (update_flag & (1U << 1U)) != 0U;
+    update_flag_msg.gnss_attitude_updated = (update_flag & (1U << 2U)) != 0U;
+    update_flag_msg.dvl_bottom_velocity_updated = (update_flag & (1U << 3U)) != 0U;
+    update_flag_msg.dvl_water_velocity_updated = (update_flag & (1U << 4U)) != 0U;
+    update_flag_msg.usbl_position_updated = (update_flag & (1U << 5U)) != 0U;
+    update_flag_msg.emc_attitude_updated = (update_flag & (1U << 6U)) != 0U;
+    update_flag_msg.odo_velocity_updated = (update_flag & (1U << 7U)) != 0U;
+    std::vector<std::string> active_updates;
+    if (update_flag_msg.gnss_position_updated) active_updates.push_back("GNSS位置更新");
+    if (update_flag_msg.gnss_velocity_updated) active_updates.push_back("GNSS速度更新");
+    if (update_flag_msg.gnss_attitude_updated) active_updates.push_back("GNSS姿态更新");
+    if (update_flag_msg.dvl_bottom_velocity_updated) active_updates.push_back("DVL对底速度更新");
+    if (update_flag_msg.dvl_water_velocity_updated) active_updates.push_back("DVL对水速度更新");
+    if (update_flag_msg.usbl_position_updated) active_updates.push_back("USBL位置更新");
+    if (update_flag_msg.emc_attitude_updated) active_updates.push_back("EMC姿态更新");
+    if (update_flag_msg.odo_velocity_updated) active_updates.push_back("ODO速度更新");
+    update_flag_msg.active_updates = JoinStrings(active_updates, "本帧无外部信息更新");
+    update_flag_pub_.publish(update_flag_msg);
+
+    PublishInsStatus(ins_status, counter, stamp);
+
     std_msgs::Float64 heading_msg;
     heading_msg.data = heading_deg;
     heading_pub_.publish(heading_msg);
@@ -696,18 +819,18 @@ private:
 
   static const char *InsStatusBitName(unsigned int bit)
   {
-    // Byte 32..33: unsigned 16-bit little-endian INS Status, decoded from the supplied protocol table.
+    // Bytes 32..33: unsigned 16-bit little-endian INS status.
     switch (bit)
     {
-      case 0U: return "准备/待机";
+      case 0U: return "准备（待机）";
       case 1U: return "粗对准";
       case 2U: return "精对准";
       case 3U: return "纯惯性导航";
       case 4U: return "GNSS组合导航";
       case 5U: return "DVL组合导航";
       case 6U: return "GNSS+DVL组合导航";
-      case 7U: return "位置参考";
-      case 8U: return "参考位置修正";
+      case 7U: return "无位置参考";
+      case 8U: return "装订位置/参考位置修正";
       case 9U: return "GNSS位置";
       case 10U: return "无速度参考";
       case 11U: return "零速";
@@ -719,53 +842,101 @@ private:
     }
   }
 
-  void InsStatusTimerCallback(const ros::TimerEvent &)
+  static bool StatusBit(uint16_t status, unsigned int bit)
   {
-    if (!have_latest_position_)
+    return (status & (static_cast<uint16_t>(1U) << bit)) != 0U;
+  }
+
+  void PublishInsStatus(uint16_t status, uint16_t counter, const ros::Time &stamp)
+  {
+    r300_1x_navigation::InsStatus msg;
+    msg.header.stamp = stamp;
+    msg.header.frame_id = base_frame_;
+    msg.counter = counter;
+    msg.raw = status;
+    msg.ready = StatusBit(status, 0U);
+    msg.coarse_alignment = StatusBit(status, 1U);
+    msg.fine_alignment = StatusBit(status, 2U);
+    msg.pure_ins_navigation = StatusBit(status, 3U);
+    msg.gnss_integrated_navigation = StatusBit(status, 4U);
+    msg.dvl_integrated_navigation = StatusBit(status, 5U);
+    msg.gnss_dvl_integrated_navigation = StatusBit(status, 6U);
+    msg.no_position_reference = StatusBit(status, 7U);
+    msg.bound_position = StatusBit(status, 8U);
+    msg.gnss_position = StatusBit(status, 9U);
+    msg.no_velocity_reference = StatusBit(status, 10U);
+    msg.zero_velocity = StatusBit(status, 11U);
+    msg.gnss_velocity = StatusBit(status, 12U);
+    msg.dvl_velocity = StatusBit(status, 13U);
+    msg.ins_data_valid = StatusBit(status, 14U);
+    msg.fault = StatusBit(status, 15U);
+
+    if (msg.fault)
     {
-      return;
+      msg.work_state = "故障";
+    }
+    else if (msg.pure_ins_navigation || msg.gnss_integrated_navigation ||
+             msg.dvl_integrated_navigation || msg.gnss_dvl_integrated_navigation)
+    {
+      msg.work_state = "导航";
+    }
+    else if (msg.coarse_alignment || msg.fine_alignment)
+    {
+      msg.work_state = "对准";
+    }
+    else if (msg.ready)
+    {
+      msg.work_state = "准备（待机）";
+    }
+    else
+    {
+      msg.work_state = "状态未标记";
     }
 
-    std_msgs::String msg;
-    std::ostringstream ss;
-    ss << "raw=" << latest_ins_status_ << " (0x"
-       << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << latest_ins_status_
-       << std::dec << std::setfill(' ') << ")"
-       << " | bits: ";
+    std::vector<std::string> navigation_modes;
+    if (msg.pure_ins_navigation) navigation_modes.push_back("纯惯性导航");
+    if (msg.gnss_integrated_navigation) navigation_modes.push_back("GNSS组合导航");
+    if (msg.dvl_integrated_navigation) navigation_modes.push_back("DVL组合导航");
+    if (msg.gnss_dvl_integrated_navigation) navigation_modes.push_back("GNSS+DVL组合导航");
+    msg.navigation_mode = JoinStrings(navigation_modes, "无导航模式");
 
-    bool first_bit = true;
+    std::vector<std::string> position_references;
+    if (msg.no_position_reference) position_references.push_back("无位置参考");
+    if (msg.bound_position) position_references.push_back("装订位置/参考位置修正");
+    if (msg.gnss_position) position_references.push_back("GNSS位置");
+    msg.position_reference = JoinStrings(position_references, "位置参考未标记");
+
+    std::vector<std::string> velocity_references;
+    if (msg.no_velocity_reference) velocity_references.push_back("无速度参考");
+    if (msg.zero_velocity) velocity_references.push_back("零速");
+    if (msg.gnss_velocity) velocity_references.push_back("GNSS速度");
+    if (msg.dvl_velocity) velocity_references.push_back("DVL速度");
+    msg.velocity_reference = JoinStrings(velocity_references, "速度参考未标记");
+
+    std::vector<std::string> active_bits;
     for (unsigned int bit = 0U; bit < 16U; ++bit)
     {
-      if (!first_bit)
+      if (StatusBit(status, bit))
       {
-        ss << ", ";
+        std::ostringstream bit_text;
+        bit_text << "b" << bit << "=" << InsStatusBitName(bit);
+        active_bits.push_back(bit_text.str());
       }
-      ss << "b" << bit << "=" << (((latest_ins_status_ >> bit) & 0x1U) ? 1 : 0);
-      first_bit = false;
     }
+    msg.active_bits = JoinStrings(active_bits, "无有效状态位");
 
-    ss << " | active: [";
-    bool first_active = true;
-    for (unsigned int bit = 0U; bit < 16U; ++bit)
-    {
-      if ((latest_ins_status_ & (static_cast<uint16_t>(1U) << bit)) == 0U)
-      {
-        continue;
-      }
-      if (!first_active)
-      {
-        ss << ", ";
-      }
-      ss << "b" << bit << "=" << InsStatusBitName(bit);
-      first_active = false;
-    }
-    if (first_active)
-    {
-      ss << "none";
-    }
-    ss << "]";
+    std::ostringstream summary;
+    summary << "工作状态=" << msg.work_state
+            << " | 导航模式=" << msg.navigation_mode
+            << " | 位置参考=" << msg.position_reference
+            << " | 速度参考=" << msg.velocity_reference
+            << " | INS数据有效=" << (msg.ins_data_valid ? "是" : "否")
+            << " | 故障=" << (msg.fault ? "是" : "否")
+            << " | raw=" << status << " (0x"
+            << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << status
+            << std::dec << std::setfill(' ') << ")";
+    msg.summary = summary.str();
 
-    msg.data = ss.str();
     ins_status_pub_.publish(msg);
   }
 
@@ -823,7 +994,7 @@ private:
     diagnostics_pub_.publish(array_msg);
   }
 
-  // Latest decoded protocol data used by /one_x/pos_compare and /one_x/ins_status.
+  // Latest decoded protocol data used by /one_x/pos_compare and diagnostics.
   bool have_latest_position_;
   uint16_t latest_counter_ = 0U;
   double latest_ins_latitude_deg_ = 0.0;

@@ -1,0 +1,129 @@
+<launch>
+  <!--
+    Indoor closed-loop DWA laboratory.
+
+    No INS, GPS, Scout base, camera or YOLO is started.  The lightweight
+    simulator supplies odom->base_link and /one_x/odom.  The web node publishes
+    synthetic /r300_vision/obstacle_scan, so move_base uses exactly the visual
+    DWA and VisionSnapshotLayer parameter files.
+  -->
+  <!-- 监听所有本机网卡，便于通过LAN、Tailscale或SSH访问。 -->
+  <arg name="web_host" default="0.0.0.0"/>
+  <arg name="web_port" default="8070"/>
+  <arg name="use_rviz" default="false"/>
+
+  <arg name="map_frame" default="map"/>
+  <arg name="odom_frame" default="odom"/>
+  <arg name="base_frame" default="base_link"/>
+  <arg name="raw_odom_topic" default="/one_x/odom"/>
+  <arg name="dwa_odom_topic" default="/subject1/dwa_odom"/>
+  <arg name="cmd_vel_topic" default="/subject1/cmd_vel_raw"/>
+
+  <arg name="sim_rate_hz" default="50.0"/>
+  <arg name="sim_max_v" default="2.5"/>
+  <arg name="sim_max_w" default="0.5"/>
+  <arg name="sim_acc_lim_v" default="1.0"/>
+  <arg name="sim_acc_lim_w" default="0.8"/>
+  <arg name="sim_tau_v" default="0.08"/>
+  <arg name="sim_tau_w" default="0.08"/>
+
+  <arg name="pos_noise_std" default="0.0"/>
+  <arg name="yaw_noise_std_deg" default="0.0"/>
+  <arg name="drift_x_mps" default="0.0"/>
+  <arg name="drift_y_mps" default="0.0"/>
+  <arg name="yaw_drift_degps" default="0.0"/>
+
+  <node pkg="tf2_ros"
+        type="static_transform_publisher"
+        name="sim_map_to_odom"
+        args="0 0 0 0 0 0 $(arg map_frame) $(arg odom_frame)"/>
+
+  <!-- 60 m x 60 m is enough for indoor tuning and far lighter than 500 m. -->
+  <node pkg="r300_1x_navigation"
+        type="sim_blank_map_node.py"
+        name="subject1_blank_map"
+        output="screen">
+    <param name="map_topic" value="/map"/>
+    <param name="map_frame" value="$(arg map_frame)"/>
+    <param name="resolution" value="0.10"/>
+    <param name="width_m" value="60.0"/>
+    <param name="height_m" value="60.0"/>
+    <param name="publish_rate" value="1.0"/>
+  </node>
+
+  <node pkg="r300_1x_navigation"
+        type="sim_r300_odom_node.py"
+        name="sim_r300_odom_node"
+        output="screen">
+    <param name="cmd_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="nav_odom_topic" value="$(arg raw_odom_topic)"/>
+    <param name="truth_odom_topic" value="/sim/truth_odom"/>
+    <param name="reset_service" value="/sim/reset_pose"/>
+    <param name="odom_frame" value="$(arg odom_frame)"/>
+    <param name="base_frame" value="$(arg base_frame)"/>
+    <param name="rate_hz" value="$(arg sim_rate_hz)"/>
+    <param name="max_v" value="$(arg sim_max_v)"/>
+    <param name="max_w" value="$(arg sim_max_w)"/>
+    <param name="acc_lim_v" value="$(arg sim_acc_lim_v)"/>
+    <param name="acc_lim_w" value="$(arg sim_acc_lim_w)"/>
+    <!-- Web仿真不维护第二套运动上限，自动跟随视觉导航DWA运行参数。 -->
+    <param name="sync_limits_from_dwa" value="true"/>
+    <param name="dwa_param_ns" value="/move_base/DWAPlannerROS"/>
+    <param name="limit_sync_period_s" value="0.5"/>
+    <param name="tau_v" value="$(arg sim_tau_v)"/>
+    <param name="tau_w" value="$(arg sim_tau_w)"/>
+    <param name="pos_noise_std" value="$(arg pos_noise_std)"/>
+    <param name="yaw_noise_std_deg" value="$(arg yaw_noise_std_deg)"/>
+    <param name="drift_x_mps" value="$(arg drift_x_mps)"/>
+    <param name="drift_y_mps" value="$(arg drift_y_mps)"/>
+    <param name="yaw_drift_degps" value="$(arg yaw_drift_degps)"/>
+  </node>
+
+  <node pkg="r300_1x_navigation"
+        type="dwa_odom_adapter.py"
+        name="dwa_odom_adapter"
+        output="screen">
+    <param name="input_odom_topic" value="$(arg raw_odom_topic)"/>
+    <param name="output_odom_topic" value="$(arg dwa_odom_topic)"/>
+    <param name="forward_deadband_mps" value="0.02"/>
+    <param name="yaw_rate_deadband_radps" value="0.01"/>
+    <param name="forward_filter_tau_s" value="0.04"/>
+    <param name="yaw_rate_filter_tau_s" value="0.06"/>
+    <param name="max_yaw_rate_radps" value="0.50"/>
+  </node>
+
+  <include file="$(find r300_1x_navigation)/launch/subject1_move_base.launch">
+    <arg name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+    <arg name="odom_topic" value="$(arg dwa_odom_topic)"/>
+    <arg name="dwa_config_file"
+         value="$(find r300_1x_navigation)/config/subject1_dwa_vision.yaml"/>
+    <arg name="local_costmap_config_file"
+         value="$(find r300_1x_navigation)/config/subject1_local_costmap_vision.yaml"/>
+  </include>
+
+  <node pkg="r300_1x_navigation"
+        type="dwa_web_tuner.py"
+        name="dwa_web_tuner"
+        output="screen">
+    <param name="host" value="$(arg web_host)"/>
+    <param name="port" value="$(arg web_port)"/>
+    <param name="robot_frame" value="$(arg base_frame)"/>
+    <param name="goal_frame" value="$(arg map_frame)"/>
+    <param name="odom_topic" value="$(arg raw_odom_topic)"/>
+    <param name="cmd_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="dwa_dynamic_server" value="/move_base/DWAPlannerROS"/>
+    <param name="move_base_dynamic_server" value="/move_base"/>
+    <param name="local_costmap_dynamic_server" value="/move_base/local_costmap"/>
+    <param name="inflation_dynamic_server" value="/move_base/local_costmap/inflation_layer"/>
+    <param name="enable_synthetic_scan" value="true"/>
+    <param name="scan_topic" value="/r300_vision/obstacle_scan"/>
+    <param name="scan_rate_hz" value="10.0"/>
+    <param name="scan_angle_min_deg" value="-27.0"/>
+    <param name="scan_angle_max_deg" value="27.0"/>
+    <param name="scan_angle_increment_deg" value="0.5"/>
+    <param name="scan_range_min_m" value="0.2"/>
+    <param name="scan_range_max_m" value="10.5"/>
+  </node>
+
+  <node pkg="rviz" type="rviz" name="rviz" if="$(arg use_rviz)"/>
+</launch>

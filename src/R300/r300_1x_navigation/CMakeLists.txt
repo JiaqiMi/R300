@@ -10,6 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
   costmap_2d
   pluginlib
   move_base_msgs
+  message_generation
   nav_msgs
   roscpp
   rospy
@@ -23,9 +24,23 @@ find_package(catkin REQUIRED COMPONENTS
   tf2
 )
 
+add_message_files(
+  FILES
+  InsImu.msg
+  Attitude.msg
+  Velocity.msg
+  UpdateFlag.msg
+  InsStatus.msg
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
+
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS actionlib costmap_2d diagnostic_msgs geometry_msgs move_base_msgs nav_msgs pluginlib roscpp rospy r300_vision_msgs sensor_msgs std_msgs std_srvs tf tf2 tf2_geometry_msgs tf2_ros
+  CATKIN_DEPENDS actionlib costmap_2d diagnostic_msgs geometry_msgs message_runtime move_base_msgs nav_msgs pluginlib roscpp rospy r300_vision_msgs sensor_msgs std_msgs std_srvs tf tf2 tf2_geometry_msgs tf2_ros
 )
 
 include_directories(
@@ -34,6 +49,7 @@ include_directories(
 )
 
 add_executable(one_x_serial_driver src/one_x_serial_driver.cpp)
+add_dependencies(one_x_serial_driver ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(one_x_serial_driver ${catkin_LIBRARIES})
 
 add_executable(geodetic_goal_sender src/geodetic_goal_sender.cpp)
@@ -72,6 +88,7 @@ install(DIRECTORY launch config maps include/
 # 仿真和工具+实际
 catkin_install_python(PROGRAMS
   scripts/waypoint_executor.py
+  scripts/dwa_odom_adapter.py
   scripts/odom_to_path.py
   scripts/sim_blank_map_node.py
   scripts/sim_r300_odom_node.py
@@ -82,12 +99,14 @@ catkin_install_python(PROGRAMS
   scripts/vision_obstacle_layer_node.py
   scripts/vision_clear_scan_node.py
   scripts/costmap_web_viewer.py
+  scripts/dwa_web_tuner.py
   scripts/vision_costmap_scan_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
 install(PROGRAMS
   scripts/one_key/start_r300_vision_nav.sh
+  scripts/one_key/start_dwa_web_tuner.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

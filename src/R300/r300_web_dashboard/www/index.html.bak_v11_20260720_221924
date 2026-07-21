@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>别打了我是酱油</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">R</div>
+      <div>
+        <h1><span>R300</span><em>|</em>别打了我是酱油</h1>
+        <p>视频 / costmap / 路径 / 激光障碍 / 车辆状态 / 航点控制</p>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span id="rosStatus" class="badge bad">ROSBridge 未连接</span>
+      <span id="lastMsg" class="badge">等待数据</span>
+    </div>
+  </header>
+
+  <main class="dashboard">
+    <section class="card hero-card video-card">
+      <div class="card-title">
+        <h2>视觉检测画面</h2>
+        <span id="videoTopic"></span>
+      </div>
+      <div class="video-wrap"><img id="video" alt="/r300_vision/annotated_image" /></div>
+      <div class="node-actions">
+        <button class="kiwi" onclick="startProcess('camera')">启动相机/视觉</button>
+        <button class="soft" onclick="stopProcess('camera')">停止相机/视觉</button>
+        <span id="cameraProcState" class="proc-state">相机节点：未运行</span>
+      </div>
+    </section>
+
+    <section class="card hero-card map-card">
+      <div class="card-title">
+        <h2>local_costmap + DWA 路径</h2>
+        <span id="costmapInfo">等待 costmap</span>
+      </div>
+      <canvas id="costmapCanvas" width="760" height="520"></canvas>
+      <div class="node-actions map-node-actions">
+        <button class="kiwi" onclick="startProcess('nav')">启动点云/代价地图</button>
+        <button class="soft" onclick="stopProcess('nav')">停止点云/导航</button>
+        <span id="navProcState" class="proc-state">点云/导航：未运行</span>
+      </div>
+      <div class="toolbar">
+        <label><input id="showCostRobot" type="checkbox" checked> 车体箭头</label>
+        <label><input id="showCostVision" type="checkbox" checked> 视觉障碍</label>
+        <label><input id="showCostLaser" type="checkbox" checked> /scan</label>
+        <label><input id="showGlobal" type="checkbox" checked> 全局路径</label>
+        <label><input id="showLocal" type="checkbox" checked> 局部路径</label>
+        <button onclick="resetCanvasView('costmapCanvas')">复位视图</button>
+      </div>
+    </section>
+
+    <section class="card scan-card">
+      <div class="card-title">
+        <h2>激光 / 视觉障碍俯视图</h2>
+        <span id="scanInfo">等待 /scan</span>
+      </div>
+      <canvas id="scanCanvas" width="760" height="520"></canvas>
+      <div class="toolbar">
+        <label><input id="showScanRaw" type="checkbox" checked> /scan</label>
+        <label><input id="showScanVision" type="checkbox" checked> 视觉障碍</label>
+        <label><input id="showScanActive" type="checkbox" checked> active 障碍</label>
+        <button onclick="resetCanvasView('scanCanvas')">复位视图</button>
+      </div>
+    </section>
+
+    <section class="card status-card">
+      <div class="card-title"><h2>车辆状态</h2><span id="dataAge">--</span></div>
+      <div class="kv"><span>位置 x / y</span><b id="poseXY">--</b></div>
+      <div class="kv"><span>航向</span><b id="heading">--</b></div>
+      <div class="kv"><span>速度 vx / wz</span><b id="vel">--</b></div>
+      <div class="kv"><span>GPS</span><b id="gps">--</b></div>
+      <div class="kv"><span>当前目标</span><b id="goal">--</b></div>
+      <div class="kv"><span>动态状态</span><b id="dynState">--</b></div>
+      <div class="kv"><span>限速 / 急停</span><b id="safety">--</b></div>
+      <div class="mini-title">路径与地图指标</div>
+      <div class="kv"><span>全局路径</span><b id="globalStat">--</b></div>
+      <div class="kv"><span>DWA 局部路径</span><b id="localStat">--</b></div>
+      <div class="kv"><span>costmap</span><b id="mapStat">--</b></div>
+      <div class="kv"><span>障碍点</span><b id="obsStat">--</b></div>
+      <div class="legend">
+        <span><i class="robot"></i>车体航向箭头</span>
+        <span><i class="green"></i>全局路径</span>
+        <span><i class="cyan"></i>DWA local plan</span>
+        <span><i class="red"></i>/scan</span>
+        <span><i class="orange"></i>视觉障碍</span>
+        <span><i class="black"></i>高代价/致命障碍</span>
+      </div>
+    </section>
+
+    <section class="card control-card">
+      <div class="card-title"><h2>航点控制</h2><span>不直接抢 /cmd_vel</span></div>
+      <div class="buttons">
+        <button onclick="callService('start')">开始航点</button>
+        <button onclick="callService('pause')">暂停</button>
+        <button onclick="callService('resume')">恢复</button>
+        <button onclick="callService('skip')">跳过当前点</button>
+        <button class="danger" onclick="callService('cancel')">取消任务</button>
+      </div>
+      <pre id="serviceLog">服务调用日志...</pre>
+      <pre id="nodeLog">节点启动日志...</pre>
+    </section>
+
+    <section class="card detection-card">
+      <div class="card-title"><h2>视觉检测 / 目标信息</h2><span id="detectionCount">--</span></div>
+      <pre id="detections">等待 /r300_vision/detections ...</pre>
+      <pre id="targetPoint">等待 /r300_vision/target_point ...</pre>
+    </section>
+
+    <section class="card satellite-card">
+      <div class="card-title">
+        <h2>卫星地图 / 车辆轨迹</h2>
+        <span id="satStatus">等待 /one_x/fix ...</span>
+      </div>
+      <div class="satellite-layout">
+        <div id="satelliteMap"></div>
+        <aside class="satellite-side">
+          <div class="mini-title">当前位置</div>
+          <div class="kv"><span>纬度</span><b id="satLat">--</b></div>
+          <div class="kv"><span>经度</span><b id="satLon">--</b></div>
+          <div class="kv"><span>海拔</span><b id="satAlt">--</b></div>
+          <div class="kv"><span>轨迹点数</span><b id="satCount">0</b></div>
+          <div class="kv"><span>累计距离</span><b id="satDistance">0.00 m</b></div>
+          <div class="kv"><span>最后更新</span><b id="satUpdate">--</b></div>
+          <div class="map-buttons">
+            <button class="kiwi" onclick="centerSatelliteMap()">居中车辆</button>
+            <button class="soft" onclick="clearSatelliteTrack()">清空轨迹</button>
+            <button class="soft" onclick="downloadTrackCsv()">下载CSV</button>
+            <button class="soft" onclick="downloadTrackKml()">下载KML</button>
+          </div>
+          <p class="map-note">在线卫星底图需要浏览器联网；无网络时仍会保留车辆轨迹数据。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>操作：滚轮缩放，鼠标拖拽平移，双击画布复位。</span>
+    <span>猕猴桃主题 v4：支持从网页启动相机与点云/costmap 节点。</span>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
