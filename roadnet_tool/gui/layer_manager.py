@@ -12,6 +12,7 @@
   - layer_skeleton_nodes       : 骨架端点/交叉点（调试）
   - layer_draft_graph          : 草稿路网图（橙色）
   - layer_final_graph          : 最终路网图（蓝色）
+  - layer_graph_issues         : 路网异常高亮（诊断显示层，不改数据）
   - layer_task_points          : 任务点
   - layer_planned_path         : 规划路径（紫色）
   - layer_debug                : 调试图层
@@ -54,6 +55,7 @@ LAYER_COLORS: Dict[str, QColor] = {
     "draft_graph":         QColor(255, 184, 108),
     "layer_final_graph":   QColor(137, 180, 250),  # 浅蓝
     "final_graph":         QColor(137, 180, 250),
+    "layer_graph_issues":  QColor(255, 70, 70),    # 红色 = 路网异常高亮
     "layer_reference_graph": QColor(255, 220, 100),  # 金色（参考层）
     "reference_graph":     QColor(255, 220, 100),
     "samroad_raw_graph":   QColor(255, 220, 100),
@@ -92,6 +94,7 @@ LAYER_DEFAULT_ALPHA: Dict[str, int] = {
     "draft_graph":         220,
     "layer_final_graph":   255,
     "final_graph":         255,
+    "layer_graph_issues":  220,
     "layer_reference_graph": 160,  # 半透明参考层
     "reference_graph":     160,
     "samroad_raw_graph":   160,
@@ -114,7 +117,7 @@ VECTOR_LAYERS = {"layer_sample_points", "sample_points", "layer_roi", "roi",
                  "layer_ignore", "ignore", "layer_task_points",
                  "layer_main_road_seed", "layer_road_ribbon_preview",
                  "layer_skeleton_nodes", "layer_sparse_waypoints",
-                 "layer_waypoint_validation",
+                 "layer_waypoint_validation", "layer_graph_issues",
                  "edit", "graph", "path"}
 
 # ============================================================================
@@ -125,7 +128,8 @@ STAGE_PRESETS: Dict[str, dict] = {
         "show":  [],
         "hide":  ["layer_sample_points", "layer_roi", "layer_ignore",
                   "layer_road_mask", "layer_skeleton", "layer_skeleton_nodes",
-                  "layer_draft_graph", "layer_final_graph", "layer_reference_graph",
+                  "layer_draft_graph", "layer_final_graph", "layer_graph_issues",
+                  "layer_reference_graph",
                   "layer_task_points", "layer_planned_path", "layer_sparse_waypoints"],
         "alias_show": [], "alias_hide": [],
     },
@@ -133,7 +137,7 @@ STAGE_PRESETS: Dict[str, dict] = {
         "show":  ["layer_sample_points", "layer_road_mask", "layer_preview_segmentation", "layer_roi"],
         "hide":  ["layer_ignore", "layer_skeleton",
                   "layer_skeleton_nodes", "layer_draft_graph", "layer_final_graph",
-                  "layer_reference_graph",
+                  "layer_graph_issues", "layer_reference_graph",
                   "layer_task_points", "layer_planned_path", "layer_sparse_waypoints"],
         "alias_show": [], "alias_hide": [],
     },
@@ -142,7 +146,7 @@ STAGE_PRESETS: Dict[str, dict] = {
         "hide":  ["layer_sample_points", "layer_skeleton",
                   "layer_cleaned_road_mask", "layer_final_edited_mask",
                   "layer_skeleton_nodes", "layer_draft_graph", "layer_final_graph",
-                  "layer_reference_graph",
+                  "layer_graph_issues", "layer_reference_graph",
                   "layer_task_points", "layer_planned_path", "layer_sparse_waypoints"],
         "alias_show": [], "alias_hide": [],
     },
@@ -153,7 +157,8 @@ STAGE_PRESETS: Dict[str, dict] = {
                   "layer_cleaned_road_mask", "layer_final_edited_mask",
                   "layer_raw_skeleton", "layer_center_filtered_skeleton",
                   "layer_skeleton_nodes",
-                  "layer_draft_graph", "layer_final_graph", "layer_reference_graph",
+                  "layer_draft_graph", "layer_final_graph", "layer_graph_issues",
+                  "layer_reference_graph",
                   "layer_task_points", "layer_planned_path", "layer_sparse_waypoints"],
         "alias_show": [], "alias_hide": [],
     },
@@ -162,7 +167,7 @@ STAGE_PRESETS: Dict[str, dict] = {
                   "layer_task_points"],  # ★ task_points 在 graph 阶段也显示
         "hide":  ["layer_sample_points", "layer_roi", "layer_ignore",
                   "layer_road_mask", "layer_center_filtered_skeleton",
-                  "layer_raw_skeleton", "layer_skeleton_nodes",
+                  "layer_raw_skeleton", "layer_skeleton_nodes", "layer_graph_issues",
                   "layer_planned_path", "layer_sparse_waypoints"],
         "alias_show": [], "alias_hide": [],
     },
@@ -171,7 +176,7 @@ STAGE_PRESETS: Dict[str, dict] = {
                   "layer_task_points"],  # ★ task_points 在标定阶段也显示
         "hide":  ["layer_sample_points", "layer_roi", "layer_ignore",
                   "layer_road_mask", "layer_skeleton_nodes",
-                  "layer_draft_graph", "layer_reference_graph",
+                  "layer_draft_graph", "layer_graph_issues", "layer_reference_graph",
                   "layer_planned_path", "layer_sparse_waypoints"],
         "alias_show": [], "alias_hide": [],
     },
@@ -180,7 +185,7 @@ STAGE_PRESETS: Dict[str, dict] = {
                   "layer_sparse_waypoints"],
         "hide":  ["layer_sample_points", "layer_roi", "layer_ignore",
                   "layer_road_mask", "layer_skeleton", "layer_skeleton_nodes",
-                  "layer_draft_graph", "layer_reference_graph"],
+                  "layer_draft_graph", "layer_graph_issues", "layer_reference_graph"],
         "alias_show": [], "alias_hide": [],
     },
 }
@@ -230,6 +235,7 @@ _LAYER_ALIAS_MAP: Dict[str, str] = {
     "cleaned_skeleton": "layer_skeleton",
     "draft_graph":  "layer_draft_graph",
     "final_graph":  "layer_final_graph",
+    "graph_issues": "layer_graph_issues",
     "planned_path": "layer_planned_path",
     "sparse_waypoints": "layer_sparse_waypoints",
     "sample_points":"layer_sample_points",
@@ -312,6 +318,7 @@ class LayerManager(QObject):
             "layer_skeleton_nodes": 90,
             "layer_draft_graph": 60, "draft_graph": 60,
             "layer_final_graph": 60, "final_graph": 60,
+            "layer_graph_issues": 125,
             "layer_task_points": 100,
             "layer_planned_path": 100, "planned_path": 100,
             "layer_sparse_waypoints": 110,
@@ -327,7 +334,7 @@ class LayerManager(QObject):
             "layer_roi", "layer_ignore",
             "layer_raw_skeleton", "layer_center_filtered_skeleton",
             "layer_skeleton", "layer_skeleton_nodes",
-            "layer_draft_graph", "layer_final_graph",
+            "layer_draft_graph", "layer_final_graph", "layer_graph_issues",
             "layer_planned_path", "layer_sparse_waypoints",
             "layer_waypoint_validation",
             "layer_sample_points", "layer_task_points",

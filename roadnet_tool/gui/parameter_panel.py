@@ -700,7 +700,7 @@ class ParameterPanel(QWidget):
         g1.addWidget(self._ignore_count_label)
 
         g2 = self._add_group("Mask 精修")
-        self._add_spin(g2, "画笔半径", "edit.brush_radius", 3, 1, 100)
+        self._add_spin(g2, "画笔半径", "edit.brush_radius", 8, 1, 100)
         self._add_spin(g2, "最大撤销步数", "edit.max_undo_steps", 20, 5, 100)
 
         # ── 主要操作 ──
@@ -1194,8 +1194,23 @@ class ParameterPanel(QWidget):
         g1.addWidget(btn_draft)
 
         btn_diagnose = QPushButton("🔎 分析路网问题")
+        btn_diagnose.setToolTip("生成诊断报告与自动修复建议（黄色虚线预览）")
         btn_diagnose.clicked.connect(lambda: self.apply_requested.emit("diagnose_graph"))
         g1.addWidget(btn_diagnose)
+
+        btn_issues = QPushButton("⚠ 分析路网并高亮异常")
+        btn_issues.setObjectName("primary")
+        btn_issues.setToolTip(
+            "诊断 final_graph，在图上用红/橙/黄高亮异常，并打开异常列表。"
+            "不修改 final_graph.json。"
+        )
+        btn_issues.clicked.connect(lambda: self.apply_requested.emit("highlight_graph_issues"))
+        g1.addWidget(btn_issues)
+
+        btn_show_issues = QPushButton("📋 显示路网异常列表")
+        btn_show_issues.setToolTip("打开上次分析的异常列表；若路网已改动需重新分析")
+        btn_show_issues.clicked.connect(lambda: self.apply_requested.emit("show_graph_issue_list"))
+        g1.addWidget(btn_show_issues)
 
         repair_layout = QHBoxLayout()
         btn_apply_repair = QPushButton("✅ 应用高置信修复")
@@ -1353,19 +1368,28 @@ class ParameterPanel(QWidget):
         g_tp.addWidget(btn_import_tp)
 
         row_manual = QHBoxLayout()
-        btn_start = QPushButton("手动设置起点")
+        btn_start = QPushButton("设置起点")
+        btn_start.setToolTip("进入起点输入模式；可连续点击，Esc 退出。已有起点时会确认是否替换。")
         btn_start.clicked.connect(lambda: self.apply_requested.emit("manual_set_start"))
-        btn_goal = QPushButton("手动设置终点")
+        btn_goal = QPushButton("设置终点")
+        btn_goal.setToolTip("进入终点输入模式；已有终点时会确认是否替换。")
         btn_goal.clicked.connect(lambda: self.apply_requested.emit("manual_set_goal"))
         row_manual.addWidget(btn_start)
         row_manual.addWidget(btn_goal)
         g_tp.addLayout(row_manual)
 
-        btn_via = QPushButton("手动添加必经点")
+        btn_via = QPushButton("添加必经点 / 连续添加")
+        btn_via.setObjectName("primary")
+        btn_via.setToolTip(
+            "连续添加任务点，不限数量。\n"
+            "若尚无起点，第 1 个点自动为起点；之后均为必经点。\n"
+            "Esc 退出输入模式。"
+        )
         btn_via.clicked.connect(lambda: self.apply_requested.emit("manual_add_via"))
         g_tp.addWidget(btn_via)
 
         btn_clear_tp = QPushButton("清空任务点")
+        btn_clear_tp.setToolTip("清空任务点数据与图层，并失效旧路径/航点结果")
         btn_clear_tp.clicked.connect(lambda: self.apply_requested.emit("clear_task_points"))
         g_tp.addWidget(btn_clear_tp)
 
@@ -1441,6 +1465,28 @@ class ParameterPanel(QWidget):
             lambda: self.apply_requested.emit("export_competition")
         )
         g2.addWidget(btn_competition)
+
+        btn_judge = QPushButton("突出显示 final_graph（裁判查看）")
+        btn_judge.setCheckable(True)
+        btn_judge.setToolTip(
+            "ON：只显示原始影像 + final_graph\n"
+            "OFF：恢复进入前的图层显示状态\n"
+            "不修改 final_graph.json 等任何数据"
+        )
+        btn_judge.clicked.connect(
+            lambda: self.apply_requested.emit("judge_view_toggle")
+        )
+        g2.addWidget(btn_judge)
+        self._judge_view_btn = btn_judge
+
+        btn_export_judge = QPushButton("导出裁判查看图")
+        btn_export_judge.setToolTip(
+            "导出 judge_final_graph_overlay.png（影像 + 高亮 final_graph）"
+        )
+        btn_export_judge.clicked.connect(
+            lambda: self.apply_requested.emit("export_judge_overlay")
+        )
+        g2.addWidget(btn_export_judge)
 
         btn_debug = QPushButton("🧪 导出调试图")
         btn_debug.clicked.connect(lambda: self.apply_requested.emit("export_debug"))

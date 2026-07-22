@@ -162,7 +162,14 @@ class ProjectManager:
                 "draft_graph_file": self._data.draft_graph_file,
                 "final_graph_file": self._data.final_graph_file,
                 "geo_calibration": self._data.geo_calibration,
-                "task_points": self._data.task_points,
+                # Unified task-point payload (serialized TaskPoint dicts).
+                # Prefer task_points_serialized; fall back to legacy task_points.
+                "task_points": (
+                    self._data.task_points_serialized
+                    if self._data.task_points_serialized is not None
+                    else self._data.task_points
+                ),
+                "task_points_serialized": self._data.task_points_serialized,
                 "planned_path_file": self._data.planned_path_file,
                 "layer_visibility": self._data.layer_visibility,
                 "current_tool": self._data.current_tool,
@@ -230,6 +237,11 @@ class ProjectManager:
                     "pixel_resolution_estimated_m": None,
                 }),
                 task_points=data.get("task_points", []),
+                task_points_serialized=(
+                    data.get("task_points_serialized")
+                    or data.get("task_points")
+                    or []
+                ),
                 planned_path_file=data.get("planned_path_file", ""),
                 layer_visibility=data.get("layer_visibility", {}),
                 current_tool=data.get("current_tool", "pan"),

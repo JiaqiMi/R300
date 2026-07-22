@@ -115,7 +115,7 @@ class CanvasView(QGraphicsView):
         self._ignore_rects_deprecated: list = []
 
         # ---- Mask 精修状态 ----（V3 实装） ----
-        self._mask_brush_radius: int = 3
+        self._mask_brush_radius: int = 8
         self._mask_undo_stack: list = []
         self._mask_undo_max: int = 20
         # 运行时变量
@@ -2059,10 +2059,12 @@ class CanvasView(QGraphicsView):
         elif tool == "polyline":
             pass
         elif tool in ("set_start", "set_end", "add_task"):
-            # ★ 任务点工具：转换为全局像素坐标后发送信号
-            x_global, y_global = self._layer_manager.preview_to_global(sx, sy)
+            # ★ 任务点：scene → preview → original image pixel（大图不可把 scene 当原图像素）
+            x_global, y_global = self.scene_to_global_xy(scene_pt)
             tp_type = {"set_start": "start", "set_end": "goal", "add_task": "task"}[tool]
-            self.task_point_clicked.emit(tp_type, x_global, y_global)
+            self.task_point_clicked.emit(tp_type, int(round(x_global)), int(round(y_global)))
+            event.accept()
+            return
         elif tool == "calibrate_map_click":
             # ★ 控制点图上配准：转换为全局像素坐标后发送信号
             x_global, y_global = self._layer_manager.preview_to_global(sx, sy)

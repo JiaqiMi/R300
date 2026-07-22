@@ -183,6 +183,7 @@ class ToolPanel(QWidget):
             ("layer_skeleton",       "Cleaned Skeleton", "#f1fa8c"),
             ("layer_draft_graph",    "Draft Graph",  "#ffb86c"),
             ("layer_final_graph",    "Final Graph",  "#89b4fa"),
+            ("layer_graph_issues",   "显示路网异常",  "#ff4646"),
             ("layer_planned_path",   "dense_path",     "#cba6f7"),
             ("layer_sparse_waypoints", "vehicle_waypoints",   "#ffd166"),
             ("layer_waypoint_validation", "航点验收", "#ff5555"),

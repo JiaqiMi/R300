@@ -141,9 +141,27 @@ class MainWindow(QMainWindow):
         self._mask_before_auto_ignore: Optional[np.ndarray] = None
         self._region_edit_stable_mode: bool = True
 
+        # ★ 路网异常高亮（仅显示层，不修改 final_graph）
+        self._graph_issue_report: dict = {}
+        self._graph_issue_signature = None
+        self._graph_issue_items: list = []
+        self._graph_issue_flash_items: list = []
+        self._graph_issue_output_dir: Optional[str] = None
+        self._graph_issue_dialog = None
+        self._graph_issue_stale: bool = False
+
         # ★ 参考图渲染项（SAM-Road raw graph）
         self._ref_node_items: list = []
         self._ref_edge_items: list = []
+
+        # ★ 裁判查看模式（仅显示层：原始影像 + final_graph）
+        self._judge_view_mode: bool = False
+        self._judge_view_saved_visibility: dict = {}
+        self._judge_view_show_nodes: bool = True
+        self._judge_view_show_legend: bool = True
+        self._judge_view_show_arrows: bool = False
+        self._judge_overlay_items: list = []
+        self._judge_range_ok: bool = True
 
         # ★ SAM-Road 单图推理包输出（额外图层）
         self._samroad_single_itsc_mask: Optional[np.ndarray] = None  # itsc_mask.png
@@ -291,7 +309,7 @@ class MainWindow(QMainWindow):
         self._canvas._history_mask_patch_callback = self._history.push_mask_patch
 
         # ★ 初始同步 brush radius（canvas 默认 3，与面板一致）
-        default_radius = self._param_panel._get_config("edit.brush_radius", 3)
+        default_radius = self._param_panel._get_config("edit.brush_radius", 8)
         self._canvas.brush_radius = int(default_radius)
 
     # ===================================================================
@@ -693,6 +711,28 @@ class MainWindow(QMainWindow):
         act_export_competition.triggered.connect(self._on_export_competition_roadnet)
         export_menu.addAction(act_export_competition)
 
+        act_judge_view = QAction("突出显示 final_graph（裁判查看）", self)
+        act_judge_view.setCheckable(True)
+        act_judge_view.setToolTip(
+            "只显示原始影像 + final_graph，供裁判核对路网与影像是否匹配。\n"
+            "不修改 final_graph / mask / skeleton / 航点数据。"
+        )
+        act_judge_view.triggered.connect(self._on_toggle_judge_view_mode)
+        export_menu.addAction(act_judge_view)
+        self._act_judge_view = act_judge_view
+
+        act_graph_issues = QAction("分析路网并高亮异常", self)
+        act_graph_issues.setToolTip("诊断 final_graph 并在图上高亮异常（不修改数据）")
+        act_graph_issues.triggered.connect(self._on_highlight_graph_issues)
+        export_menu.addAction(act_graph_issues)
+
+        act_export_judge = QAction("导出裁判查看图...", self)
+        act_export_judge.setToolTip(
+            "导出 judge_final_graph_overlay.png（原始影像 + 高亮 final_graph）"
+        )
+        act_export_judge.triggered.connect(self._on_export_judge_final_graph_overlay)
+        export_menu.addAction(act_export_judge)
+
         export_menu.addSeparator()
 
         # 路网导出子菜单
@@ -845,7 +885,8 @@ class MainWindow(QMainWindow):
             "layer_sample_points", "layer_roi", "layer_ignore",
             "layer_road_mask", "layer_preview_segmentation",
             "layer_skeleton", "layer_draft_graph",
-            "layer_final_graph", "layer_planned_path", "layer_sparse_waypoints",
+            "layer_final_graph", "layer_graph_issues",
+            "layer_planned_path", "layer_sparse_waypoints",
             "layer_waypoint_validation",
             "layer_skeleton_nodes",
         ]
@@ -894,6 +935,12 @@ class MainWindow(QMainWindow):
                 self._render_waypoint_validation_to_scene()
             else:
                 self._clear_waypoint_validation_items()
+        elif name in ("layer_graph_issues", "graph_issues"):
+            if visible:
+                self._render_graph_issues_to_scene()
+            else:
+                # 仅隐藏显示层，不删除报告
+                self._clear_graph_issue_items(keep_report=True)
         self._canvas.viewport().update()
 
     # ===================================================================
@@ -1490,6 +1537,12 @@ class MainWindow(QMainWindow):
         scene = self._canvas.scene()
         if scene is None:
             return
+
+        # 裁判查看模式：仅高对比度显示 final_graph（不改数据）
+        if getattr(self, "_judge_view_mode", False):
+            self._render_judge_final_graph_to_scene()
+            return
+
         ge = self._graph_editor
         lm = self._layer_manager  # ★ 用于坐标转换
 
@@ -1667,7 +1720,415 @@ class MainWindow(QMainWindow):
                 scene.addItem(item)
                 self._graph_manual_preview_items.append(item)
 
+        self._maybe_invalidate_graph_issues()
         self._canvas.viewport().update()
+
+    # ===================================================================
+    # 裁判查看模式：原始影像 + final_graph（仅显示层）
+    # ===================================================================
+
+    def _clear_judge_overlay_items(self):
+        scene = self._canvas.scene() if getattr(self, "_canvas", None) else None
+        for item in getattr(self, "_judge_overlay_items", []) or []:
+            if scene is not None:
+                safe_remove_scene_item(scene, item)
+        self._judge_overlay_items = []
+
+    def _sync_judge_view_ui(self, enabled: bool):
+        if hasattr(self, "_act_judge_view") and self._act_judge_view is not None:
+            self._act_judge_view.blockSignals(True)
+            self._act_judge_view.setChecked(bool(enabled))
+            self._act_judge_view.blockSignals(False)
+        try:
+            btn = getattr(self._param_panel, "_judge_view_btn", None)
+            if btn is not None:
+                btn.blockSignals(True)
+                btn.setChecked(bool(enabled))
+                btn.setText(
+                    "裁判查看模式 ON（点击退出）" if enabled
+                    else "突出显示 final_graph（裁判查看）"
+                )
+                btn.blockSignals(False)
+        except Exception:
+            pass
+
+    def _judge_collect_graph(self):
+        ge = self._graph_editor
+        if ge is None:
+            return [], []
+        return list(ge.nodes or []), list(ge.edges or [])
+
+    def _on_toggle_judge_view_mode(self, checked=None):
+        """模式开关：ON 进入裁判查看，OFF 恢复图层。"""
+        # QAction sends bool; button via apply_requested may send nothing
+        if checked is None:
+            checked = not bool(getattr(self, "_judge_view_mode", False))
+        if checked:
+            self._enter_judge_view_mode()
+        else:
+            self._exit_judge_view_mode()
+
+    def _enter_judge_view_mode(self):
+        from roadnet.judge_final_graph_view import (
+            validate_final_graph_for_judge,
+            JUDGE_HIDE_LAYERS,
+            JUDGE_SHOW_LAYERS,
+        )
+
+        if not self._layer_manager.has_image():
+            QMessageBox.warning(self, "裁判查看模式", "请先加载影像图。")
+            self._sync_judge_view_ui(False)
+            return
+        if self._graph_editor is None:
+            QMessageBox.warning(
+                self, "裁判查看模式",
+                "尚未加载 final_graph。\n请先生成或导入路网。",
+            )
+            self._sync_judge_view_ui(False)
+            return
+
+        nodes, edges = self._judge_collect_graph()
+        ow, oh = self._layer_manager.original_size
+        report = validate_final_graph_for_judge(
+            has_image=True,
+            image_width=int(ow),
+            image_height=int(oh),
+            nodes=nodes,
+            edges=edges,
+        )
+        if not report["ok"]:
+            QMessageBox.warning(
+                self, "裁判查看模式",
+                "无法进入裁判查看模式：\n\n" + "\n".join(f"- {e}" for e in report["errors"]),
+            )
+            self._sync_judge_view_ui(False)
+            return
+        if report.get("warnings"):
+            QMessageBox.warning(
+                self, "坐标范围警告",
+                "\n".join(report["warnings"])
+                + "\n\n仍可进入裁判查看模式，但请核对影像与 final_graph 是否匹配。",
+            )
+
+        # 保存进入前图层可见性
+        saved = {}
+        try:
+            for name, layer in self._layer_manager.layers().items():
+                saved[name] = bool(getattr(layer, "visible", False))
+        except Exception:
+            pass
+        self._judge_view_saved_visibility = saved
+        self._judge_range_ok = bool(report.get("range_ok", True))
+        self._judge_view_mode = True
+
+        # 隐藏干扰图层，只保留影像 + final_graph
+        for name in JUDGE_HIDE_LAYERS:
+            try:
+                self._layer_manager.hide_layer(name)
+                self._tool_panel.set_layer_checkbox_state(name, False)
+            except Exception:
+                pass
+        for name in JUDGE_SHOW_LAYERS:
+            try:
+                self._layer_manager.show_layer(name)
+                self._tool_panel.set_layer_checkbox_state(name, True)
+            except Exception:
+                pass
+
+        # 清除其他矢量叠加（不改数据）
+        try:
+            self._clear_planned_path_items()
+            self._clear_sparse_waypoint_items()
+            self._clear_waypoint_validation_items()
+            self._clear_task_point_items()
+            self._clear_reference_graph_items()
+            if hasattr(self, "_clear_samroad_single_overlay_items"):
+                self._clear_samroad_single_overlay_items()
+        except Exception:
+            pass
+
+        self._render_judge_final_graph_to_scene()
+        try:
+            self._canvas.refresh_scene()
+        except Exception:
+            pass
+        self._canvas.viewport().update()
+        self._sync_judge_view_ui(True)
+        self._update_judge_view_status_bar(report)
+
+    def _exit_judge_view_mode(self):
+        was_on = bool(getattr(self, "_judge_view_mode", False))
+        self._judge_view_mode = False
+        self._clear_judge_overlay_items()
+
+        # 恢复图层可见性
+        saved = getattr(self, "_judge_view_saved_visibility", {}) or {}
+        if saved:
+            for name, vis in saved.items():
+                try:
+                    if vis:
+                        self._layer_manager.show_layer(name)
+                    else:
+                        self._layer_manager.hide_layer(name)
+                    self._tool_panel.set_layer_checkbox_state(name, bool(vis))
+                except Exception:
+                    pass
+        self._judge_view_saved_visibility = {}
+
+        # 按当前可见性重绘矢量层
+        try:
+            self._render_graph_to_scene()
+            if self._layer_manager.is_layer_visible("layer_planned_path") or \
+                    self._layer_manager.is_layer_visible("planned_path"):
+                self._render_planned_path_to_scene()
+            if self._layer_manager.is_layer_visible("layer_sparse_waypoints"):
+                self._render_sparse_waypoints_to_scene()
+            if self._layer_manager.is_layer_visible("layer_task_points"):
+                self._render_task_points_to_scene()
+            if self._layer_manager.is_layer_visible("layer_reference_graph"):
+                self._render_reference_graph_to_scene()
+            self._canvas.refresh_scene()
+        except Exception:
+            pass
+        self._canvas.viewport().update()
+        self._sync_judge_view_ui(False)
+        if was_on:
+            self._status_bar.show_message("已退出裁判查看模式，图层显示已恢复")
+
+    def _update_judge_view_status_bar(self, report: dict):
+        ow = report.get("image_width") or self._layer_manager.original_size[0]
+        oh = report.get("image_height") or self._layer_manager.original_size[1]
+        bounds = report.get("bounds")
+        if bounds:
+            btxt = (
+                f"{bounds[0]:.1f}, {bounds[1]:.1f}, "
+                f"{bounds[2]:.1f}, {bounds[3]:.1f}"
+            )
+        else:
+            btxt = "N/A"
+        match_txt = (
+            "final_graph 与影像范围基本匹配。"
+            if report.get("range_ok", True)
+            else "警告：final_graph 坐标范围可能与影像不匹配。"
+        )
+        msg = (
+            "裁判查看模式：原始影像 + final_graph  |  "
+            f"图像尺寸：{ow} × {oh}  |  "
+            f"节点数：{report.get('node_count', 0)}  |  "
+            f"边数：{report.get('edge_count', 0)}  |  "
+            f"graph 坐标范围：{btxt}  |  {match_txt}"
+        )
+        self._status_bar.show_message(msg)
+
+    def _render_judge_final_graph_to_scene(self):
+        """高对比度渲染 final_graph（original image pixel → scene via image_to_scene）。"""
+        from PySide6.QtGui import QPen, QBrush, QPainterPath, QColor, QFont
+        from PySide6.QtWidgets import (
+            QGraphicsPathItem, QGraphicsEllipseItem, QGraphicsTextItem,
+        )
+        from roadnet.judge_final_graph_view import edge_polyline
+
+        if self._graph_editor is None:
+            return
+        scene = self._canvas.scene()
+        if scene is None:
+            return
+        lm = self._layer_manager
+        ge = self._graph_editor
+
+        # Clear normal graph items + judge extras
+        for item in self._graph_node_items.values():
+            safe_remove_scene_item(scene, item)
+        for item in self._graph_edge_items.values():
+            safe_remove_scene_item(scene, item)
+        for item in self._graph_manual_preview_items:
+            safe_remove_scene_item(scene, item)
+        for item in self._graph_endpoint_items:
+            safe_remove_scene_item(scene, item)
+        self._graph_node_items.clear()
+        self._graph_edge_items.clear()
+        self._graph_manual_preview_items.clear()
+        self._graph_endpoint_items.clear()
+        self._clear_judge_overlay_items()
+
+        z_edge = getattr(self._canvas, "ZVAL_AUTO_EDGE", 50) + 40
+        outer_w, inner_w = 8.0, 4.0
+        node_r = 5.0
+        show_nodes = bool(getattr(self, "_judge_view_show_nodes", True))
+
+        def _add_path(pts, color, width, z):
+            if len(pts) < 2:
+                return None
+            path = QPainterPath()
+            x0, y0 = lm.image_to_scene(pts[0][0], pts[0][1])
+            path.moveTo(x0, y0)
+            for p in pts[1:]:
+                x, y = lm.image_to_scene(p[0], p[1])
+                path.lineTo(x, y)
+            item = QGraphicsPathItem(path)
+            pen = QPen(color, width)
+            pen.setCosmetic(True)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            item.setPen(pen)
+            item.setOpacity(0.95)
+            item.setZValue(z)
+            item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            scene.addItem(item)
+            try:
+                lm.add_item("layer_final_graph", item)
+            except Exception:
+                pass
+            self._judge_overlay_items.append(item)
+            return item
+
+        for e in ge.edges:
+            if e.get("enabled", True) is False:
+                continue
+            pts = edge_polyline(e)
+            if len(pts) < 2:
+                # fallback to node endpoints
+                nm = {n["id"]: n for n in ge.nodes}
+                a, b = nm.get(e.get("start")), nm.get(e.get("end"))
+                if a and b:
+                    pts = [[a["x"], a["y"]], [b["x"], b["y"]]]
+            if len(pts) < 2:
+                continue
+            _add_path(pts, QColor(0, 0, 0), outer_w, z_edge)
+            _add_path(pts, QColor(255, 220, 0), inner_w, z_edge + 1)
+            # store last inner as edge item key
+            if self._judge_overlay_items:
+                self._graph_edge_items[e.get("id", len(self._graph_edge_items))] = (
+                    self._judge_overlay_items[-1]
+                )
+
+        if show_nodes:
+            for n in ge.nodes:
+                nx, ny = lm.image_to_scene(float(n["x"]), float(n["y"]))
+                # white outline
+                outer = QGraphicsEllipseItem(
+                    nx - (node_r + 1), ny - (node_r + 1),
+                    (node_r + 1) * 2, (node_r + 1) * 2,
+                )
+                outer.setBrush(QBrush(QColor(255, 255, 255)))
+                outer.setPen(QPen(Qt.PenStyle.NoPen))
+                outer.setZValue(z_edge + 2)
+                outer.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+                scene.addItem(outer)
+                try:
+                    lm.add_item("layer_final_graph", outer)
+                except Exception:
+                    pass
+                self._judge_overlay_items.append(outer)
+                # red fill
+                dot = QGraphicsEllipseItem(
+                    nx - node_r, ny - node_r, node_r * 2, node_r * 2,
+                )
+                dot.setBrush(QBrush(QColor(230, 40, 40)))
+                dot.setPen(QPen(Qt.PenStyle.NoPen))
+                dot.setZValue(z_edge + 3)
+                dot.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+                scene.addItem(dot)
+                try:
+                    lm.add_item("layer_final_graph", dot)
+                except Exception:
+                    pass
+                self._judge_overlay_items.append(dot)
+                self._graph_node_items[n["id"]] = dot
+
+        if getattr(self, "_judge_view_show_legend", True):
+            try:
+                ow, oh = lm.original_size
+                legend = QGraphicsTextItem(
+                    f"裁判查看：原始影像 + final_graph\n"
+                    f"nodes={len(ge.nodes)}  edges={len(ge.edges)}  "
+                    f"image={ow}×{oh}"
+                )
+                legend.setDefaultTextColor(QColor(255, 235, 120))
+                legend.setFont(QFont("Microsoft YaHei", 11, QFont.Weight.Bold))
+                legend.setZValue(z_edge + 10)
+                legend.setPos(12, 8)
+                scene.addItem(legend)
+                self._judge_overlay_items.append(legend)
+            except Exception:
+                pass
+
+        self._canvas.viewport().update()
+
+    def _on_export_judge_final_graph_overlay(self):
+        """导出 judge_final_graph_overlay.png（影像 + final_graph，无干扰层）。"""
+        from roadnet.judge_final_graph_view import (
+            validate_final_graph_for_judge,
+            export_judge_overlay_png,
+            load_image_for_judge_export,
+            JudgeViewStyle,
+        )
+
+        if not self._layer_manager.has_image():
+            QMessageBox.warning(self, "导出裁判查看图", "请先加载影像图。")
+            return
+        if self._graph_editor is None:
+            QMessageBox.warning(self, "导出裁判查看图", "尚未加载 final_graph。")
+            return
+
+        nodes, edges = self._judge_collect_graph()
+        ow, oh = self._layer_manager.original_size
+        report = validate_final_graph_for_judge(
+            has_image=True,
+            image_width=int(ow),
+            image_height=int(oh),
+            nodes=nodes,
+            edges=edges,
+        )
+        if not report["ok"]:
+            QMessageBox.warning(
+                self, "导出裁判查看图",
+                "\n".join(report["errors"]),
+            )
+            return
+        if report.get("warnings"):
+            reply = QMessageBox.warning(
+                self, "坐标范围警告",
+                "\n".join(report["warnings"]) + "\n\n是否仍要导出？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        default_dir = os.path.join(os.getcwd(), "outputs", "judge_view")
+        os.makedirs(default_dir, exist_ok=True)
+        default_path = os.path.join(default_dir, "judge_final_graph_overlay.png")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出裁判查看图", default_path,
+            "PNG (*.png);;All (*.*)",
+        )
+        if not path:
+            return
+
+        try:
+            image_rgb, coord_scale, note = load_image_for_judge_export(self._layer_manager)
+            title = "裁判查看：原始影像 + final_graph"
+            if note != "original" and note != "original_from_disk":
+                title += f"（preview scale={coord_scale:.4f}）"
+            export_judge_overlay_png(
+                path, image_rgb, nodes, edges,
+                JudgeViewStyle(
+                    show_nodes=bool(getattr(self, "_judge_view_show_nodes", True)),
+                    show_legend=True,
+                    show_title=True,
+                ),
+                coord_scale=coord_scale,
+                assume_rgb=True,
+                title=title,
+            )
+            self._status_bar.show_message(f"裁判查看图已导出: {path}")
+            QMessageBox.information(
+                self, "导出完成",
+                f"已导出裁判查看图：\n{path}\n\n"
+                f"仅含影像 + final_graph（未改写 final_graph.json）",
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "导出失败", str(exc))
 
     def _render_reference_graph_to_scene(self):
         """将 SAM-Road 原始 graph（参考图层）渲染到 QGraphicsScene。
@@ -2148,6 +2609,7 @@ class MainWindow(QMainWindow):
                       "layer_road_mask", "layer_roi", "layer_ignore",
                       "layer_skeleton", "layer_skeleton_nodes",
                       "layer_draft_graph", "layer_final_graph",
+                      "layer_graph_issues",
                       "layer_reference_graph", "reference_graph",
                       "layer_planned_path", "layer_sparse_waypoints",
                       "layer_sample_points",
@@ -2169,10 +2631,15 @@ class MainWindow(QMainWindow):
         self._valid_mask_report = {}
         self._clear_mask_candidate_items()
         self._clear_graph_repair_items()
+        self._clear_graph_issue_items(keep_report=False)
         self._mask_ignore_candidates = []
         self._graph_repair_candidates = []
         self._mask_candidate_signature = None
         self._graph_repair_signature = None
+        self._graph_issue_report = {}
+        self._graph_issue_signature = None
+        self._graph_issue_stale = False
+        self._graph_issue_output_dir = None
         self._last_graph_diagnostics = {}
         self._last_auto_repair_output_dir = None
         self._last_mask_filter_output_dir = None
@@ -2279,9 +2746,22 @@ class MainWindow(QMainWindow):
                 self._update_graph_stats()
                 print(f"[Project] 已恢复 graph: {len(ge.nodes)} 节点, {len(ge.edges)} 边")
             # ★ 恢复任务点
-            if getattr(data, 'task_points_serialized', None):
-                self._deserialize_task_points(data.task_points_serialized)
+            # Unified task points: serialized preferred, then legacy task_points,
+            # then large_image_project.json task_points.
+            tp_payload = (
+                getattr(data, "task_points_serialized", None)
+                or getattr(data, "task_points", None)
+                or []
+            )
+            if (not tp_payload) and getattr(self, "_large_image_project", None) is not None:
+                tp_payload = getattr(self._large_image_project, "task_points", None) or []
+            if tp_payload:
+                self._deserialize_task_points(tp_payload)
                 self._render_task_points_to_scene()
+            else:
+                self._task_points = []
+                self._clear_task_point_items()
+                self._sync_task_points_table()
             self._status_bar.update_resolution(data.pixel_resolution_m,
                 calibrated=data.geo_calibration.get("enabled", False))
             self._status_bar.show_message(f"已加载项目: {os.path.basename(path)}")
@@ -2348,11 +2828,17 @@ class MainWindow(QMainWindow):
             data.graph_edges = []
             data.graph_next_node_id = 0
             data.graph_next_edge_id = 0
-        # ★ 同步任务点数据
-        if hasattr(self, '_task_points') and self._task_points:
-            data.task_points_serialized = self._serialize_task_points()
-        else:
-            data.task_points_serialized = []
+        # ★ 同步任务点数据（普通模式 / 大图模式统一）
+        serialized = self._serialize_task_points() if getattr(self, "_task_points", None) else []
+        data.task_points_serialized = serialized
+        data.task_points = serialized
+        project = getattr(self, "_large_image_project", None)
+        if project is not None:
+            try:
+                project.task_points = list(serialized)
+                project.save()
+            except Exception as exc:
+                print(f"[Project] sync large_image task_points failed: {exc}")
 
     def _restore_regions_from_project(self, data):
         """从项目数据恢复 ROI / Ignore 多边形到 canvas。"""
@@ -2703,6 +3189,12 @@ class MainWindow(QMainWindow):
             self._sync_layer_checkboxes()
             self._set_nav_active("import")
 
+        # Restore unified task_points from large_image_project.json when empty.
+        project_tps = getattr(project, "task_points", None) or []
+        if project_tps and not self._task_points:
+            self._deserialize_task_points(project_tps)
+            self._render_task_points_to_scene()
+
         self._status_bar.show_message(
             f"大图项目就绪：{project.image_width}x{project.image_height}，"
             f"tiles={tile_index.get('tile_count', 0)}，坐标=image_pixel"
@@ -2908,6 +3400,13 @@ class MainWindow(QMainWindow):
     def _on_region_escape_shortcut(self):
         """Cancel only the unfinished region even when a side panel has focus."""
         tool = self._canvas.current_tool
+        if tool in ("set_start", "set_end", "add_task"):
+            self.set_tool("pan")
+            n = len(getattr(self, "_task_points", []) or [])
+            self._status_bar.show_message(
+                f"已退出任务点输入模式；当前任务点数量：{n}"
+            )
+            return
         if tool == "roi" and self._canvas._roi_points:
             self._canvas._clear_current_roi_drawing()
         elif tool == "ignore" and self._canvas._ignore_points:
@@ -2963,6 +3462,17 @@ class MainWindow(QMainWindow):
             mode_name = "橡皮" if tool_id == "mask_eraser" else "画笔"
             self._status_bar.show_message(
                 f"Mask {mode_name}半径 = {r} px  ([ / ] 调整, Ctrl+滚轮调整)"
+            )
+        elif tool_id in ("set_start", "set_end", "add_task"):
+            n = len(getattr(self, "_task_points", []) or [])
+            mode_hint = {
+                "set_start": "设置起点",
+                "set_end": "设置终点",
+                "add_task": "添加任务点（无起点则首点为起点，否则为必经点）",
+            }.get(tool_id, "任务点")
+            self._status_bar.show_message(
+                f"任务点输入模式（{mode_hint}）：左键添加，Esc退出；"
+                f"当前任务点数量：{n}"
             )
 
     def _on_nav_step(self, step_id: str):
@@ -3086,8 +3596,9 @@ class MainWindow(QMainWindow):
                           "graph_delete_node", "graph_delete_edge",
                           "graph_move_node", "graph_merge_nodes", "graph_draw_edge",
                           "graph_local_rebuild", "graph_locate_jump",
-                          "graph_save", "plan"},
-            "calibrate": {"pan"},
+                          "graph_save", "plan",
+                          "set_start", "set_end", "add_task"},
+            "calibrate": {"pan", "set_start", "set_end", "add_task"},
             "export":    {"pan", "set_start", "set_end", "add_task", "plan", "export"},
         }
         allowed = stage_tools.get(stage, {"pan"})
@@ -4663,9 +5174,91 @@ class MainWindow(QMainWindow):
             self._clear_planned_path_items()
         return changed
 
+    def _resolve_manual_task_point_type(self, tp_type: str) -> Optional[int]:
+        """Resolve point_type for a manual click. Returns None if user cancels."""
+        # Explicit tools
+        if tp_type == "start":
+            point_type = 0
+        elif tp_type == "goal":
+            point_type = 1
+        else:
+            # Default continuous add: first point = start, then unlimited vias
+            has_start = any(int(tp.point_type) == 0 for tp in self._task_points)
+            point_type = 0 if not has_start else 2
+
+        if point_type == 0:
+            existing = [tp for tp in self._task_points if int(tp.point_type) == 0]
+            if existing:
+                reply = QMessageBox.question(
+                    self, "替换起点",
+                    "当前已有起点。是否将新点击设为起点，并把旧起点降为必经点？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return None
+        elif point_type == 1:
+            existing = [tp for tp in self._task_points if int(tp.point_type) == 1]
+            if existing:
+                reply = QMessageBox.question(
+                    self, "替换终点",
+                    "当前已有终点。是否将新点击设为终点，并把旧终点降为必经点？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return None
+        return point_type
+
+    def _invalidate_path_results_after_task_change(self, status_msg: str = ""):
+        """Task points changed → discard snapped/path/waypoint results (data + UI)."""
+        self._snapped_points = []
+        self.snapped_task_points = []
+        self._reset_planned_path_data()
+        self._clear_planned_path_items()
+        self._dense_path_for_waypoints = []
+        self._vwp_result = None
+        self._vwp_output_dir = None
+        self._vwp_waypoint_csv_path = None
+        self._vwp_dense_path_csv_path = None
+        self._vehicle_waypoint_report = {}
+        self._waypoint_validation_report = {}
+        self._waypoint_bad_segments = []
+        self._path_layer_diag_result = None
+        self._clear_sparse_waypoint_items()
+        self._clear_waypoint_validation_items()
+        msg = status_msg or "任务点已修改，请重新规划路径。"
+        if self._status_bar is not None:
+            self._status_bar.show_message(msg)
+
+    def _persist_task_points_to_project(self):
+        """Persist unified task_points into ProjectData + large_image_project.json."""
+        serialized = self._serialize_task_points()
+        data = self._project_manager.data
+        data.task_points_serialized = serialized
+        data.task_points = serialized  # legacy field kept in sync
+        self._project_manager.mark_dirty()
+
+        project = getattr(self, "_large_image_project", None)
+        if project is not None:
+            try:
+                project.task_points = list(serialized)
+                project.save()
+            except Exception as exc:
+                print(f"[TaskPoints] save large_image_project.json failed: {exc}")
+
     def _on_task_point_clicked(self, tp_type: str, x_global: int, y_global: int):
-        """画布点击添加任务点（通过工具按钮 set_start/set_end/add_task）"""
+        """画布点击添加任务点（set_start / set_end / add_task）。
+
+        - 不限制必经点数量，不在 3 个点后退出；
+        - 坐标必须是 original image pixel（大图由 canvas 已转换）；
+        - 添加后保持当前输入模式，Esc 才退出。
+        """
         from roadnet.task_points import TaskPoint
+
+        point_type = self._resolve_manual_task_point_type(tp_type)
+        if point_type is None:
+            return
 
         self._history.push_state("add_task_point")
         next_seq = len(self._task_points) + 1
@@ -4674,10 +5267,7 @@ class MainWindow(QMainWindow):
             or [-1]
         ) + 1
 
-        pt_map = {"start": 0, "goal": 1, "task": 2}
-        point_type = pt_map.get(tp_type, 2)
-
-        # 添加新的起点/终点时，旧同类点自动降为必经点；添加阶段不报顺序错误。
+        # Replace existing start/goal by demoting old ones to via.
         if point_type in (0, 1):
             for existing in self._task_points:
                 if int(existing.point_type) == point_type:
@@ -4688,7 +5278,6 @@ class MainWindow(QMainWindow):
         geo = self.geo_calibration
         if geo is not None and geo.is_valid:
             try:
-                # pixel → WGS84 反算，写入 TaskPoint lon/lat
                 lon, lat = geo.pixel_to_wgs84(float(x_global), float(y_global))
                 status = "ok"
             except Exception as exc:
@@ -4709,26 +5298,26 @@ class MainWindow(QMainWindow):
         )
         self._task_points.append(tp)
         self._normalize_task_points("manual_add")
-        self._snapped_points = []
-        self.snapped_task_points = []
-        self._reset_planned_path_data()
-        self._clear_planned_path_items()
-
-        # 重新渲染（增量）
-        self._clear_task_point_items()
-        self._render_task_points_to_scene()
-        self._layer_manager.show_layer("task_points")
-        self._sync_task_points_table()
-
-        type_name = tp.type_name
-        self._status_bar.show_message(
-            f"已添加 {type_name} 点 (seq={tp.seq}, x={x_global}, y={y_global}"
-            + (f", lon={lon:.6f}, lat={lat:.6f}" if lon is not None else "")
-            + ")"
+        self._invalidate_path_results_after_task_change(
+            "任务点已修改，请重新规划路径。"
         )
 
-        # 添加后自动切换回 pan 工具
-        self.set_tool("pan")
+        self._clear_task_point_items()
+        self._render_task_points_to_scene()
+        self._layer_manager.show_layer("layer_task_points")
+        self._tool_panel.set_layer_checkbox_state("layer_task_points", True)
+        self._sync_task_points_table()
+        self._persist_task_points_to_project()
+
+        n = len(self._task_points)
+        type_name = {0: "起点", 1: "终点", 2: "必经点"}.get(int(tp.point_type), "任务点")
+        self._status_bar.show_message(
+            f"任务点输入模式：左键继续添加，Esc退出；当前任务点数量：{n} "
+            f"（刚添加 {type_name} seq={tp.seq}, x={x_global}, y={y_global}"
+            + (f", lon={lon:.6f}, lat={lat:.6f}" if lon is not None else "")
+            + "）"
+        )
+        # ★ 保持当前工具，不自动切回 pan（否则看起来像“只能点 3 次”）
 
     def _on_import_task_points(self):
         """导入比赛任务点 txt：序号;经度;纬度;高程;属性。
@@ -4797,10 +5386,10 @@ class MainWindow(QMainWindow):
             out_of_bounds = sum(1 for point in task_points if point.inside_image is False)
             converted = sum(1 for point in task_points if point.pixel_x is not None)
 
-            self._snapped_points = []
-            self.snapped_task_points = []
-            self._reset_planned_path_data()
-            self._clear_planned_path_items()
+            self._invalidate_path_results_after_task_change(
+                "任务点已导入，请重新规划路径。"
+            )
+            self._persist_task_points_to_project()
 
             outputs_dir = os.path.join(os.getcwd(), "outputs")
             if self._large_image_project is not None:
@@ -4885,10 +5474,10 @@ class MainWindow(QMainWindow):
         self._history.push_state("edit_task_points")
         self._task_points = dialog.task_points()
         self._normalize_task_points("manager_save")
-        self._snapped_points = []
-        self.snapped_task_points = []
-        self._reset_planned_path_data()
-        self._clear_planned_path_items()
+        self._invalidate_path_results_after_task_change(
+            f"任务点修改已保存，共 {len(self._task_points)} 个；请重新规划路径。"
+        )
+        self._persist_task_points_to_project()
         self._render_task_points_to_scene()
         self._sync_task_points_table()
         self._status_bar.show_message(
@@ -5276,18 +5865,20 @@ class MainWindow(QMainWindow):
         self._on_export_planned_path()
 
     def _on_clear_task_points(self):
-        """清空所有任务点"""
+        """清空所有任务点（数据 + UI 图层 + 项目持久化 + 路径结果）。"""
         self._history.push_state("clear_task_points")
         self._task_points = []
         self._task_point_diagnostics = []
-        self._snapped_points = []
-        self.snapped_task_points = []
-        self._reset_planned_path_data()
+        self._invalidate_path_results_after_task_change("任务点已清空，请重新添加并规划路径。")
         self._clear_task_point_items()
         self._clear_planned_path_items()
-        self._canvas.viewport().update()
+        self._clear_sparse_waypoint_items()
+        self._clear_waypoint_validation_items()
+        self._persist_task_points_to_project()
         self._sync_task_points_table()
-        self._status_bar.show_message("任务点已清空")
+        if self._canvas is not None:
+            self._canvas.viewport().update()
+        self._status_bar.show_message("任务点已清空（数据与图层均已清除）")
 
     # ===================================================================
     # 任务点与规划路径渲染
@@ -5314,11 +5905,14 @@ class MainWindow(QMainWindow):
             return
 
         # ★ 强制显示 task_points 图层（如果有点但被隐藏）
-        if not lm.is_layer_visible("task_points"):
-            lm.show_layer("task_points")
-            # 尝试全名
-            if not lm.is_layer_visible("task_points"):
-                lm.show_layer("layer_task_points")
+        if not lm.is_layer_visible("layer_task_points"):
+            lm.show_layer("layer_task_points")
+
+        def _reg(item, bucket):
+            item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            scene.addItem(item)
+            lm.add_item("layer_task_points", item)
+            bucket.append(item)
 
         has_coords = 0
         no_coords = 0
@@ -5354,14 +5948,14 @@ class MainWindow(QMainWindow):
                     label = f"OUTSIDE · seq={tp.seq} · type={tp.point_type}"
                 elif tp.point_type == 0:
                     color = QColor(40, 200, 90)
-                    label = f"S/START · seq={tp.seq} · type=0"
+                    label = f"S · seq={tp.seq}"
                 elif tp.point_type == 1:
                     color = QColor(245, 70, 70)
-                    label = f"G/GOAL · seq={tp.seq} · type=1"
+                    label = f"G · seq={tp.seq}"
                 else:
                     via_index += 1
                     color = QColor(50, 145, 255)
-                    label = f"P{via_index} · seq={tp.seq} · type=2"
+                    label = f"P{via_index} · seq={tp.seq}"
 
                 tp_z = 1000
                 radius = 8 if tp.point_type in (0, 1) else 6
@@ -5372,15 +5966,19 @@ class MainWindow(QMainWindow):
                     dot.setPen(pen)
                     dot.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 150)))
                     dot.setZValue(tp_z)
-                    scene.addItem(dot)
-                    self._task_point_original_items.append(dot)
+                    _reg(dot, self._task_point_original_items)
                 else:
                     cross_size = 10
-                    for line in (
-                        scene.addLine(tx - cross_size, ty - cross_size, tx + cross_size, ty + cross_size, pen),
-                        scene.addLine(tx - cross_size, ty + cross_size, tx + cross_size, ty - cross_size, pen),
+                    for x1, y1, x2, y2 in (
+                        (tx - cross_size, ty - cross_size, tx + cross_size, ty + cross_size),
+                        (tx - cross_size, ty + cross_size, tx + cross_size, ty - cross_size),
                     ):
+                        line = scene.addLine(x1, y1, x2, y2, pen)
                         line.setZValue(tp_z)
+                        try:
+                            lm.add_item("layer_task_points", line)
+                        except Exception:
+                            pass
                         self._task_point_original_items.append(line)
 
                 text_item = QGraphicsTextItem(label)
@@ -5389,8 +5987,7 @@ class MainWindow(QMainWindow):
                 text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
                 text_item.setPos(tx + 12, ty - 12)
                 text_item.setZValue(tp_z + 1)
-                scene.addItem(text_item)
-                self._task_point_original_items.append(text_item)
+                _reg(text_item, self._task_point_original_items)
 
         print(f"[TaskPoints] rendered task point items = {len(self._task_point_original_items)}, "
               f"has_coords={has_coords}, no_coords={no_coords}")
@@ -5411,6 +6008,10 @@ class MainWindow(QMainWindow):
                 dash_pen.setStyle(Qt.PenStyle.DashLine)
                 dash_item = scene.addLine(ox_t, oy_t, sx_t, sy_t, dash_pen)
                 dash_item.setZValue(self._canvas.ZVAL_PATH - 1)
+                try:
+                    lm.add_item("layer_task_points", dash_item)
+                except Exception:
+                    pass
                 self._task_point_snap_lines.append(dash_item)
 
                 # 吸附点圆点
@@ -5429,8 +6030,7 @@ class MainWindow(QMainWindow):
                 dot.setPen(QPen(snap_color, 2))
                 dot.setBrush(snap_brush)
                 dot.setZValue(self._canvas.ZVAL_PATH)
-                scene.addItem(dot)
-                self._task_point_snapped_items.append(dot)
+                _reg(dot, self._task_point_snapped_items)
 
         self._canvas.viewport().update()
 
@@ -5762,65 +6362,76 @@ class MainWindow(QMainWindow):
         self._canvas.viewport().update()
 
     def _clear_task_point_items(self):
-        """清除任务点相关 scene items"""
+        """真正清除任务点相关 scene items（不只隐藏）。"""
         scene = self._canvas.scene() if self._canvas else None
-        if scene is None:
-            return
-        for item in self._task_point_original_items:
-            safe_remove_scene_item(scene, item)
-        for item in self._task_point_snapped_items:
-            safe_remove_scene_item(scene, item)
-        for item in self._task_point_snap_lines:
-            safe_remove_scene_item(scene, item)
+        lm = self._layer_manager
+        all_items = (
+            list(self._task_point_original_items)
+            + list(self._task_point_snapped_items)
+            + list(self._task_point_snap_lines)
+        )
+        for item in all_items:
+            try:
+                lm.remove_item("layer_task_points", item)
+            except Exception:
+                pass
+            if scene is not None:
+                safe_remove_scene_item(scene, item)
         self._task_point_original_items.clear()
         self._task_point_snapped_items.clear()
         self._task_point_snap_lines.clear()
+        try:
+            lm.clear_layer_items("layer_task_points")
+        except Exception:
+            pass
 
     def _serialize_task_points(self) -> list:
         """将 TaskPoint 列表序列化为可保存的字典列表"""
         result = []
         for tp in self._task_points:
-            result.append({
+            d = tp.to_dict() if hasattr(tp, "to_dict") else {
                 "seq": tp.seq,
                 "longitude": tp.longitude,
                 "latitude": tp.latitude,
                 "altitude": tp.altitude,
                 "point_type": tp.point_type,
-                "reserve": tp.reserve,
                 "pixel_x": tp.pixel_x,
                 "pixel_y": tp.pixel_y,
-                "map_x": tp.map_x,
-                "map_y": tp.map_y,
-                "status": getattr(tp, "status", "pending"),
-                "inside_image": getattr(tp, "inside_image", None),
-                "created_order": getattr(tp, "created_order", 0),
+                "x_pixel": tp.pixel_x,
+                "y_pixel": tp.pixel_y,
                 "source": getattr(tp, "source", ""),
-                "snap_status": getattr(tp, "snap_status", ""),
-                "snap_distance": getattr(tp, "snap_distance", None),
-            })
+                "coordinate_system": "original_image_pixel",
+            }
+            result.append(d)
         return result
 
     def _deserialize_task_points(self, data: list):
-        """从序列化数据恢复 TaskPoint 列表"""
+        """从序列化数据恢复 TaskPoint 列表（统一普通/大图模式）。"""
         from roadnet.task_points import TaskPoint
         self._task_points = []
-        for index, d in enumerate(data):
+        for index, d in enumerate(data or []):
+            if not isinstance(d, dict):
+                continue
+            px = d.get("pixel_x", d.get("x_pixel", d.get("x_global")))
+            py = d.get("pixel_y", d.get("y_pixel", d.get("y_global")))
+            lon = d.get("longitude", d.get("lon"))
+            lat = d.get("latitude", d.get("lat"))
             tp = TaskPoint(
-                seq=d.get("seq", 0),
-                longitude=d.get("longitude", 0.0),
-                latitude=d.get("latitude", 0.0),
-                altitude=d.get("altitude", 0.0),
-                point_type=d.get("point_type", 2),
-                reserve=d.get("reserve", ""),
-                pixel_x=d.get("pixel_x"),
-                pixel_y=d.get("pixel_y"),
+                seq=int(d.get("seq", index + 1) or (index + 1)),
+                longitude=None if lon is None else float(lon),
+                latitude=None if lat is None else float(lat),
+                altitude=float(d.get("altitude", 0.0) or 0.0),
+                point_type=int(d.get("point_type", 2) or 2),
+                reserve=d.get("reserve", "") or "",
+                pixel_x=None if px is None else float(px),
+                pixel_y=None if py is None else float(py),
                 map_x=d.get("map_x"),
                 map_y=d.get("map_y"),
                 status=d.get("status", "pending"),
                 inside_image=d.get("inside_image"),
-                created_order=d.get("created_order", index),
-                source=d.get("source", ""),
-                snap_status=d.get("snap_status", ""),
+                created_order=int(d.get("created_order", index) or index),
+                source=d.get("source", "") or "",
+                snap_status=d.get("snap_status", "") or "",
                 snap_distance=d.get("snap_distance"),
             )
             self._task_points.append(tp)
@@ -12106,6 +12717,520 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "路网诊断完成", message) if components > 1 else QMessageBox.information(self, "路网诊断完成", message)
         return diagnostics
 
+    # ===================================================================
+    # 路网异常高亮（显示层，不修改 final_graph）
+    # ===================================================================
+
+    def _get_road_mask_for_graph_issues(self):
+        """Prefer final_edited_mask / working road mask for support checks."""
+        lm = self._layer_manager
+        for name in (
+            "layer_final_edited_mask",
+            "final_edited_mask",
+            "layer_road_mask",
+            "mask",
+            "road_mask",
+        ):
+            data = lm.get_layer_data(name)
+            if data is not None:
+                arr = np.asarray(data)
+                if arr.ndim >= 2 and arr.size > 0:
+                    return arr if arr.ndim == 2 else arr[..., 0]
+        return None
+
+    def _clear_graph_issue_items(self, keep_report: bool = False):
+        scene = self._canvas.scene() if getattr(self, "_canvas", None) else None
+        lm = self._layer_manager
+        for item in getattr(self, "_graph_issue_items", []) or []:
+            try:
+                lm.remove_item("layer_graph_issues", item)
+            except Exception:
+                pass
+            if scene is not None:
+                safe_remove_scene_item(scene, item)
+        self._graph_issue_items = []
+        for item in getattr(self, "_graph_issue_flash_items", []) or []:
+            if scene is not None:
+                safe_remove_scene_item(scene, item)
+        self._graph_issue_flash_items = []
+        if not keep_report:
+            lm.clear_layer_items("layer_graph_issues")
+
+    def _maybe_invalidate_graph_issues(self):
+        """If graph changed after analysis, hide stale highlights and prompt re-run."""
+        if self._graph_issue_signature is None:
+            return
+        if getattr(self, "_graph_issue_stale", False):
+            return
+        sig = self._current_graph_signature()
+        if sig == self._graph_issue_signature:
+            return
+        self._graph_issue_stale = True
+        if isinstance(self._graph_issue_report, dict):
+            self._graph_issue_report = dict(self._graph_issue_report)
+            self._graph_issue_report["stale"] = True
+        else:
+            self._graph_issue_report = {"stale": True, "issues": []}
+        self._clear_graph_issue_items(keep_report=True)
+        self._layer_manager.hide_layer("layer_graph_issues")
+        self._tool_panel.set_layer_checkbox_state("layer_graph_issues", False)
+        if self._graph_issue_dialog is not None:
+            self._graph_issue_dialog.set_report(self._graph_issue_report)
+        if self._status_bar is not None:
+            self._status_bar.show_message("路网已修改，请重新分析异常。")
+
+    def _ensure_graph_issue_dialog(self):
+        if self._graph_issue_dialog is None:
+            from .graph_issue_dialog import GraphIssueDialog
+            dlg = GraphIssueDialog(self)
+            dlg.issue_activated.connect(self.focus_graph_issue)
+            dlg.on_export = self._export_graph_issue_reports
+            self._graph_issue_dialog = dlg
+        return self._graph_issue_dialog
+
+    def _on_highlight_graph_issues(self):
+        """Analyze final_graph, highlight issues, open list, export reports."""
+        if self._graph_editor is None or not self._graph_editor.nodes:
+            QMessageBox.warning(self, "分析路网并高亮异常", "当前没有可分析的 final_graph。")
+            return None
+
+        from datetime import datetime
+        from roadnet.graph_issue_highlight import (
+            GraphIssueConfig,
+            detect_graph_issues,
+            export_graph_issue_reports,
+            render_graph_issue_overlay_png,
+        )
+
+        lm = self._layer_manager
+        w = int(getattr(lm, "_original_width", 0) or 0)
+        h = int(getattr(lm, "_original_height", 0) or 0)
+        if w <= 0 or h <= 0:
+            img = lm.full_image_rgb
+            if img is not None:
+                h, w = int(img.shape[0]), int(img.shape[1])
+
+        # Snapshot graph before analysis to prove we never mutate it
+        nodes_before = copy.deepcopy(list(self._graph_editor.nodes))
+        edges_before = copy.deepcopy(list(self._graph_editor.edges))
+
+        road_mask = self._get_road_mask_for_graph_issues()
+        report = detect_graph_issues(
+            self._graph_editor.nodes,
+            self._graph_editor.edges,
+            image_width=w,
+            image_height=h,
+            road_mask=road_mask,
+            config=GraphIssueConfig(),
+        )
+
+        # Safety: analysis must not mutate in-memory graph
+        if (self._graph_editor.nodes != nodes_before
+                or self._graph_editor.edges != edges_before):
+            self._graph_editor._nodes = nodes_before
+            self._graph_editor._edges = edges_before
+            print("[GraphIssues] WARNING: graph was mutated during analysis; restored snapshot.")
+
+        self._graph_issue_report = report
+        self._graph_issue_signature = self._current_graph_signature()
+        self._graph_issue_stale = False
+
+        output_dir = os.path.join(
+            os.getcwd(), "outputs", "graph_issues",
+            "run_" + datetime.now().strftime("%Y%m%d_%H%M%S"),
+        )
+        paths = export_graph_issue_reports(report, output_dir)
+        overlay_path = os.path.join(output_dir, "graph_issue_overlay.png")
+        try:
+            image = lm.full_image_rgb
+            if image is None:
+                image = lm.image_rgb
+            if image is not None:
+                scale = 1.0
+                if lm.is_large_image_mode and image is lm.image_rgb:
+                    scale = float(lm.preview_scale) if lm.preview_scale else 1.0
+                    # Prefer full image for overlay if available
+                    full = lm.full_image_rgb
+                    if full is not None:
+                        image = full
+                        scale = 1.0
+                render_graph_issue_overlay_png(
+                    image,
+                    self._graph_editor.nodes,
+                    self._graph_editor.edges,
+                    report,
+                    overlay_path,
+                    coord_scale=scale,
+                )
+                paths["overlay"] = overlay_path
+        except Exception as exc:
+            print(f"[GraphIssues] overlay export failed: {exc}")
+
+        self._graph_issue_output_dir = output_dir
+        self._layer_manager.show_layer("layer_graph_issues")
+        self._tool_panel.set_layer_checkbox_state("layer_graph_issues", True)
+        self._render_graph_issues_to_scene()
+
+        dlg = self._ensure_graph_issue_dialog()
+        dlg.set_report(report)
+        dlg.show()
+        dlg.raise_()
+
+        n = int(report.get("issue_count") or 0)
+        se = int(report.get("serious_issue_count") or 0)
+        msg = (
+            f"发现 {n} 项异常（严重 {se}）。"
+            f"已高亮显示，报告目录：{output_dir}"
+        )
+        if self._status_bar is not None:
+            self._status_bar.show_message(msg)
+        QMessageBox.information(self, "路网异常分析完成", msg)
+        return report
+
+    def _on_show_graph_issue_list(self):
+        report = getattr(self, "_graph_issue_report", None) or {}
+        if not report.get("issues") and not report.get("stale"):
+            # No prior analysis → run full highlight flow
+            self._on_highlight_graph_issues()
+            return
+        dlg = self._ensure_graph_issue_dialog()
+        dlg.set_report(report)
+        dlg.show()
+        dlg.raise_()
+        if report.get("stale") or getattr(self, "_graph_issue_stale", False):
+            if self._status_bar is not None:
+                self._status_bar.show_message("路网已修改，请重新分析异常。")
+
+    def _export_graph_issue_reports(self):
+        report = getattr(self, "_graph_issue_report", None) or {}
+        if not report.get("issues"):
+            QMessageBox.information(self, "导出异常报告", "当前没有异常报告，请先分析。")
+            return
+        from datetime import datetime
+        from roadnet.graph_issue_highlight import (
+            export_graph_issue_reports,
+            render_graph_issue_overlay_png,
+        )
+        output_dir = self._graph_issue_output_dir or os.path.join(
+            os.getcwd(), "outputs", "graph_issues",
+            "run_" + datetime.now().strftime("%Y%m%d_%H%M%S"),
+        )
+        paths = export_graph_issue_reports(report, output_dir)
+        try:
+            lm = self._layer_manager
+            image = lm.full_image_rgb or lm.image_rgb
+            if image is not None and self._graph_editor is not None:
+                overlay_path = os.path.join(output_dir, "graph_issue_overlay.png")
+                render_graph_issue_overlay_png(
+                    image,
+                    self._graph_editor.nodes,
+                    self._graph_editor.edges,
+                    report,
+                    overlay_path,
+                )
+                paths["overlay"] = overlay_path
+        except Exception as exc:
+            print(f"[GraphIssues] overlay re-export failed: {exc}")
+        self._graph_issue_output_dir = output_dir
+        QMessageBox.information(
+            self, "导出异常报告",
+            "已导出：\n" + "\n".join(f"{k}: {v}" for k, v in paths.items()),
+        )
+
+    def _severity_color(self, severity: str) -> QColor:
+        if severity == "error":
+            return QColor(255, 60, 60)
+        if severity == "warning":
+            return QColor(255, 160, 50)
+        return QColor(240, 210, 50)
+
+    def _render_graph_issues_to_scene(self):
+        """Draw issue overlays onto layer_graph_issues (display only)."""
+        self._clear_graph_issue_items(keep_report=True)
+        report = getattr(self, "_graph_issue_report", None) or {}
+        if report.get("stale") or getattr(self, "_graph_issue_stale", False):
+            return
+        issues = report.get("issues") or []
+        if not issues:
+            return
+        scene = self._canvas.scene()
+        ge = self._graph_editor
+        lm = self._layer_manager
+        if scene is None or ge is None:
+            return
+        if not lm.is_layer_visible("layer_graph_issues"):
+            return
+
+        from PySide6.QtGui import QPainterPath
+        from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
+
+        nodes_by_id = {n.get("id"): n for n in ge.nodes}
+        edges_by_id = {e.get("id"): e for e in ge.edges if e.get("enabled", True)}
+        z = getattr(self._canvas, "ZVAL_SELECTED", 200) + 5
+
+        def _add_item(item, tip: str):
+            item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            item.setToolTip(tip)
+            item.setZValue(z)
+            scene.addItem(item)
+            lm.add_item("layer_graph_issues", item)
+            self._graph_issue_items.append(item)
+
+        def _edge_pts(edge):
+            pts = edge.get("points_pixel") or edge.get("polyline") or []
+            if len(pts) >= 2:
+                return pts
+            na = nodes_by_id.get(edge.get("start"))
+            nb = nodes_by_id.get(edge.get("end"))
+            if na and nb:
+                return [[na["x"], na["y"]], [nb["x"], nb["y"]]]
+            return []
+
+        for issue in issues:
+            sev = issue.get("severity", "warning")
+            color = self._severity_color(sev)
+            tip = (
+                f"{issue.get('issue_id')} | {issue.get('issue_type')}\n"
+                f"对象: {issue.get('object_type')} {issue.get('object_id')}\n"
+                f"{issue.get('message')}\n"
+                f"建议: {issue.get('suggestion')}"
+            )
+            ot = issue.get("object_type")
+            oid = issue.get("object_id")
+
+            if ot == "edge":
+                edge = edges_by_id.get(oid)
+                pts = _edge_pts(edge) if edge else []
+                if len(pts) >= 2:
+                    path = QPainterPath()
+                    x0, y0 = lm.global_to_preview_f(pts[0][0], pts[0][1])
+                    path.moveTo(x0, y0)
+                    for p in pts[1:]:
+                        x, y = lm.global_to_preview_f(p[0], p[1])
+                        path.lineTo(x, y)
+                    outline = QGraphicsPathItem(path)
+                    pen_o = QPen(QColor(0, 0, 0), 7)
+                    pen_o.setCosmetic(True)
+                    outline.setPen(pen_o)
+                    _add_item(outline, tip)
+                    line = QGraphicsPathItem(path)
+                    pen = QPen(color, 4)
+                    pen.setCosmetic(True)
+                    line.setPen(pen)
+                    _add_item(line, tip)
+
+            elif ot == "node":
+                node = nodes_by_id.get(oid)
+                if node is not None:
+                    nx, ny = lm.global_to_preview_f(node["x"], node["y"])
+                    r = 10
+                    fill = QColor(color)
+                    fill.setAlpha(90)
+                    ellipse = QGraphicsEllipseItem(nx - r, ny - r, r * 2, r * 2)
+                    ellipse.setBrush(QBrush(fill))
+                    ellipse.setPen(QPen(color, 3))
+                    _add_item(ellipse, tip)
+
+            elif ot in ("component", "bbox"):
+                bbox = issue.get("bbox") or []
+                if len(bbox) == 4:
+                    x1, y1 = lm.global_to_preview_f(bbox[0], bbox[1])
+                    x2, y2 = lm.global_to_preview_f(bbox[2], bbox[3])
+                    rect = QGraphicsRectItem(
+                        min(x1, x2), min(y1, y2),
+                        abs(x2 - x1), abs(y2 - y1),
+                    )
+                    fill = QColor(color)
+                    fill.setAlpha(40)
+                    rect.setBrush(QBrush(fill))
+                    rect.setPen(QPen(color, 2, Qt.PenStyle.DashLine))
+                    _add_item(rect, tip)
+                # Also highlight member edges/nodes for components
+                for nid in issue.get("node_ids") or []:
+                    node = nodes_by_id.get(nid)
+                    if node is None:
+                        continue
+                    nx, ny = lm.global_to_preview_f(node["x"], node["y"])
+                    r = 7
+                    fill = QColor(color)
+                    fill.setAlpha(100)
+                    ellipse = QGraphicsEllipseItem(nx - r, ny - r, r * 2, r * 2)
+                    ellipse.setBrush(QBrush(fill))
+                    ellipse.setPen(QPen(color, 2))
+                    _add_item(ellipse, tip)
+                for eid in issue.get("edge_ids") or []:
+                    edge = edges_by_id.get(eid)
+                    pts = _edge_pts(edge) if edge else []
+                    if len(pts) < 2:
+                        continue
+                    path = QPainterPath()
+                    x0, y0 = lm.global_to_preview_f(pts[0][0], pts[0][1])
+                    path.moveTo(x0, y0)
+                    for p in pts[1:]:
+                        x, y = lm.global_to_preview_f(p[0], p[1])
+                        path.lineTo(x, y)
+                    line = QGraphicsPathItem(path)
+                    pen = QPen(color, 3)
+                    pen.setCosmetic(True)
+                    line.setPen(pen)
+                    _add_item(line, tip)
+
+            # Label near center
+            cx = float(issue.get("center_x", 0))
+            cy = float(issue.get("center_y", 0))
+            sx, sy = lm.global_to_preview_f(cx, cy)
+            label = QGraphicsTextItem(str(issue.get("issue_id", "")))
+            label.setDefaultTextColor(color)
+            font = QFont()
+            font.setBold(True)
+            font.setPointSize(9)
+            label.setFont(font)
+            label.setPos(sx + 8, sy - 18)
+            _add_item(label, tip)
+
+        self._canvas.viewport().update()
+
+    def focus_graph_issue(self, issue_id: str):
+        """Zoom/pan to an issue and flash-highlight for ~1.5s."""
+        report = getattr(self, "_graph_issue_report", None) or {}
+        if report.get("stale") or getattr(self, "_graph_issue_stale", False):
+            if self._status_bar is not None:
+                self._status_bar.show_message("路网已修改，请重新分析异常。")
+            return
+        issue = None
+        for item in report.get("issues") or []:
+            if str(item.get("issue_id")) == str(issue_id):
+                issue = item
+                break
+        if issue is None:
+            return
+
+        ge = self._graph_editor
+        lm = self._layer_manager
+        cx = float(issue.get("center_x", 0))
+        cy = float(issue.get("center_y", 0))
+        bbox = issue.get("bbox") or [cx - 40, cy - 40, cx + 40, cy + 40]
+
+        # Select target edge/node
+        if ge is not None:
+            ge.clear_selection()
+            ot = issue.get("object_type")
+            oid = issue.get("object_id")
+            try:
+                if ot == "edge" and oid is not None:
+                    ge.select_edge(int(oid) if not isinstance(oid, int) else oid)
+                elif ot == "node" and oid is not None:
+                    ge.select_node(int(oid) if not isinstance(oid, int) else oid)
+                elif ot == "component":
+                    for eid in (issue.get("edge_ids") or [])[:1]:
+                        ge.select_edge(int(eid) if not isinstance(eid, int) else eid)
+            except Exception:
+                pass
+            self._render_graph_to_scene()
+
+        # Ensure issue layer visible
+        lm.show_layer("layer_graph_issues")
+        self._tool_panel.set_layer_checkbox_state("layer_graph_issues", True)
+        self._render_graph_issues_to_scene()
+
+        # Center + zoom
+        try:
+            sx, sy = lm.global_to_preview_f(cx, cy)
+            x1, y1 = lm.global_to_preview_f(bbox[0], bbox[1])
+            x2, y2 = lm.global_to_preview_f(bbox[2], bbox[3])
+            bw = max(abs(x2 - x1), 40.0)
+            bh = max(abs(y2 - y1), 40.0)
+            view_w = max(1.0, float(self._canvas.viewport().width()))
+            view_h = max(1.0, float(self._canvas.viewport().height()))
+            target = min(view_w / (bw * 2.5), view_h / (bh * 2.5), 8.0)
+            target = max(float(target), 0.5)
+            cur = float(getattr(self._canvas, "zoom_level", 1.0) or 1.0)
+            if cur > 1e-9 and abs(target - cur) / cur > 0.15:
+                factor = target / cur
+                # Clamp via canvas helpers when available
+                if hasattr(self._canvas, "_apply_zoom"):
+                    self._canvas._apply_zoom(factor)
+                else:
+                    self._canvas.scale(factor, factor)
+            self._canvas.centerOn(QPointF(float(sx), float(sy)))
+        except Exception as exc:
+            print(f"[GraphIssues] focus failed: {exc}")
+
+        self._flash_graph_issue(issue)
+        if self._status_bar is not None:
+            self._status_bar.show_message(
+                f"定位异常 {issue.get('issue_id')}: {issue.get('message')}"
+            )
+
+    def _flash_graph_issue(self, issue: dict):
+        """Temporary blink highlight around issue center/bbox."""
+        scene = self._canvas.scene()
+        lm = self._layer_manager
+        if scene is None:
+            return
+        for item in getattr(self, "_graph_issue_flash_items", []) or []:
+            safe_remove_scene_item(scene, item)
+        self._graph_issue_flash_items = []
+
+        from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsEllipseItem
+
+        color = self._severity_color(issue.get("severity", "error"))
+        ot = issue.get("object_type")
+        if ot == "node":
+            cx = float(issue.get("center_x", 0))
+            cy = float(issue.get("center_y", 0))
+            sx, sy = lm.global_to_preview_f(cx, cy)
+            r = 18
+            flash = QGraphicsEllipseItem(sx - r, sy - r, r * 2, r * 2)
+        else:
+            bbox = issue.get("bbox") or [
+                issue.get("center_x", 0) - 30,
+                issue.get("center_y", 0) - 30,
+                issue.get("center_x", 0) + 30,
+                issue.get("center_y", 0) + 30,
+            ]
+            x1, y1 = lm.global_to_preview_f(bbox[0], bbox[1])
+            x2, y2 = lm.global_to_preview_f(bbox[2], bbox[3])
+            pad = 12
+            flash = QGraphicsRectItem(
+                min(x1, x2) - pad, min(y1, y2) - pad,
+                abs(x2 - x1) + 2 * pad, abs(y2 - y1) + 2 * pad,
+            )
+        fill = QColor(color)
+        fill.setAlpha(80)
+        flash.setBrush(QBrush(fill))
+        pen = QPen(color, 3)
+        pen.setCosmetic(True)
+        flash.setPen(pen)
+        flash.setZValue(getattr(self._canvas, "ZVAL_SELECTED", 200) + 20)
+        flash.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        scene.addItem(flash)
+        self._graph_issue_flash_items.append(flash)
+
+        # Blink ~1.5s
+        state = {"n": 0}
+
+        def _tick():
+            items = getattr(self, "_graph_issue_flash_items", []) or []
+            if not items:
+                return
+            state["n"] += 1
+            visible = (state["n"] % 2) == 1
+            for it in items:
+                try:
+                    if _shiboken_is_valid(it):
+                        it.setVisible(visible)
+                except RuntimeError:
+                    pass
+            if state["n"] < 6:
+                QTimer.singleShot(250, _tick)
+            else:
+                for it in list(items):
+                    safe_remove_scene_item(scene, it)
+                self._graph_issue_flash_items = []
+
+        QTimer.singleShot(0, _tick)
+
     def _apply_graph_repairs(self, selected_ids=None, rerun_plan=False):
         if not self._graph_repair_candidates:
             if self._on_diagnose_graph(show_dialog=False) is None:
@@ -12294,6 +13419,8 @@ class MainWindow(QMainWindow):
             "view_mask_candidates": self._on_view_mask_candidates,
             "graph_save":      self._on_save_graph,
             "diagnose_graph":  self._on_diagnose_graph,
+            "highlight_graph_issues": self._on_highlight_graph_issues,
+            "show_graph_issue_list": self._on_show_graph_issue_list,
             "apply_graph_repairs": self._on_apply_high_confidence_graph_repairs,
             "view_graph_repairs": self._on_view_graph_repairs,
             "clear_graph_edits": lambda: self._clear_graph_edits(),
@@ -12334,6 +13461,8 @@ class MainWindow(QMainWindow):
             "fix_sparse_cutting_corners": self._on_fix_sparse_cutting_corners_deprecated,
             "export_competition": self._on_export_competition_roadnet,
             "export_debug":    self._on_save_graph_debug,
+            "judge_view_toggle": self._on_toggle_judge_view_mode,
+            "export_judge_overlay": self._on_export_judge_final_graph_overlay,
             "open":            self._on_open_image,
             "new_project":     self._on_new_project,
             "save_project":    lambda: self._on_save_project(),

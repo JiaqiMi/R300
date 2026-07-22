@@ -481,6 +481,8 @@ class LargeImageProject:
     lowres_height: int = 0
     scale_x: float = 0.0
     scale_y: float = 0.0
+    # Unified task points (original image pixel). Same schema as MainWindow._task_points.
+    task_points: list = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     @property

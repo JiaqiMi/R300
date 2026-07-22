@@ -1,3 +1,6 @@
+cd D:\road_zy\roadnet_tool
+python main_gui.py
+
 # 路网生成工具 (RoadNet Tool)
 
 从卫星图/航拍图中提取道路区域，为无人车自主导航比赛提供路网数据。

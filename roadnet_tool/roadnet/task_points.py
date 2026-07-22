@@ -52,6 +52,24 @@ class TaskPoint:
     def is_goal(self) -> bool:
         return self.point_type == 1
 
+    @property
+    def x_pixel(self) -> Optional[float]:
+        """Alias for original-image pixel X (unified schema)."""
+        return self.pixel_x
+
+    @x_pixel.setter
+    def x_pixel(self, value: Optional[float]):
+        self.pixel_x = value
+
+    @property
+    def y_pixel(self) -> Optional[float]:
+        """Alias for original-image pixel Y (unified schema)."""
+        return self.pixel_y
+
+    @y_pixel.setter
+    def y_pixel(self, value: Optional[float]):
+        self.pixel_y = value
+
     def to_dict(self) -> dict:
         return {
             "seq": self.seq,
@@ -63,6 +81,10 @@ class TaskPoint:
             "reserve": self.reserve,
             "pixel_x": self.pixel_x,
             "pixel_y": self.pixel_y,
+            # Unified schema aliases (original image pixel)
+            "x_pixel": self.pixel_x,
+            "y_pixel": self.pixel_y,
+            "coordinate_system": "original_image_pixel",
             "map_x": self.map_x,
             "map_y": self.map_y,
             "status": self.status,
