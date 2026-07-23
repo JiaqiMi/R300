@@ -3,13 +3,13 @@ DWAPlannerROS:
 
   # ---------------- 速度限制 ----------------
   # 仅作为开阔区域最高速度。
-  max_vel_x: 2.00
+  max_vel_x: 2.50
   min_vel_x: 0.00
 
   max_vel_y: 0.00
   min_vel_y: 0.00
 
-  max_vel_trans: 2.00
+  max_vel_trans: 2.50
   min_vel_trans: 0.05
 
   # 只有实车可以稳定达到时才使用0.45。
@@ -24,12 +24,15 @@ DWAPlannerROS:
   acc_lim_theta: 6.00
 
   # ---------------- 到点条件 ----------------
-  xy_goal_tolerance: 1.00
+  xy_goal_tolerance: 1.50
   yaw_goal_tolerance: 3.14
 
 
-  trans_stopped_vel: 0.16
-  theta_stopped_vel: 0.08
+  trans_stopped_vel: 0.25
+  theta_stopped_vel: 0.12
+
+  # trans_stopped_vel: 1.5
+  # theta_stopped_vel: 0.25
 
   # ---------------- 轨迹预测 ----------------
   # 不再单纯通过超长预测距离承担制动安全。
