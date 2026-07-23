@@ -1,0 +1,8 @@
+digraph G {
+"odom" -> "camera_init"[label="Broadcaster: /livox_odom_transform\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1784725892.827 sec old)\nBuffer length: 0.000 sec\n"];
+"camera_init" -> "body"[label="Broadcaster: /laserMapping\nAverage rate: 10.223 Hz\nMost recent transform: 1784725892.669 ( 0.159 sec old)\nBuffer length: 4.695 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1784725892.827"[ shape=plaintext ] ;
+ }->"odom";
+}

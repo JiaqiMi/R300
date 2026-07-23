@@ -5,21 +5,23 @@
 
     <arg name="enable_web" default="true"/>
     <arg name="web_port" default="8080"/>
+    <arg name="enable_camera" default="true"/>
     <arg name="web_address" default="0.0.0.0"/>
 
     <arg
         name="model_path"
-        default="$(find r300_yolo_detector)/models/c11_260711.pt"
+        default="$(find r300_yolo_detector)/models/model0722.pt"
     />
 
     <!-- ======================== -->
     <!-- 1. RealSense D435i       -->
     <!-- ======================== -->
-
-    <include file="$(find realsense2_camera)/launch/rs_camera.launch">
-        <arg name="align_depth" value="true"/>
-        <arg name="enable_sync" value="true"/>
-    </include>
+    <group if="$(arg enable_camera)">
+        <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+            <arg name="align_depth" value="true"/>
+            <arg name="enable_sync" value="true"/>
+        </include>
+    </group>
 
     <!-- ======================== -->
     <!-- 2. YOLO深度检测节点      -->

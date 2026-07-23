@@ -14,8 +14,8 @@
   <arg name="lidar_ip" default="192_168_1_192"/>
   <!-- 驱动网络配置 json；换雷达/主机 IP 时可指向自己的文件，不必改包内配置 -->
   <arg name="user_config_path" default="$(find single_lidar_elevation)/config/MID360_single.json"/>
-  <!-- 雷达安装俯仰角修正（前雷达斜装 45° 时用 -45；水平安装填 0） -->
-  <arg name="tilt_pitch_deg" default="-45.0"/>
+  <!-- 当前 R300 实车静止 IMU 标定值为 -55.5°；可按安装姿态覆盖，水平安装填 0 -->
+  <arg name="tilt_pitch_deg" default="-55.5"/>
   <!-- 给下游导航栈补一个 body->base_link 恒等 TF（move_base 类下游默认用 base_link）。
        注意：R300 的 1X 惯导（one_x_serial_driver）已发布 odom->base_link，
        与其共跑时必须保持 false，否则 base_link 出现两个父帧，TF 树会抖动；

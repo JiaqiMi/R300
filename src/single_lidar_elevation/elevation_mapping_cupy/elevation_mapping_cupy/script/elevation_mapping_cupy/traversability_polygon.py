@@ -4,7 +4,36 @@
 #
 import numpy as np
 import cupy as cp
-from shapely.geometry import Polygon, MultiPoint
+
+
+def convex_hull(points):
+    points = np.unique(points, axis=0)
+    if len(points) < 3:
+        return None
+
+    points = points[np.lexsort((points[:, 1], points[:, 0]))]
+
+    def cross(origin, first, second):
+        return (first[0] - origin[0]) * (second[1] - origin[1]) - (
+            first[1] - origin[1]
+        ) * (second[0] - origin[0])
+
+    lower = []
+    for point in points:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0:
+            lower.pop()
+        lower.append(point)
+
+    upper = []
+    for point in reversed(points):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0:
+            upper.pop()
+        upper.append(point)
+
+    hull = np.asarray(lower[:-1] + upper[:-1])
+    if len(hull) < 3:
+        return None
+    return hull
 
 
 def get_masked_traversability(map_array, mask, traversability):
@@ -46,11 +75,10 @@ def calculate_area(polygon):
 def calculate_untraversable_polygon(over_thresh):
     x, y = cp.where(over_thresh > 0.5)
     points = cp.stack([x, y]).T
-    convex_hull = MultiPoint(points).convex_hull
-    if convex_hull.is_empty or convex_hull.geom_type == "Point" or convex_hull.geom_type == "LineString":
+    hull = convex_hull(cp.asnumpy(points))
+    if hull is None:
         return None
-    else:
-        return cp.array(convex_hull.exterior.coords)
+    return cp.asarray(np.vstack([hull, hull[0]]))
 
 
 def transform_to_map_position(polygon, center, cell_n, resolution):

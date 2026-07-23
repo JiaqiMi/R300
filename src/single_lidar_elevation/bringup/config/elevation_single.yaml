@@ -1,6 +1,7 @@
-# 单雷达高程图输入/输出。
-# 架构: 前向新鲜数据 + 地图记忆补盲区（依赖低漂移里程计）。
-# 起步建议先原地慢转一圈，把周围高程图种满。
+# 单前雷达形态（use_back_lidar:=false）的高程图输入/输出
+# 与 elevation_cart.yaml 唯一差别: 去掉 back_lidar 订阅。
+# 架构: 前楔新鲜数据 + 地图记忆补侧后盲区(只前进场景成立, 依赖低漂移里程计)。
+# 起步建议先原地慢转一圈(环视仪式), 把周围高程图和局部地面环带种满。
 pointcloud_channel_fusions:
   rgb: 'color'
   default: 'average'
