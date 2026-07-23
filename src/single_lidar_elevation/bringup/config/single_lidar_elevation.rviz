@@ -92,7 +92,6 @@ Visualization Manager:
     - Class: rviz/MoveCamera
     - Class: rviz/Select
     - Class: rviz/Measure
-    - Class: rviz/SetInitialPose
   Views:
     Current:
       Class: rviz/ThirdPersonFollower
