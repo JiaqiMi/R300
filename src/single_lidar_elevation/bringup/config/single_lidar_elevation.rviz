@@ -1,167 +1,116 @@
 Panels:
   - Class: rviz/Displays
-    Help Height: 78
+    Help Height: 70
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Global Options1
-        - /ElevationMap1
-      Splitter Ratio: 0.5
-    Tree Height: 549
+        - /GridMap-高程图1
+      Splitter Ratio: 0.55
+    Tree Height: 500
   - Class: rviz/Views
-    Expanded:
-      - /Current View1
     Name: Views
-    Splitter Ratio: 0.5
-Preferences:
-  PromptSaveOnExit: true
-Toolbars:
-  toolButtonStyle: 2
 Visualization Manager:
   Class: ""
   Displays:
     - Class: rviz/Grid
-      Enabled: true
       Name: Grid
       Cell Size: 1
       Plane Cell Count: 20
-      Reference Frame: <Fixed Frame>
-      Value: true
+      Enabled: true
     - Class: rviz/TF
-      Enabled: true
       Name: TF
-      Show Arrows: false
-      Show Axes: true
+      Enabled: false
       Show Names: true
-      Marker Alpha: 1
-      Marker Scale: 1
-      Update Interval: 0
-      Value: true
-      Frame Timeout: 15
-      Frames:
-        All Enabled: true
-      Tree: {}
+      Marker Scale: 0.5
     - Class: rviz/PointCloud2
-      Enabled: true
-      Name: CloudRegistered
+      Name: 前雷达-世界系配准云
       Topic: /cloud_registered
-      Alpha: 1
-      Autocompute Intensity Bounds: true
-      Autocompute Value Bounds:
-        Max Value: 10
-        Min Value: -10
-        Value: true
-      Axis: Z
-      Channel Name: intensity
-      Color: 255; 255; 255
+      Enabled: true
+      Queue Size: 5
+      Size (m): 0.02
+      Style: Flat Squares
       Color Transformer: AxisColor
-      Decay Time: 2
-      Invert Rainbow: false
-      Max Color: 255; 255; 255
-      Min Color: 0; 0; 0
-      Position Transformer: XYZ
-      Queue Size: 10
-      Selectable: true
-      Size (Pixels): 2
-      Size (m): 0.01
-      Style: Points
-      Unreliable: false
-      Use Fixed Frame: true
-      Use rainbow: true
-      Value: true
-    - Class: rviz/Odometry
-      Enabled: true
-      Name: Odometry
-      Topic: /Odometry
-      Angle Tolerance: 0.1
-      Position Tolerance: 0.1
-      Covariance:
-        Value: false
-        Orientation:
-          Alpha: 0.5
-          Color: 255; 255; 127
-          Color Style: Unique
-          Frame: Local
-          Offset: 1
-          Scale: 1
-          Value: true
-        Position:
-          Alpha: 0.3
-          Color: 204; 51; 204
-          Scale: 1
-          Value: true
-      Keep: 100
-      Shape:
-        Alpha: 1
-        Axes Length: 0.3
-        Axes Radius: 0.03
-        Color: 255; 25; 0
-        Head Length: 0.3
-        Head Radius: 0.1
-        Shaft Length: 0.5
-        Shaft Radius: 0.05
-        Value: Axes
-      Queue Size: 10
-      Unreliable: false
-      Value: true
-    - Class: grid_map_rviz_plugin/GridMap
-      Enabled: true
-      Name: ElevationMap
-      Topic: /elevation_mapping/elevation_map_raw
-      Alpha: 1
+      Axis: Z
       Autocompute Intensity Bounds: true
-      Color: 200; 200; 200
-      Color Layer: elevation
-      Color Transformer: IntensityLayer
-      Grid Cell Decimation: 1
-      Grid Line Thickness: 0.1
+      Use Fixed Frame: true
+      Alpha: 0.8
+      Decay Time: 2
+    - Class: rviz/Odometry
+      Name: 当前位姿箭头
+      Topic: /Odometry
+      Enabled: true
+      Keep: 1
+      Position Tolerance: 0.02
+      Angle Tolerance: 0.02
+      Shape:
+        Shaft Length: 0.6
+        Shaft Radius: 0.06
+        Head Length: 0.25
+        Head Radius: 0.12
+        Color: 255; 0; 255
+        Value: Arrow
+    - Class: rviz/Path
+      Name: 移动轨迹
+      Topic: /path
+      Enabled: true
+      Line Style: Billboards
+      Line Width: 0.04
+      Color: 0; 255; 127
+      Alpha: 1
+      Buffer Length: 1
+    - Class: rviz/TF
+      Name: 机器人坐标轴
+      Enabled: true
+      Show Names: true
+      Show Axes: true
+      Show Arrows: false
+      Marker Scale: 1.5
+      Frames:
+        All Enabled: false
+        body:
+          Value: true
+        odom:
+          Value: true
+    - Class: grid_map_rviz_plugin/GridMap
+      Name: GridMap-高程图
+      Topic: /elevation_mapping/elevation_map_raw
+      Enabled: true
+      Layer: elevation
       Height Layer: elevation
-      Height Transformer: Layer
-      History Length: 1
-      Invert Rainbow: false
-      Max Color: 255; 255; 255
-      Min Color: 0; 0; 0
-      Show Grid Lines: false
-      Unreliable: false
+      Height Transformer: GridMapLayer
+      Color Transformer: GridMapLayer
+      Color Layer: elevation
       Use Rainbow: true
-      Value: true
-  Enabled: true
+      Autocompute Intensity Bounds: true
+      Show Grid Lines: false
+      Alpha: 1
   Global Options:
-    Background Color: 48; 48; 48
-    Default Light: true
+    Background Color: 35; 38; 41
     Fixed Frame: odom
     Frame Rate: 30
-  Name: root
   Tools:
     - Class: rviz/MoveCamera
     - Class: rviz/Select
     - Class: rviz/Measure
-  Value: true
   Views:
     Current:
-      Class: rviz/Orbit
-      Name: Current View
+      Class: rviz/ThirdPersonFollower
+      Name: 跟随机器人
       Target Frame: body
-      Distance: 15
-      Enable Stereo Rendering:
-        Stereo Eye Swap: false
-        Stereo Focal Distance: 1
-        Swap Stereo Eyes: false
-        Value: false
-      Field of View: 0.75
+      Distance: 8
+      Pitch: 0.55
+      Yaw: 3.14
       Focal Point:
         X: 0
         Y: 0
         Z: 0
-      Focal Shape Fixed Size: true
-      Focal Shape Size: 0.05
-      Invert Z Axis: false
-      Near Clip Distance: 0.01
-      Pitch: 0.7
-      Yaw: 3.14
-    Saved: ~
+    Saved:
+      - Class: rviz/Orbit
+        Name: 全局固定视角
+        Distance: 14
+        Pitch: 0.7
+        Yaw: 3.14
+        Focal Point: {X: 0, Y: 0, Z: -0.5}
 Window Geometry:
-  Displays:
-    collapsed: false
-  Height: 800
-  Width: 1200
+  Height: 900
+  Width: 1400
