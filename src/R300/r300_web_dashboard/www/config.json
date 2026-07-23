@@ -40,7 +40,11 @@
     "target_point": "/r300_vision/target_point",
     "dynamic_state": "/subject1/dynamic/state",
     "speed_limit": "/subject1/dynamic/speed_limit_mps",
-    "emergency_stop": "/subject1/dynamic/emergency_stop"
+    "emergency_stop": "/subject1/dynamic/emergency_stop",
+    "pointcloud": "/cloud_registered_body",
+    "elevation": "/elevation_mapping/elevation_map_raw",
+    "terrain_neg": "/terrain_neg_obstacles",
+    "terrain_pos": "/terrain_pos_obstacles"
   },
   "services": {
     "start": "/subject1/start_waypoints",

@@ -30,6 +30,10 @@ let satTotalDistance = 0;
 let msgCounter = 0;
 let lastBadgeUpdateMs = 0;
 let lastRx = {};
+let cloudCount=0;
+let elevationMsg=null;
+let negTerrain=0;
+let posTerrain=0;
 
 const viewState = {
   costmapCanvas: {scale: 1, tx: 0, ty: 0, dragging: false, lastX: 0, lastY: 0},
@@ -132,6 +136,10 @@ function subscribeAll() {
   sub(t.dynamic_state, "std_msgs/String", 250);
   sub(t.speed_limit, "std_msgs/Float32", 250);
   sub(t.emergency_stop, "std_msgs/Bool", 250);
+  sub(t.pointcloud || "/cloud_registered_body", "sensor_msgs/PointCloud2", 500);
+  sub(t.elevation || "/elevation_mapping/elevation_map_raw", "grid_map_msgs/GridMap", 500);
+  sub(t.terrain_neg || "/terrain_neg_obstacles", "sensor_msgs/PointCloud2", 500);
+  sub(t.terrain_pos || "/terrain_pos_obstacles", "sensor_msgs/PointCloud2", 500);
   if (t.ins_status) sub(t.ins_status, "r300_1x_navigation/InsStatus", 500);
 }
 
@@ -155,6 +163,10 @@ function handleTopic(topic, msg) {
   else if (topic === t.dynamic_state) $("dynState").textContent = msg.data;
   else if (topic === t.speed_limit) updateSafety("limit", msg.data);
   else if (topic === t.emergency_stop) updateSafety("estop", msg.data);
+  else if (topic === (t.pointcloud || "/cloud_registered_body")) updateCloud(msg);
+  else if (topic === (t.elevation || "/elevation_mapping/elevation_map_raw")) updateElevation(msg);
+  else if (topic === (t.terrain_neg || "/terrain_neg_obstacles")) { negTerrain=countPoints(msg); updateTerrain(); }
+  else if (topic === (t.terrain_pos || "/terrain_pos_obstacles")) { posTerrain=countPoints(msg); updateTerrain(); }
   else if (topic === t.ins_status) updateInsStatus(msg);
 }
 
@@ -604,6 +616,36 @@ function countFiniteScan(scan) {
   return n;
 }
 
+
+function countPoints(m){
+  return (Number(m.width)||0)*(Number(m.height)||0);
+}
+function updateCloud(m){
+  cloudCount=countPoints(m);
+  if($("cloudCount")) $("cloudCount").textContent=String(cloudCount);
+  if($("cloudStatus")) $("cloudStatus").textContent="PointCloud2 已接收";
+  const c=$("cloudCanvas"); if(!c) return;
+  const ctx=c.getContext("2d");
+  ctx.fillStyle="#020617";ctx.fillRect(0,0,c.width,c.height);
+  ctx.fillStyle="#d7f549";ctx.font="16px Arial";
+  ctx.fillText("FAST-LIO PointCloud2 connected",20,40);
+  ctx.fillText("points: "+cloudCount,20,70);
+}
+function updateElevation(m){
+  elevationMsg=m;
+  if($("elevationStatus")) $("elevationStatus").textContent="GridMap 已接收";
+  if(m.info){
+    $("elevationSize").textContent=`${m.info.width}×${m.info.height}`;
+    $("elevationResolution").textContent=m.info.resolution+" m";
+  }
+  let vals=(m.data||[]).filter(v=>Number.isFinite(v));
+  if(vals.length) $("elevationRange").textContent=`${Math.min(...vals)} ~ ${Math.max(...vals)}`;
+  const c=$("elevationCanvas"); if(c){const ctx=c.getContext("2d");ctx.fillStyle="#020617";ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle="#d7f549";ctx.font="16px Arial";ctx.fillText("Elevation GridMap connected",20,40);}
+  updateTerrain();
+}
+function updateTerrain(){
+ if($("terrainObs")) $("terrainObs").textContent=`正障碍 ${posTerrain} / 负障碍 ${negTerrain}`;
+}
 function updatePlanStats() {
   const gN = globalPlan && globalPlan.poses ? globalPlan.poses.length : 0;
   const lN = localPlan && localPlan.poses ? localPlan.poses.length : 0;

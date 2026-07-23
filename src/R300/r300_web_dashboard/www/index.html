@@ -162,6 +162,23 @@
     </section>
   </main>
 
+
+    <section class="card perception-card">
+      <div class="card-title"><h2>FAST-LIO 点云</h2><span id="cloudStatus">等待 /cloud_registered_body</span></div>
+      <canvas id="cloudCanvas" width="760" height="420"></canvas>
+      <div class="kv"><span>点云数量</span><b id="cloudCount">--</b></div>
+      <div class="kv"><span>话题</span><b>/cloud_registered_body</b></div>
+    </section>
+
+    <section class="card perception-card">
+      <div class="card-title"><h2>高程地图</h2><span id="elevationStatus">等待 GridMap</span></div>
+      <canvas id="elevationCanvas" width="760" height="420"></canvas>
+      <div class="kv"><span>地图尺寸</span><b id="elevationSize">--</b></div>
+      <div class="kv"><span>分辨率</span><b id="elevationResolution">--</b></div>
+      <div class="kv"><span>高度范围</span><b id="elevationRange">--</b></div>
+      <div class="kv"><span>正/负障碍</span><b id="terrainObs">--</b></div>
+    </section>
+
   <footer>
     <span>操作：滚轮缩放，鼠标拖拽平移，双击画布复位。</span>
     <span>猕猴桃主题 v4：支持从网页启动相机与点云/costmap 节点。</span>
