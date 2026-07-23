@@ -6,8 +6,8 @@ annotated_topic: /r300_vision/annotated_image
 detections_topic: /r300_vision/detections
 target_point_topic: /r300_vision/target_point
 
-conf_threshold: 0.25
-iou_threshold: 0.70
+conf_threshold: 0.1
+iou_threshold: 0.30
 
 imgsz: 640
 

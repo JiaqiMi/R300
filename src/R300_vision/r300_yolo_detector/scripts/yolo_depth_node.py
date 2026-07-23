@@ -92,11 +92,13 @@ class YoloDepthNode:
         )
 
         self.conf_threshold = float(
-            rospy.get_param("~conf_threshold", 0.25)
+            # rospy.get_param("~conf_threshold", 0.25)
+            rospy.get_param("~conf_threshold", 0.1)
         )
 
         self.iou_threshold = float(
-            rospy.get_param("~iou_threshold", 0.70)
+            # rospy.get_param("~iou_threshold", 0.70)
+            rospy.get_param("~iou_threshold", 0.30)
         )
 
         self.imgsz = int(

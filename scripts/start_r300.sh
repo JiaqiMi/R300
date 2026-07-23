@@ -249,6 +249,9 @@ if [ "${ENABLE_BAG}" = "true" ]; then
 
     rosbag record \
         -O "${BAG_PREFIX}" \
+        /camera/color/image_raw \
+        /camera/aligned_depth_to_color/image_raw \
+        /camera/color/camera_info \
         /r300_vision/annotated_image \
         /r300_vision/detections \
         /r300_vision/target_point &
