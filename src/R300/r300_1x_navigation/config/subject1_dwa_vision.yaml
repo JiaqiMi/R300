@@ -28,8 +28,8 @@ DWAPlannerROS:
   yaw_goal_tolerance: 3.14
 
 
-  trans_stopped_vel: 0.25
-  theta_stopped_vel: 0.12
+  trans_stopped_vel: 0.16
+  theta_stopped_vel: 0.08
 
   # trans_stopped_vel: 1.5
   # theta_stopped_vel: 0.25
