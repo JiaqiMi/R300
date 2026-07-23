@@ -1,38 +1,45 @@
 <launch>
-  <!--1
-    Pure DWA verification launch.
+  <!--
+    Shared real-vehicle waypoint-navigation core.
 
-    The only autonomous motion chain is:
-      waypoint_executor -> move_base/DWA -> /subject1/cmd_vel_raw -> scout_base_node
+    Both pure navigation and visual-obstacle navigation use the same chain:
+      external 1X -> dwa_odom_adapter -> /subject1/dwa_odom
+      waypoint_executor -> move_base/DWA -> /subject1/cmd_vel_raw -> scout_base
 
-    Deliberately NOT launched here:
-      - cmd_vel_guard
-      - cmd_vel_align / PREALIGN / heading-gate logic
-      - dwa_odom_adapter
+    The visual mode differs only by selecting a local costmap that additionally
+    contains VisionSnapshotLayer and by starting the external vision adapter.
 
-    Localization/TF chain:
-      one_x_serial_driver: odom -> base_link
-      subject1_map_to_odom: map -> odom
+    This launch never opens the 1X serial port.
   -->
 
-  <arg name="ins_serial_port" default="/dev/ttyACM0"/>
-  <arg name="ins_baudrate" default="460800"/>
   <arg name="can_port" default="can0"/>
-  <arg name="waypoint_file" default="$(find r300_1x_navigation)/config/subject1_waypoints.yaml"/>
+  <arg name="waypoint_file"
+       default="$(find r300_1x_navigation)/config/subject1_waypoints.yaml"/>
+  <arg name="localization_odom_topic" default="/one_x/odom"/>
+  <arg name="origin_topic" default="/one_x/origin"/>
+
+  <!-- 纯实车导航默认使用自己的 DWA 参数；视觉包装 launch 会显式覆盖为视觉参数。 -->
   <arg name="dwa_config_file"
        default="$(find r300_1x_navigation)/config/subject1_dwa.yaml"/>
   <arg name="local_costmap_config_file"
        default="$(find r300_1x_navigation)/config/subject1_local_costmap.yaml"/>
-  <!-- DWA velocity-feedback odometry. Pose still comes from odom->base_link TF. -->
-  <arg name="dwa_odom_topic" default="/one_x/odom"/>
+
+  <!-- DWA只使用适配后的速度反馈；定位姿态仍来自1X发布的odom->base_link TF。 -->
+  <arg name="use_dwa_odom_adapter" default="true"/>
+  <arg name="dwa_odom_topic" default="/subject1/dwa_odom"/>
+  <arg name="dwa_forward_deadband_mps" default="0.02"/>
+  <arg name="dwa_yaw_rate_deadband_radps" default="0.015"/>
+  <arg name="dwa_forward_filter_tau_s" default="0.10"/>
+  <arg name="dwa_yaw_rate_filter_tau_s" default="0.15"/>
+  <arg name="dwa_max_yaw_rate_radps" default="0.70"/>
 
   <arg name="launch_base" default="true"/>
-  <arg name="launch_lidar" default="true"/>
+  <arg name="launch_lidar" default="false"/>
   <arg name="launch_rviz" default="false"/>
   <arg name="auto_start" default="false"/>
-  <arg name="max_goal_distance_from_origin_m" default="180.0"/>
+  <arg name="max_goal_distance_from_origin_m" default="5000.0"/>
 
-  <!-- Chassis: subscribe directly to the DWA output. Scout wheel odometry/TF remains disabled. -->
+  <!-- Chassis: subscribe directly to DWA output. Scout wheel odometry/TF stays disabled. -->
   <group if="$(arg launch_base)">
     <include file="$(find scout_base)/launch/scout_base.launch">
       <arg name="port_name" value="$(arg can_port)"/>
@@ -42,7 +49,8 @@
       <arg name="cmd_vel_topic" value="/subject1/cmd_vel_raw"/>
     </include>
 
-    <arg name="model" default="$(find xacro)/xacro --inorder '$(find r300_simulation)/models/r300_2dlidar.xacro'"/>
+    <arg name="model"
+         default="$(find xacro)/xacro --inorder '$(find r300_simulation)/models/r300_2dlidar.xacro'"/>
     <param name="robot_description" command="$(arg model)"/>
     <node name="robot_state_publisher"
           pkg="robot_state_publisher"
@@ -50,31 +58,36 @@
           output="screen"/>
   </group>
 
-  <!-- MID360 is started separately when obstacle avoidance is required. -->
+  <!-- MID360 or other perception stacks are started separately. -->
   <group if="$(arg launch_lidar)">
   </group>
 
-  <!-- During this verification stage map and odom are coincident. -->
+  <!-- During the present stage map and odom are coincident. -->
   <node pkg="tf2_ros"
         type="static_transform_publisher"
         name="subject1_map_to_odom"
         args="0 0 0 0 0 0 map odom"/>
 
-  <!-- Sole dynamic base pose source. -->
-  <node pkg="r300_1x_navigation"
-        type="one_x_serial_driver"
-        name="one_x_serial_driver"
-        output="screen">
-    <param name="serial_port" value="$(arg ins_serial_port)"/>
-    <param name="baudrate" value="$(arg ins_baudrate)"/>
-    <param name="origin_mode" value="first_valid"/>
-    <param name="odom_frame" value="odom"/>
-    <param name="base_frame" value="base_link"/>
-    <param name="fix_frame" value="map"/>
-    <param name="publish_full_attitude" value="false"/>
-    <param name="position_std_m" value="0.50"/>
-    <param name="yaw_std_deg" value="3.0"/>
-  </node>
+  <!--
+    1X runs in a separate process. Before this launch starts, the shell script
+    calls /one_x/set_current_origin and verifies /one_x/odom plus odom->base_link.
+  -->
+
+  <group if="$(arg use_dwa_odom_adapter)">
+    <node pkg="r300_1x_navigation"
+          type="dwa_odom_adapter.py"
+          name="dwa_odom_adapter"
+          output="screen">
+      <param name="input_odom_topic" value="$(arg localization_odom_topic)"/>
+      <param name="output_odom_topic" value="$(arg dwa_odom_topic)"/>
+      <param name="forward_deadband_mps" value="$(arg dwa_forward_deadband_mps)"/>
+      <param name="yaw_rate_deadband_radps"
+             value="$(arg dwa_yaw_rate_deadband_radps)"/>
+      <param name="forward_filter_tau_s" value="$(arg dwa_forward_filter_tau_s)"/>
+      <param name="yaw_rate_filter_tau_s" value="$(arg dwa_yaw_rate_filter_tau_s)"/>
+      <param name="max_yaw_rate_radps" value="$(arg dwa_max_yaw_rate_radps)"/>
+    </node>
+  </group>
 
   <node pkg="map_server"
         type="map_server"
@@ -82,24 +95,24 @@
         args="$(find r300_1x_navigation)/maps/subject1_blank_map.yaml"
         output="screen"/>
 
-  <!-- DWA consumes the selected velocity-feedback odometry topic. -->
   <include file="$(find r300_1x_navigation)/launch/subject1_move_base.launch">
     <arg name="cmd_vel_topic" value="/subject1/cmd_vel_raw"/>
     <arg name="odom_topic" value="$(arg dwa_odom_topic)"/>
     <arg name="dwa_config_file" value="$(arg dwa_config_file)"/>
-    <arg name="local_costmap_config_file" value="$(arg local_costmap_config_file)"/>
+    <arg name="local_costmap_config_file"
+         value="$(arg local_costmap_config_file)"/>
   </include>
 
   <rosparam command="load" file="$(arg waypoint_file)"/>
 
-  <!-- Goal sender only: no Twist publisher and no yaw pre-alignment. -->
+  <!-- Same waypoint services, status and progress are shared by both modes. -->
   <node pkg="r300_1x_navigation"
         type="waypoint_executor.py"
         name="waypoint_executor"
         output="screen">
     <param name="waypoints_param" value="/subject1_waypoints/waypoints"/>
-    <param name="origin_topic" value="/one_x/origin"/>
-    <param name="odom_topic" value="/one_x/odom"/>
+    <param name="origin_topic" value="$(arg origin_topic)"/>
+    <param name="odom_topic" value="$(arg localization_odom_topic)"/>
     <param name="move_base_action" value="/move_base"/>
     <param name="goal_frame" value="map"/>
     <param name="auto_start" value="$(arg auto_start)"/>

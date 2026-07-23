@@ -1,58 +1,69 @@
 DWAPlannerROS:
-  # R300 为差速车，只允许前进，不允许横移。
-  odom_topic: /one_x/odom
+  odom_topic: /subject1/dwa_odom
 
-  max_vel_x: 1.5
-  max_vel_y: 0.0
-  min_vel_y: 0.0
+  # ---------------- 速度限制 ----------------
+  # 仅作为开阔区域最高速度。
+  max_vel_x: 2.00
+  min_vel_x: 0.00
 
-  max_vel_trans: 1.5
-  min_vel_trans: 0.0
+  max_vel_y: 0.00
+  min_vel_y: 0.00
 
-  # 先降低角速度和角加速度，避免大角度误差时突然打满。
-  max_vel_theta: 0.4
-  min_vel_theta: 0.1
+  max_vel_trans: 2.00
+  min_vel_trans: 0.05
 
-  acc_lim_x: 1
-  acc_lim_y: 0.0
-  acc_lim_theta: 1
+  # 只有实车可以稳定达到时才使用0.45。
+  max_vel_theta: 0.75
+  min_vel_theta: 0.05
 
-  # 定点导航测试不能用 2 m 容差。
-  xy_goal_tolerance: 0.5
+  # ---------------- 真实动力学 ----------------
+  # 保持与实车可靠制动能力一致。
+  acc_lim_x: 6.00
+  acc_lim_y: 0.00
+  acc_lim_trans: 6.00
+  acc_lim_theta: 6.00
+
+  # ---------------- 到点条件 ----------------
+  xy_goal_tolerance: 1.00
   yaw_goal_tolerance: 3.14
-  latch_xy_goal_tolerance: true
 
-  # 1.2 s 足够预测局部轨迹，避免 3 s 长圆弧评分。
-  sim_time: 1.5
-  sim_granularity: 0.05
-  angular_sim_granularity: 0.025
 
-  vx_samples: 24
+  trans_stopped_vel: 0.16
+  theta_stopped_vel: 0.08
+
+  # ---------------- 轨迹预测 ----------------
+  # 不再单纯通过超长预测距离承担制动安全。
+  sim_time: 2.00
+  sim_granularity: 0.03
+  angular_sim_granularity: 0.03
+
+  # 适合8～10Hz，降低计算负担。
+  vx_samples: 12
   vy_samples: 1
-  vth_samples: 48
+  vth_samples: 51
 
-  controller_frequency: 3.0
+  # ---------------- 轨迹评分 ----------------
+  # 允许更明显地离开穿过障碍的全局直线路径。
+  path_distance_bias: 24.0
+  goal_distance_bias: 18.0
+  occdist_scale: 0.15
 
-  # 单点、空白地图测试：略增强靠近目标的倾向。
-  path_distance_bias: 45.0
-  goal_distance_bias: 8.0
-  occdist_scale: 0.02
+  # 保留少量前视引导，但避免0.30造成过度回正。
+  forward_point_distance: 0.30
 
-  # 车体前缘约 0.45 m，评分前视点不能太靠后。
-  forward_point_distance: 0.8
+  # 可以保留，但不能依靠它代替距离限速。
+  stop_time_buffer: 0.80
 
-  stop_time_buffer: 0.60
+  # 不再从1.2m/s开始放大35%。
+  scaling_speed: 1.50
+  max_scaling_factor: 0.20
 
-  # 当前低速测试不需要动态放大 footprint。
-  scaling_speed: 0.20
-  max_scaling_factor: 0.0
+  # 选定一侧后，不要太快解除振荡方向约束。
+  oscillation_reset_dist: 0.35
+  oscillation_reset_angle: 0.50
 
-  # 尽快清除 DWA 自身的振荡记忆。
-  oscillation_reset_dist: 0.20
-  oscillation_reset_angle: 0.30
-
-  # 明确不惩罚原地转向；背对目标时允许 DWA 选择原地转。
+  prune_plan: false
   twirling_scale: 0.0
 
-  publish_traj_pc: true
+  publish_traj_pc: false
   publish_cost_grid_pc: false

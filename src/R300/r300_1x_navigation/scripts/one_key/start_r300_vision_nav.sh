@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# R300：惯导 + 航点 + move_base/DWA + 外部视觉检测话题避障
+# R300：订阅已运行的1X + 航点 + move_base/DWA + 外部视觉检测话题避障
 #
 # 当前视觉 costmap 链路：
 #   /r300_vision/detections
@@ -8,7 +8,7 @@
 #     -> VisionSnapshotLayer（odom中按配置保持障碍，每周期整层重建）
 #     -> inflation_layer -> DWA
 #
-# 本脚本不启动相机、不启动检测网络。
+# 本脚本不启动1X、不启动相机、不启动检测网络。
 # =============================================================================
 
 set -Eeuo pipefail
@@ -18,8 +18,6 @@ WS="${R300_WS:-$HOME/r300_ws}"
 PKG="${R300_PKG:-r300_1x_navigation}"
 LAUNCH_FILE="${R300_VISION_LAUNCH:-subject1_waypoint_vision_nav.launch}"
 
-INS_PORT="${INS_PORT:-/dev/ttyACM0}"
-INS_BAUD="${INS_BAUD:-460800}"
 CAN_PORT="${CAN_PORT:-can0}"
 CAN_BITRATE="${CAN_BITRATE:-500000}"
 
@@ -74,7 +72,7 @@ usage() {
   -h, --help               显示帮助
 
 环境变量：
-  R300_WS, INS_PORT, INS_BAUD, CAN_PORT, CAN_BITRATE,
+  R300_WS, CAN_PORT, CAN_BITRATE,
   WAYPOINT_FILE, MAX_GOAL_DIST, DETECTIONS_TOPIC,
   CAMERA_INFO_TOPIC, CAMERA_FRAME, OBSTACLE_SCAN_TOPIC,
   ACTIVE_SCAN_TOPIC, READY_TIMEOUT, VISION_HOLD_TIME_S,
@@ -208,7 +206,7 @@ for dependency in "${REQUIRED_PACKAGES[@]}"; do
 done
 ok "ROS 环境和导航依赖检查通过"
 
-# ------------------------------ 文件与硬件 -----------------------------------
+# ------------------------------ 外部1X与文件 ---------------------------------
 if [[ -n "$WAYPOINT_FILE" ]]; then
   [[ -f "$WAYPOINT_FILE" ]] || {
     error "航点文件不存在：$WAYPOINT_FILE"; exit 1;
@@ -216,13 +214,66 @@ if [[ -n "$WAYPOINT_FILE" ]]; then
   WAYPOINT_FILE="$(readlink -f "$WAYPOINT_FILE")"
 fi
 
-[[ -e "$INS_PORT" ]] || {
-  error "惯导串口不存在：$INS_PORT"; exit 1;
+# 1X必须由独立终端提前启动。导航脚本只读取它，不再打开串口。
+if ! rosnode list >/dev/null 2>&1; then
+  error "ROS master未运行。请先启动：./start_1x.sh"
+  exit 1
+fi
+
+rosnode list 2>/dev/null | grep -qx '/one_x_serial_driver' || {
+  error "未发现 /one_x_serial_driver。请先在另一终端运行：./start_1x.sh"
+  exit 1
 }
-[[ -r "$INS_PORT" && -w "$INS_PORT" ]] || {
-  error "当前用户没有 $INS_PORT 的读写权限"; exit 1;
+
+if rosnode list 2>/dev/null | grep -qx '/move_base'; then
+  error "检测到已有 /move_base。为避免运行中重置坐标原点，请先停止旧导航。"
+  exit 1
+fi
+
+info "等待独立1X原始解析数据……"
+if ! timeout "$READY_TIMEOUT" rostopic echo -n 1 /one_x/ins_fix >/dev/null 2>&1; then
+  error "独立1X没有发布 /one_x/ins_fix，请检查 start_1x.sh 和串口。"
+  exit 1
+fi
+ok "独立1X解析数据正常"
+
+info "等待1X原点设置服务……"
+for _ in $(seq 1 $((READY_TIMEOUT * 5))); do
+  rosservice list 2>/dev/null | grep -qx '/one_x/set_current_origin' && break
+  sleep 0.2
+done
+rosservice list 2>/dev/null | grep -qx '/one_x/set_current_origin' || {
+  error "未发现 /one_x/set_current_origin；请确认已替换并重新编译1X驱动。"
+  exit 1
 }
-ok "惯导串口可用：$INS_PORT，baud=$INS_BAUD"
+
+info "以当前最新1X位置建立本次导航ENU原点……"
+ORIGIN_RESPONSE="$(rosservice call /one_x/set_current_origin "{}" 2>&1 || true)"
+printf '%s\n' "$ORIGIN_RESPONSE"
+if ! grep -Eq 'success:[[:space:]]*(True|true)' <<<"$ORIGIN_RESPONSE"; then
+  error "1X导航原点设置失败。"
+  exit 1
+fi
+
+if ! timeout "$READY_TIMEOUT" rostopic echo -n 1 /one_x/origin >/dev/null 2>&1; then
+  error "设置原点后未收到 /one_x/origin"
+  exit 1
+fi
+if ! timeout "$READY_TIMEOUT" rostopic echo -n 1 /one_x/odom >/dev/null 2>&1; then
+  error "设置原点后未收到 /one_x/odom"
+  exit 1
+fi
+
+TF_CHECK="$(mktemp)"
+timeout 4 rosrun tf tf_echo odom base_link >"$TF_CHECK" 2>&1 || true
+if ! grep -q 'Translation' "$TF_CHECK"; then
+  error "设置原点后仍缺少TF：odom -> base_link"
+  cat "$TF_CHECK" >&2 || true
+  rm -f "$TF_CHECK"
+  exit 1
+fi
+rm -f "$TF_CHECK"
+ok "本次导航坐标系已由当前1X结果建立"
 
 can_is_up() {
   local flags
@@ -254,8 +305,6 @@ fi
 # ------------------------------ 启动参数 -------------------------------------
 ROSLAUNCH_ARGS=(
   "$PKG" "$LAUNCH_FILE"
-  "ins_serial_port:=$INS_PORT"
-  "ins_baudrate:=$INS_BAUD"
   "can_port:=$CAN_PORT"
   "launch_base:=$LAUNCH_BASE"
   "launch_rviz:=$LAUNCH_RVIZ"
@@ -272,6 +321,7 @@ LOG_FILE="$LOG_DIR/r300_vision_nav_$(date +%Y%m%d_%H%M%S).log"
 
 info "工作空间：$WS"
 info "启动入口：$PKG/$LAUNCH_FILE"
+info "定位来源：外部已运行 /one_x_serial_driver"
 info "外部检测话题：$DETECTIONS_TOPIC"
 info "外部相机内参：$CAMERA_INFO_TOPIC"
 info "视觉障碍扫描：$OBSTACLE_SCAN_TOPIC"
@@ -399,6 +449,8 @@ check_camera_tf() {
 
 # ------------------------------ 全链路检查 -----------------------------------
 wait_message /one_x/odom "1X 惯导里程计"
+wait_message /subject1/dwa_odom "DWA适配后里程计"
+check_topic_type /subject1/dwa_odom nav_msgs/Odometry "DWA适配后里程计"
 
 wait_message "$CAMERA_INFO_TOPIC" "外部相机内参"
 check_topic_type \
@@ -530,10 +582,32 @@ INFLATION_RADIUS="$(
     2>/dev/null || echo unknown
 )"
 
+DWA_ODOM_TOPIC_LOADED="$(
+  rosparam get /move_base/DWAPlannerROS/odom_topic 2>/dev/null || true
+)"
+ADAPTER_OUTPUT_TOPIC="$(
+  rosparam get /dwa_odom_adapter/output_odom_topic 2>/dev/null || true
+)"
+WAYPOINT_MAX_DIST="$(
+  rosparam get /waypoint_executor/max_goal_distance_from_origin_m 2>/dev/null || true
+)"
+
+if [[ "$DWA_ODOM_TOPIC_LOADED" != "/subject1/dwa_odom" ||
+      "$ADAPTER_OUTPUT_TOPIC" != "/subject1/dwa_odom" ]]; then
+  error "DWA里程计链路不一致"
+  error "DWA odom_topic=${DWA_ODOM_TOPIC_LOADED:-<空>}"
+  error "adapter output=${ADAPTER_OUTPUT_TOPIC:-<空>}"
+  exit 1
+fi
+ok "视觉导航使用统一DWA里程计：/subject1/dwa_odom"
+
 info "检测坐标系：$CAMERA_FRAME"
 info "DWA 最大前进速度：$DWA_MAX_VEL m/s"
 info "move_base 控制频率：$CONTROLLER_FREQUENCY Hz"
 info "局部地图膨胀半径：$INFLATION_RADIUS m"
+info "最大航点距离：${WAYPOINT_MAX_DIST:-unknown} m"
+info "当前航点状态："
+rostopic echo -n 1 /subject1/waypoint_status 2>/dev/null || true
 
 # ------------------------------ 是否开始运动 ---------------------------------
 if [[ "$AUTO_RUN" == "true" ]]; then

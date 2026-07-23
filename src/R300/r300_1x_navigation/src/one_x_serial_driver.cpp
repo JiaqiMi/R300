@@ -25,6 +25,7 @@
 #include <sensor_msgs/NavSatFix.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/String.h>
+#include <std_srvs/Trigger.h>
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_datatypes.h>
 
@@ -170,9 +171,11 @@ public:
     pnh_.param<double>("max_yaw_rate_radps", max_yaw_rate_radps_, 2.5);
     pnh_.param<int>("max_buffer_bytes", max_buffer_bytes_, 8192);
 
-    std::string origin_mode;
-    pnh_.param<std::string>("origin_mode", origin_mode, std::string("first_valid"));
-    if (origin_mode == "fixed")
+    pnh_.param<std::string>("origin_mode", origin_mode_, std::string("first_valid"));
+    pnh_.param<double>("origin_set_max_age_s", origin_set_max_age_s_, 0.50);
+    origin_set_max_age_s_ = std::max(0.05, origin_set_max_age_s_);
+
+    if (origin_mode_ == "fixed")
     {
       pnh_.getParam("origin_latitude_deg", origin_.lat_deg);
       pnh_.getParam("origin_longitude_deg", origin_.lon_deg);
@@ -186,9 +189,14 @@ public:
                                                       << ", lon=" << origin_.lon_deg
                                                       << ", alt=" << origin_.alt_m);
     }
-    else if (origin_mode != "first_valid")
+    else if (origin_mode_ == "deferred")
     {
-      throw std::runtime_error("origin_mode must be first_valid or fixed");
+      ROS_WARN("1X origin is deferred: raw decoded topics are active, but /one_x/odom and "
+               "odom->base_link will start only after /one_x/set_current_origin is called.");
+    }
+    else if (origin_mode_ != "first_valid")
+    {
+      throw std::runtime_error("origin_mode must be first_valid, deferred, or fixed");
     }
 
     // /one_x/fix remains the navigation/control position source.
@@ -208,6 +216,10 @@ public:
     pos_compare_pub_ = nh_.advertise<std_msgs::String>("/one_x/pos_compare", 2);
     ins_status_pub_ = nh_.advertise<r300_1x_navigation::InsStatus>("/one_x/ins_status", 100);
     diagnostics_pub_ = nh_.advertise<diagnostic_msgs::DiagnosticArray>("/one_x/diagnostics", 2);
+    set_origin_service_ = nh_.advertiseService(
+        "/one_x/set_current_origin",
+        &OneXSerialDriver::SetCurrentOriginCallback,
+        this);
 
     if (origin_ready_)
     {
@@ -264,6 +276,7 @@ private:
   ros::Publisher diagnostics_pub_;
   ros::Timer pos_compare_timer_;
   ros::Timer diagnostics_timer_;
+  ros::ServiceServer set_origin_service_;
   tf::TransformBroadcaster tf_broadcaster_;
 
   std::string serial_port_;
@@ -276,11 +289,16 @@ private:
   double yaw_std_deg_;
   double max_yaw_rate_radps_;
   int max_buffer_bytes_;
+  std::string origin_mode_;
+  double origin_set_max_age_s_;
 
   int serial_fd_;
   std::vector<uint8_t> rx_buffer_;
 
   r300_1x_navigation::Geodetic origin_{0.0, 0.0, 0.0};
+  r300_1x_navigation::Geodetic latest_control_position_{0.0, 0.0, 0.0};
+  ros::Time latest_control_position_stamp_;
+  bool have_latest_control_position_ = false;
   bool origin_ready_;
   bool have_counter_;
   uint16_t previous_counter_;
@@ -545,11 +563,13 @@ private:
     previous_counter_ = counter;
     have_counter_ = true;
 
-    if (!origin_ready_)
+    latest_control_position_ = r300_1x_navigation::Geodetic{latitude_deg, longitude_deg, altitude_m};
+    latest_control_position_stamp_ = stamp;
+    have_latest_control_position_ = true;
+
+    if (!origin_ready_ && origin_mode_ == "first_valid")
     {
-      origin_.lat_deg = latitude_deg;
-      origin_.lon_deg = longitude_deg;
-      origin_.alt_m = altitude_m;
+      origin_ = latest_control_position_;
       origin_ready_ = true;
       PublishOrigin(stamp);
       ROS_INFO_STREAM("1X first-valid local origin locked: lat=" << std::setprecision(10) << origin_.lat_deg
@@ -558,7 +578,11 @@ private:
     }
 
     const r300_1x_navigation::Geodetic current{latitude_deg, longitude_deg, altitude_m};
-    const r300_1x_navigation::Enu enu = r300_1x_navigation::GeodeticToEnu(current, origin_);
+    r300_1x_navigation::Enu enu{0.0, 0.0, 0.0};
+    if (origin_ready_)
+    {
+      enu = r300_1x_navigation::GeodeticToEnu(current, origin_);
+    }
 
     // INS heading: North=0 deg, East=90 deg, clockwise positive.
     // ROS ENU yaw: East=0 rad, North=+pi/2 rad, counter-clockwise positive.
@@ -629,40 +653,49 @@ private:
     fix_msg.longitude = longitude_deg;
     fix_pub_.publish(fix_msg);
 
-    nav_msgs::Odometry odom_msg;
-    odom_msg.header.stamp = stamp;
-    odom_msg.header.frame_id = odom_frame_;
-    odom_msg.child_frame_id = base_frame_;
-    odom_msg.pose.pose.position.x = enu.east;
-    odom_msg.pose.pose.position.y = enu.north;
-    odom_msg.pose.pose.position.z = enu.up;
-    odom_msg.pose.pose.orientation = yaw_quaternion;
     const double pos_var = position_std_m_ * position_std_m_;
     const double yaw_var = std::pow(yaw_std_deg_ * kPi / 180.0, 2.0);
-    odom_msg.pose.covariance[0] = pos_var;
-    odom_msg.pose.covariance[7] = pos_var;
-    odom_msg.pose.covariance[14] = 4.0 * pos_var;
-    odom_msg.pose.covariance[21] = 1.0e6;
-    odom_msg.pose.covariance[28] = 1.0e6;
-    odom_msg.pose.covariance[35] = yaw_var;
-    odom_msg.twist.twist.linear.x = v_forward;
-    odom_msg.twist.twist.linear.y = v_left;
-    odom_msg.twist.twist.linear.z = 0.0;
-    odom_msg.twist.twist.angular.z = yaw_rate;
-    odom_msg.twist.covariance[0] = 0.25;
-    odom_msg.twist.covariance[7] = 0.25;
-    odom_msg.twist.covariance[35] = 0.25;
-    odom_pub_.publish(odom_msg);
 
-    geometry_msgs::TransformStamped tf_msg;
-    tf_msg.header.stamp = stamp;
-    tf_msg.header.frame_id = odom_frame_;
-    tf_msg.child_frame_id = base_frame_;
-    tf_msg.transform.translation.x = enu.east;
-    tf_msg.transform.translation.y = enu.north;
-    tf_msg.transform.translation.z = enu.up;
-    tf_msg.transform.rotation = yaw_quaternion;
-    tf_broadcaster_.sendTransform(tf_msg);
+    if (origin_ready_)
+    {
+      nav_msgs::Odometry odom_msg;
+      odom_msg.header.stamp = stamp;
+      odom_msg.header.frame_id = odom_frame_;
+      odom_msg.child_frame_id = base_frame_;
+      odom_msg.pose.pose.position.x = enu.east;
+      odom_msg.pose.pose.position.y = enu.north;
+      odom_msg.pose.pose.position.z = enu.up;
+      odom_msg.pose.pose.orientation = yaw_quaternion;
+      odom_msg.pose.covariance[0] = pos_var;
+      odom_msg.pose.covariance[7] = pos_var;
+      odom_msg.pose.covariance[14] = 4.0 * pos_var;
+      odom_msg.pose.covariance[21] = 1.0e6;
+      odom_msg.pose.covariance[28] = 1.0e6;
+      odom_msg.pose.covariance[35] = yaw_var;
+      odom_msg.twist.twist.linear.x = v_forward;
+      odom_msg.twist.twist.linear.y = v_left;
+      odom_msg.twist.twist.linear.z = 0.0;
+      odom_msg.twist.twist.angular.z = yaw_rate;
+      odom_msg.twist.covariance[0] = 0.25;
+      odom_msg.twist.covariance[7] = 0.25;
+      odom_msg.twist.covariance[35] = 0.25;
+      odom_pub_.publish(odom_msg);
+
+      geometry_msgs::TransformStamped tf_msg;
+      tf_msg.header.stamp = stamp;
+      tf_msg.header.frame_id = odom_frame_;
+      tf_msg.child_frame_id = base_frame_;
+      tf_msg.transform.translation.x = enu.east;
+      tf_msg.transform.translation.y = enu.north;
+      tf_msg.transform.translation.z = enu.up;
+      tf_msg.transform.rotation = yaw_quaternion;
+      tf_broadcaster_.sendTransform(tf_msg);
+    }
+    else
+    {
+      ROS_INFO_THROTTLE(5.0,
+                        "1X parser is running; waiting for /one_x/set_current_origin before publishing odometry/TF");
+    }
 
     sensor_msgs::Imu imu_msg;
     imu_msg.header.stamp = stamp;
@@ -780,6 +813,54 @@ private:
     latest_vx_enu_ = vx_enu;
     latest_vy_enu_ = vy_enu;
     latest_vz_enu_ = vz_enu;
+  }
+
+  bool SetCurrentOriginCallback(std_srvs::Trigger::Request &,
+                                std_srvs::Trigger::Response &response)
+  {
+    if (!have_latest_control_position_)
+    {
+      response.success = false;
+      response.message = "No valid 1X control position has been decoded yet";
+      return true;
+    }
+
+    const ros::Time now = ros::Time::now();
+    const double age_s = latest_control_position_stamp_.isZero()
+                             ? std::numeric_limits<double>::infinity()
+                             : (now - latest_control_position_stamp_).toSec();
+    if (!std::isfinite(age_s) || age_s < 0.0 || age_s > origin_set_max_age_s_)
+    {
+      std::ostringstream message;
+      message << "Latest valid 1X position is stale: age=" << std::fixed
+              << std::setprecision(3) << age_s << "s, limit="
+              << origin_set_max_age_s_ << "s";
+      response.success = false;
+      response.message = message.str();
+      return true;
+    }
+
+    origin_ = latest_control_position_;
+    origin_ready_ = true;
+
+    // Prevent a false angular-rate spike after re-anchoring between navigation runs.
+    have_last_yaw_ = false;
+    last_yaw_time_ = ros::Time(0);
+    last_yaw_ = 0.0;
+
+    PublishOrigin(now);
+
+    std::ostringstream message;
+    message << std::fixed << std::setprecision(10)
+            << "Current 1X position set as ENU origin: lat=" << origin_.lat_deg
+            << ", lon=" << origin_.lon_deg
+            << std::setprecision(3) << ", alt=" << origin_.alt_m
+            << ", sample_age=" << age_s << "s";
+    response.success = true;
+    response.message = message.str();
+
+    ROS_WARN_STREAM(response.message);
+    return true;
   }
 
   void PublishOrigin(const ros::Time &stamp)
@@ -980,6 +1061,7 @@ private:
     add_kv("skipped_bytes", ToString(skipped_bytes_));
     add_kv("counter_anomalies", ToString(counter_anomalies_));
     add_kv("last_valid_frame_age_s", std::isfinite(age_s) ? ToString(age_s, 3) : "inf");
+    add_kv("origin_mode", origin_mode_);
     add_kv("origin_ready", origin_ready_ ? "true" : "false");
     add_kv("ins_status", std::to_string(latest_ins_status_));
     add_kv("gps_status", std::to_string(latest_gps_status_));
