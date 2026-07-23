@@ -30,6 +30,7 @@ let satTotalDistance = 0;
 let msgCounter = 0;
 let lastBadgeUpdateMs = 0;
 let lastRx = {};
+let targetHistory = [];
 let cloudCount=0;
 let elevationMsg=null;
 let negTerrain=0;
@@ -158,7 +159,10 @@ function handleTopic(topic, msg) {
   else if (topic === t.scan) { scanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.vision_scan) { visionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.active_vision_scan) { activeVisionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
-  else if (topic === t.detections) updateDetections(msg);
+  else if (topic === t.detections) {
+    updateDetections(msg);
+    recordDetections(msg);
+  }
   else if (topic === t.target_point) updateTargetPoint(msg);
   else if (topic === t.dynamic_state) $("dynState").textContent = msg.data;
   else if (topic === t.speed_limit) updateSafety("limit", msg.data);
@@ -269,6 +273,60 @@ function updateSafety(k, v) {
   const limit = Number.isFinite(safetyState.limit) ? `${fmt(safetyState.limit)} m/s` : "--";
   const estop = safetyState.estop === null ? "--" : (safetyState.estop ? "急停" : "正常");
   $("safety").textContent = `${limit} / ${estop}`;
+}
+
+
+function recordDetections(m){
+  const arr=m.objects || m.detections || [];
+  const now=new Date().toISOString();
+  arr.forEach(o=>{
+    const pos=o.position || o.center || {};
+    targetHistory.push({
+      time: now,
+      type: o.class_name || o.label || o.name || String(o.class_id || "unknown"),
+      confidence: Number(o.confidence || 0),
+      x: Number(pos.x || 0),
+      y: Number(pos.y || 0),
+      z: Number(pos.z || 0)
+    });
+  });
+  if(targetHistory.length>1000){
+    targetHistory=targetHistory.slice(-1000);
+  }
+  updateTargetTable();
+}
+
+function updateTargetTable(){
+  const body=$("targetTableBody");
+  if(!body) return;
+  $("targetRecordCount").textContent=String(targetHistory.length);
+  body.innerHTML=targetHistory.slice(-50).reverse().map(t=>`
+    <tr>
+      <td>${t.time.substring(11,19)}</td>
+      <td>${t.type}</td>
+      <td>${t.confidence.toFixed(2)}</td>
+      <td>${t.x.toFixed(2)}</td>
+      <td>${t.y.toFixed(2)}</td>
+      <td>${t.z.toFixed(2)}</td>
+    </tr>`).join("");
+}
+
+function clearTargetHistory(){
+  targetHistory=[];
+  updateTargetTable();
+}
+
+function downloadTargetCSV(){
+  if(!targetHistory.length) return;
+  let csv="time,type,confidence,x,y,z\n";
+  targetHistory.forEach(t=>{
+    csv+=`${t.time},${t.type},${t.confidence},${t.x},${t.y},${t.z}\n`;
+  });
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="target_detection.csv";
+  a.click();
 }
 
 function updateDetections(m) {

@@ -596,3 +596,31 @@ footer { display: flex; justify-content: space-between; gap: 10px; padding: 10px
   border:1px solid rgba(151,219,72,.22);
   border-radius:10px;
 }
+
+
+/* v18 target recording */
+.target-card{
+  min-height:360px;
+}
+.target-table-wrap{
+  max-height:300px;
+  overflow:auto;
+  border:1px solid rgba(151,219,72,.2);
+  border-radius:10px;
+}
+.target-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+}
+.target-table th,.target-table td{
+  padding:6px 8px;
+  border-bottom:1px solid rgba(151,219,72,.12);
+  text-align:center;
+}
+.target-table th{
+  color:#d7f549;
+  position:sticky;
+  top:0;
+  background:#102f15;
+}

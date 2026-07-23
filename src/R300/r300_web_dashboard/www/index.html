@@ -179,6 +179,34 @@
       <div class="kv"><span>正/负障碍</span><b id="terrainObs">--</b></div>
     </section>
 
+
+    <section class="card target-card">
+      <div class="card-title">
+        <h2>目标检测记录</h2>
+        <span id="targetRecordCount">0</span>
+      </div>
+      <div class="toolbar">
+        <button class="kiwi" onclick="downloadTargetCSV()">保存目标CSV</button>
+        <button class="soft" onclick="clearTargetHistory()">清空记录</button>
+      </div>
+      <div class="target-table-wrap">
+        <table class="target-table">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>类型</th>
+              <th>置信度</th>
+              <th>x</th>
+              <th>y</th>
+              <th>z</th>
+            </tr>
+          </thead>
+          <tbody id="targetTableBody">
+          </tbody>
+        </table>
+      </div>
+    </section>
+
   <footer>
     <span>操作：滚轮缩放，鼠标拖拽平移，双击画布复位。</span>
     <span>猕猴桃主题 v4：支持从网页启动相机与点云/costmap 节点。</span>
