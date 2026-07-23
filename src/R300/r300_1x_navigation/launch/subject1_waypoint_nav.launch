@@ -31,7 +31,7 @@
   <arg name="dwa_yaw_rate_deadband_radps" default="0.015"/>
   <arg name="dwa_forward_filter_tau_s" default="0.10"/>
   <arg name="dwa_yaw_rate_filter_tau_s" default="0.15"/>
-  <arg name="dwa_max_yaw_rate_radps" default="0.70"/>
+  <arg name="dwa_max_yaw_rate_radps" default="0.75"/>
 
   <arg name="launch_base" default="true"/>
   <arg name="launch_lidar" default="false"/>
