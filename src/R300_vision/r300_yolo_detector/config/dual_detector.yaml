@@ -1,0 +1,73 @@
+# ============================================================
+# 双模型路径
+# ============================================================
+# model1：完整12类模型，但仅发布 vehicle/smoke/trench/person/左右转
+# model2：六类专用模型，负责 tire/barrel/puddle/rockfall/park/sandbag
+model1_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/c11_260711.pt
+model2_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model0722.pt
+
+# ============================================================
+# 输入/输出话题：保持原话题不变，下游模块无需修改
+# ============================================================
+rgb_topic: /camera/color/image_raw
+depth_topic: /camera/aligned_depth_to_color/image_raw
+camera_info_topic: /camera/color/camera_info
+
+annotated_topic: /r300_vision/annotated_image
+detections_topic: /r300_vision/detections
+target_point_topic: /r300_vision/target_point
+
+# ============================================================
+# 推理参数
+# ============================================================
+device: "0"
+imgsz: 640
+max_det: 100
+
+# 两个模型顺序处理同一帧，先从4Hz开始，稳定后再逐步提高。
+infer_hz: 4.0
+
+model1_conf_threshold: 0.20
+model1_iou_threshold: 0.45
+
+# 模型2 predict 的基础阈值；最终还会执行下面的类别独立阈值。
+model2_conf_threshold: 0.15
+model2_iou_threshold: 0.45
+
+# 模型2六类最终置信度阈值，可按验证结果分别调整。
+model2_class_conf_thresholds:
+  tire: 0.25
+  barrel: 0.25
+  puddle: 0.25
+  rockfall: 0.25
+  park: 0.20
+  sandbag: 0.25
+
+# 模型2框与模型1框重叠时，由模型2覆盖模型1，避免同一目标同时
+# 被显示为 vehicle 和 tire/sandbag 等。
+specialist_override_iou: 0.50
+
+# 空列表：模型2可覆盖模型1的所有允许类别。
+# 更保守时可设置为 [2]，只允许模型2覆盖 vehicle。
+override_model1_global_ids: []
+
+# 标注图是否显示检测来源 [M1]/[M2]，调试完成后可改为 false。
+show_model_source: true
+
+# ============================================================
+# RGB/Depth同步与深度定位
+# ============================================================
+sync_queue_size: 8
+sync_slop: 0.08
+
+depth_window_radius: 4
+min_valid_depth_pixels: 5
+depth_scale_16u: 0.001
+min_depth_m: 0.15
+max_depth_m: 20.0
+
+# 空列表表示所有最终类别都可作为目标候选。
+target_classes: []
+
+# nearest 或 highest_confidence
+target_policy: nearest
