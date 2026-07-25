@@ -6,6 +6,7 @@ catkin_package()
 
 catkin_install_python(PROGRAMS
   scripts/dashboard_server.py
+  scripts/lidar_web_adapter.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

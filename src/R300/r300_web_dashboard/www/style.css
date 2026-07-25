@@ -583,3 +583,125 @@ footer { display: flex; justify-content: space-between; gap: 10px; padding: 10px
     grid-row: auto !important;
   }
 }
+
+
+/* v18：目标类型、三维坐标、经纬度回传与CSV记录。 */
+.target-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.target-actions button { min-width: 126px; }
+#targetRecordFile, #targetGeoStatus {
+  max-width: 72%;
+  overflow-wrap: anywhere;
+}
+#detections { white-space: pre-wrap; }
+#targetPoint { white-space: pre-wrap; }
+
+/* =========================================================
+ * v19 MID-360 点云 + GPU 高程图
+ * 两个显示框与视频/costmap同规格，左点云、右高程，共同启停。
+ * ========================================================= */
+.lidar-cloud-card,
+.elevation-card {
+  min-height: 660px !important;
+  overflow: visible !important;
+}
+#cloudCanvas,
+#elevationCanvas {
+  width: 100% !important;
+  height: 560px !important;
+  min-height: 560px !important;
+  background: #020b05 !important;
+  cursor: grab;
+}
+#cloudCanvas:active,
+#elevationCanvas:active { cursor: grabbing; }
+.lidar-actions { margin-top: 10px !important; }
+.lidar-actions button { min-width: 190px !important; }
+.lidar-toolbar { justify-content: space-between; }
+.lidar-toolbar > span { color: #b6d4a3; }
+.elevation-legend {
+  display: grid;
+  grid-template-columns: auto minmax(140px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.elevation-legend i {
+  display: block;
+  height: 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.22);
+  background: linear-gradient(90deg, rgb(24,68,170), rgb(24,180,220), rgb(52,211,153), rgb(245,210,72), rgb(239,68,68));
+}
+.elevation-legend b {
+  color: #d7f549;
+  font-family: Consolas, "JetBrains Mono", monospace;
+  white-space: nowrap;
+}
+#cloudInfo,
+#elevationInfo {
+  max-width: 62%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+@media (min-width: 1501px) {
+  .dashboard {
+    grid-template-columns: minmax(620px, 1fr) minmax(620px, 1fr) !important;
+  }
+  .video-card { grid-column: 1 !important; grid-row: 1 !important; }
+  .map-card { grid-column: 2 !important; grid-row: 1 !important; }
+  .lidar-cloud-card { grid-column: 1 !important; grid-row: 2 !important; }
+  .elevation-card { grid-column: 2 !important; grid-row: 2 !important; }
+  .satellite-card { grid-column: 1 !important; grid-row: 3 / span 2 !important; }
+  .status-card { grid-column: 2 !important; grid-row: 3 !important; }
+  .ins-card { grid-column: 2 !important; grid-row: 4 !important; }
+  .scan-card { grid-column: 2 !important; grid-row: 5 !important; }
+  .control-card { grid-column: 1 !important; grid-row: 6 !important; }
+  .detection-card { grid-column: 2 !important; grid-row: 6 !important; }
+}
+
+@media (max-width: 1500px) {
+  .lidar-cloud-card,
+  .elevation-card {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+  #cloudCanvas,
+  #elevationCanvas {
+    height: 58vw !important;
+    min-height: 420px !important;
+  }
+}
+
+@media (max-width: 800px) {
+  #cloudCanvas,
+  #elevationCanvas {
+    height: 68vw !important;
+    min-height: 340px !important;
+  }
+  .elevation-legend { grid-template-columns: auto 1fr auto; }
+  .elevation-legend b { grid-column: 1 / -1; text-align: right; }
+  #cloudInfo, #elevationInfo { max-width: 52%; }
+}
+
+/* v20: 纯实车导航与视觉避障导航模式提示 */
+.mode-note {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(250, 204, 21, .25);
+  border-radius: 8px;
+  background: rgba(250, 204, 21, .07);
+  color: #e8f7c8;
+  font-size: 12px;
+  line-height: 1.55;
+}

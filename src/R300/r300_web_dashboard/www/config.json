@@ -40,7 +40,9 @@
     "target_point": "/r300_vision/target_point",
     "dynamic_state": "/subject1/dynamic/state",
     "speed_limit": "/subject1/dynamic/speed_limit_mps",
-    "emergency_stop": "/subject1/dynamic/emergency_stop"
+    "emergency_stop": "/subject1/dynamic/emergency_stop",
+    "lidar_points_json": "/r300_web/lidar_points_json",
+    "elevation_json": "/r300_web/elevation_json"
   },
   "services": {
     "start": "/subject1/start_waypoints",
@@ -48,5 +50,14 @@
     "resume": "/subject1/resume_waypoints",
     "cancel": "/subject1/cancel_waypoints",
     "skip": "/subject1/skip_waypoint"
+  },
+  "target_geolocation": {
+    "enabled": true,
+    "camera_forward_offset_m": 0.0,
+    "camera_right_offset_m": 0.0,
+    "max_gps_age_s": 5.0,
+    "max_heading_age_s": 5.0,
+    "allow_odom_yaw_fallback": true,
+    "target_match_tolerance_m": 0.3
   }
 }

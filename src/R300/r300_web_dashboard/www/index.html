@@ -13,7 +13,7 @@
       <div class="brand-mark">R</div>
       <div>
         <h1><span>R300</span><em>|</em>别打了我是酱油</h1>
-        <p>视频 / costmap / 路径 / 激光障碍 / 车辆状态 / 航点控制</p>
+        <p>视频 / costmap / 路径 / MID-360点云 / GPU高程 / 目标回传</p>
       </div>
     </div>
     <div class="status-bar">
@@ -43,10 +43,19 @@
       </div>
       <canvas id="costmapCanvas" width="760" height="520"></canvas>
       <div class="node-actions map-node-actions">
-        <button class="kiwi" onclick="startProcess('nav')">启动点云/代价地图</button>
-        <button class="soft" onclick="stopProcess('nav')">停止点云/导航</button>
-        <span id="navProcState" class="proc-state">点云/导航：未运行</span>
+        <button class="kiwi" onclick="startProcess('ins')">① 启动 1X 惯导</button>
+        <button class="soft" onclick="stopProcess('ins')">停止 1X 惯导</button>
+        <span id="insProcState" class="proc-state">1X 惯导：未运行</span>
+
+        <button class="kiwi" onclick="startProcess('real_nav')">②A 启动纯实车导航</button>
+        <button class="soft" onclick="stopProcess('real_nav')">停止纯实车导航</button>
+        <span id="realNavProcState" class="proc-state">纯实车导航：未运行</span>
+
+        <button class="kiwi" onclick="startProcess('costmap')">②B 启动视觉避障 / 代价地图</button>
+        <button class="soft" onclick="stopProcess('costmap')">停止视觉避障 / 代价地图</button>
+        <span id="costmapProcState" class="proc-state">视觉避障 / 代价地图：未运行</span>
       </div>
+      <div class="mode-note">②A 纯实车导航与 ②B 视觉避障导航二选一，不能同时启动；纯实车导航就绪后，在下方“航点控制”点击“开始航点”。</div>
       <div class="toolbar">
         <label><input id="showCostRobot" type="checkbox" checked> 车体箭头</label>
         <label><input id="showCostVision" type="checkbox" checked> 视觉障碍</label>
@@ -54,6 +63,41 @@
         <label><input id="showGlobal" type="checkbox" checked> 全局路径</label>
         <label><input id="showLocal" type="checkbox" checked> 局部路径</label>
         <button onclick="resetCanvasView('costmapCanvas')">复位视图</button>
+      </div>
+    </section>
+
+    <section class="card hero-card lidar-cloud-card">
+      <div class="card-title">
+        <h2>MID-360 配准点云</h2>
+        <span id="cloudInfo">等待 /cloud_registered_body ...</span>
+      </div>
+      <canvas id="cloudCanvas" width="760" height="520"></canvas>
+      <div class="node-actions lidar-actions">
+        <button class="kiwi" onclick="startProcess('lidar')">启动雷达 / 点云 / 高程</button>
+        <button class="soft" onclick="stopProcess('lidar')">停止雷达 / 点云 / 高程</button>
+        <span id="lidarProcState" class="proc-state">雷达感知：未运行</span>
+      </div>
+      <div class="toolbar lidar-toolbar">
+        <span>鼠标拖拽旋转，滚轮缩放，双击复位</span>
+        <button onclick="resetCloudView()">复位视角</button>
+      </div>
+    </section>
+
+    <section class="card hero-card elevation-card">
+      <div class="card-title">
+        <h2>GPU 高程图</h2>
+        <span id="elevationInfo">等待 /elevation_mapping/elevation_map_raw ...</span>
+      </div>
+      <canvas id="elevationCanvas" width="760" height="520"></canvas>
+      <div class="elevation-legend">
+        <span>低</span><i></i><span>高</span>
+        <b id="elevationRange">--</b>
+      </div>
+      <div class="toolbar">
+        <label><input id="showElevationGrid" type="checkbox" checked> 网格</label>
+        <label><input id="showElevationRobot" type="checkbox" checked> 车体中心</label>
+        <span id="lidarProcStateMirror" class="proc-state">与左侧点云共同启动</span>
+        <button onclick="resetCanvasView('elevationCanvas')">复位视图</button>
       </div>
     </section>
 
@@ -130,7 +174,16 @@
     </section>
 
     <section class="card detection-card">
-      <div class="card-title"><h2>视觉检测 / 目标信息</h2><span id="detectionCount">--</span></div>
+      <div class="card-title"><h2>目标回传 / 视觉检测</h2><span id="detectionCount">--</span></div>
+      <div class="target-actions">
+        <button class="kiwi" onclick="startTargetRecording()">开始本地记录</button>
+        <button class="soft" onclick="stopTargetRecording()">停止本地记录</button>
+        <button class="soft" onclick="downloadTargetsCsv()">下载浏览器CSV</button>
+        <button class="soft" onclick="clearTargetRecords()">清空浏览器记录</button>
+        <span id="targetRecordInfo" class="proc-state">浏览器 0 条；本地未记录</span>
+      </div>
+      <div class="kv"><span>目标经纬度计算</span><b id="targetGeoStatus">等待惯导定位、航向和三维目标</b></div>
+      <div class="kv"><span>本地保存文件</span><b id="targetRecordFile">--</b></div>
       <pre id="detections">等待 /r300_vision/detections ...</pre>
       <pre id="targetPoint">等待 /r300_vision/target_point ...</pre>
     </section>
@@ -164,7 +217,7 @@
 
   <footer>
     <span>操作：滚轮缩放，鼠标拖拽平移，双击画布复位。</span>
-    <span>猕猴桃主题 v4：支持从网页启动相机与点云/costmap 节点。</span>
+    <span>猕猴桃主题 v7：1X 独立启动；纯实车导航与视觉避障导航二选一；保留点云、高程和目标回传。</span>
   </footer>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
