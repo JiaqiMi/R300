@@ -14,7 +14,10 @@ target_frame: base_link
 obstacle_classes:
   - person
   - vehicle
-
+  - tire
+  - rockfall
+  - barrel
+  - sandbag
 
 # 可设定不躲避的障碍物
 # ignored_classes: []
@@ -24,10 +27,9 @@ ignored_classes:
   - puddle
   - park
   - chevro_left
-  - chevro_right
-  - rockfall
-  - tire
-  - barrel
+  - chevro_right  
+  - trench
+
 
 # 置信度
 default_min_confidence: 0.3
@@ -37,6 +39,7 @@ class_min_confidence:
   barrel: 0.20
   tire: 0.20
   rockfall: 0.20
+  sandbag: 0.20
 
 # ---------- depth / geometry acceptance conditions ----------
 # 深度和空间范围筛选

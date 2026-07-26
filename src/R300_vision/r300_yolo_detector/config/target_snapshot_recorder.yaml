@@ -1,0 +1,68 @@
+# 输入话题
+image_topic: /r300_vision/annotated_image
+detections_topic: /r300_vision/detections
+
+# 暂定导航接口，后续按实际话题和消息类型修改
+gps_topic: /vehicle/gps/fix
+heading_topic: /vehicle/heading_deg
+
+# 本地保存目录
+output_dir: /home/explorer/r300_target_records
+
+# 每类最多保留3个不同目标
+top_k: 3
+
+# 有效经纬度目标之间最小间隔
+min_target_distance_m: 5.0
+
+# 记录节点最低置信度，也可按类别覆盖
+minimum_confidence: 0.25
+class_conf_thresholds: {}
+# 示例：
+# class_conf_thresholds:
+#   tire: 0.30
+#   vehicle: 0.45
+#   "12": 0.25
+
+jpeg_quality: 95
+
+# GPS无效时仍保存，经纬度写为0。
+# 由于不能验证5 m间隔，每类最多只保留一条无效GPS记录。
+save_when_gps_invalid: true
+
+# 有效GPS记录优先于无效GPS记录
+prefer_valid_gps: true
+
+# 只有深度和相机三维位置有效时才参与保存
+require_depth_valid: true
+
+sync_queue_size: 10
+sync_slop: 0.05
+
+# GPS或航向未收到时的默认值
+default_latitude: 0.0
+default_longitude: 0.0
+
+# 暂定：航向0度表示车体X轴指向真北
+default_heading_deg: 0.0
+
+# 相机光学系：X右、Y下、Z前
+# 车体FRD系： X前、Y右、Z下
+# Xb=Zc, Yb=Xc, Zb=Yc
+camera_to_body_rotation:
+  - 0.0
+  - 0.0
+  - 1.0
+  - 1.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+  - 0.0
+
+# 暂定安装位置：相机在车体原点前方0.30 m、上方0.10 m
+# 车体系Z向下，因此上方0.10 m写成-0.10
+camera_in_body_translation_m:
+  - 0.30
+  - 0.00
+  - -0.10

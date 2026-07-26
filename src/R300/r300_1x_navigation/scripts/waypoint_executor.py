@@ -3,8 +3,10 @@
 """Sequential GPS waypoint sender for move_base.
 
 This node deliberately does NOT publish cmd_vel and does NOT cancel an active
-move_base goal to perform a separate yaw pre-alignment.  The only autonomous
-motion authority is therefore:
+move_base goal to perform a separate yaw pre-alignment.  For intermediate
+waypoint pass-through, it sends the next move_base goal directly so the action
+server preempts the previous goal without a cancel-only gap.  The only
+autonomous motion authority is therefore:
 
     waypoint_executor -> move_base / DWA -> scout_base -> base
 
@@ -103,12 +105,75 @@ class WaypointExecutor(object):
         self.waypoints_param = rospy.get_param(
             "~waypoints_param", "/subject1_waypoints/waypoints")
         self.origin_topic = rospy.get_param("~origin_topic", "/one_x/origin")
-        self.odom_topic = rospy.get_param("~odom_topic", "/one_x/odom")
+        self.odom_topic = rospy.get_param(
+            "~odom_topic", "/subject1/dwa_odom")
         self.move_base_action = rospy.get_param("~move_base_action", "/move_base")
         self.goal_frame = rospy.get_param("~goal_frame", "map")
         self.auto_start = rospy.get_param("~auto_start", False)
         self.max_goal_distance_from_origin_m = float(rospy.get_param(
             "~max_goal_distance_from_origin_m", 180.0))
+
+        # Intermediate waypoints may be handed over to the next goal before
+        # move_base reports SUCCEEDED.  The last waypoint still uses the normal
+        # move_base completion condition.
+        self.pass_through_enabled = bool(rospy.get_param(
+            "~pass_through_enabled", True))
+        self.waypoint_switch_distance_m = max(0.0, float(rospy.get_param(
+            "~waypoint_switch_distance_m", 2.0)))
+        # A distance-only handover can cut a sharp corner at high speed.  Use
+        # the actual odometry feedback as a second gate.  Set <= 0 to disable
+        # the speed gate, although a positive limit is strongly recommended.
+        self.waypoint_switch_max_speed_mps = float(rospy.get_param(
+            "~waypoint_switch_max_speed_mps", 0.60))
+
+        # Optional turn-angle-aware handover.  The turn angle is computed at
+        # the current waypoint from the incoming and outgoing route segments:
+        # 0 deg means straight, 90 deg means a right-angle turn, and 180 deg
+        # means a U-turn.  Each class has its own switch radius and speed gate.
+        self.angle_adaptive_switch_enabled = bool(rospy.get_param(
+            "~angle_adaptive_switch_enabled", True))
+        self.turn_straight_max_deg = max(0.0, float(rospy.get_param(
+            "~turn_straight_max_deg", 15.0)))
+        self.turn_gentle_max_deg = max(
+            self.turn_straight_max_deg, float(rospy.get_param(
+                "~turn_gentle_max_deg", 35.0)))
+        self.turn_medium_max_deg = max(
+            self.turn_gentle_max_deg, float(rospy.get_param(
+                "~turn_medium_max_deg", 70.0)))
+        self.turn_sharp_max_deg = max(
+            self.turn_medium_max_deg, float(rospy.get_param(
+                "~turn_sharp_max_deg", 110.0)))
+        self.turn_min_segment_length_m = max(0.01, float(rospy.get_param(
+            "~turn_min_segment_length_m", 1.0)))
+        self.turn_switch_distance_cap_ratio = min(0.49, max(0.05, float(
+            rospy.get_param("~turn_switch_distance_cap_ratio", 0.45))))
+
+        self.turn_profiles = {
+            "STRAIGHT": {
+                "distance_m": max(0.0, float(rospy.get_param(
+                    "~straight_switch_distance_m", 4.0))),
+                "speed_mps": float(rospy.get_param(
+                    "~straight_switch_max_speed_mps", 2.5)),
+            },
+            "GENTLE": {
+                "distance_m": max(0.0, float(rospy.get_param(
+                    "~gentle_switch_distance_m", 3.5))),
+                "speed_mps": float(rospy.get_param(
+                    "~gentle_switch_max_speed_mps", 1.8)),
+            },
+            "MEDIUM": {
+                "distance_m": max(0.0, float(rospy.get_param(
+                    "~medium_switch_distance_m", 3.0))),
+                "speed_mps": float(rospy.get_param(
+                    "~medium_switch_max_speed_mps", 1.2)),
+            },
+            "SHARP": {
+                "distance_m": max(0.0, float(rospy.get_param(
+                    "~sharp_switch_distance_m", 2.0))),
+                "speed_mps": float(rospy.get_param(
+                    "~sharp_switch_max_speed_mps", 0.7)),
+            },
+        }
 
         self.origin = None
         self.latest_odom = None
@@ -158,8 +223,13 @@ class WaypointExecutor(object):
 
         rospy.logwarn(
             "waypoint_executor loaded %d waypoint(s), auto_start=%s, "
-            "direct_move_base_only=true",
-            len(self.waypoints), str(self.auto_start))
+            "direct_move_base_only=true, pass_through=%s, "
+            "angle_adaptive=%s, fixed_switch=(%.2fm, %.2fm/s)",
+            len(self.waypoints), str(self.auto_start),
+            str(self.pass_through_enabled),
+            str(self.angle_adaptive_switch_enabled),
+            self.waypoint_switch_distance_m,
+            self.waypoint_switch_max_speed_mps)
 
         if not self.auto_start:
             rospy.logwarn(
@@ -305,6 +375,124 @@ class WaypointExecutor(object):
             self.publish_status()
             return TriggerResponse(True, "已跳到下一个航点")
 
+    def current_horizontal_speed(self):
+        """Return measured horizontal speed from the latest odometry."""
+        if self.latest_odom is None:
+            return None
+
+        # R300 is a differential/non-holonomic platform.  The DWA odometry
+        # adapter forces lateral velocity to zero, so use the absolute
+        # longitudinal speed as the pass-through gate.
+        vx = float(self.latest_odom.twist.twist.linear.x)
+        if not math.isfinite(vx):
+            return None
+        return abs(vx)
+
+    def current_turn_profile(self):
+        """Return the angle class and active pass-through limits.
+
+        The incoming segment uses the previous route waypoint when available.
+        For the first waypoint it uses the current vehicle position.  The
+        outgoing segment always points from the current waypoint to the next
+        waypoint.  A short/degenerate segment disables pass-through so an
+        ambiguous waypoint cannot be skipped at speed.
+        """
+        if self.current_index + 1 >= len(self.waypoints):
+            return None
+
+        current_wp = self.waypoints[self.current_index]
+        next_wp = self.waypoints[self.current_index + 1]
+        if not current_wp["enu_ready"] or not next_wp["enu_ready"]:
+            return None
+
+        if self.current_index > 0:
+            previous_wp = self.waypoints[self.current_index - 1]
+            if not previous_wp["enu_ready"]:
+                return None
+            incoming_x = current_wp["east"] - previous_wp["east"]
+            incoming_y = current_wp["north"] - previous_wp["north"]
+        else:
+            if self.latest_odom is None:
+                return None
+            incoming_x = (
+                current_wp["east"] - self.latest_odom.pose.pose.position.x)
+            incoming_y = (
+                current_wp["north"] - self.latest_odom.pose.pose.position.y)
+
+        outgoing_x = next_wp["east"] - current_wp["east"]
+        outgoing_y = next_wp["north"] - current_wp["north"]
+        incoming_length = math.hypot(incoming_x, incoming_y)
+        outgoing_length = math.hypot(outgoing_x, outgoing_y)
+
+        if (incoming_length < self.turn_min_segment_length_m or
+                outgoing_length < self.turn_min_segment_length_m):
+            return {
+                "class": "SHORT_SEGMENT",
+                "angle_deg": float("nan"),
+                "signed_angle_deg": float("nan"),
+                "distance_m": 0.0,
+                "speed_mps": 0.0,
+                "allow_pass": False,
+                "incoming_length_m": incoming_length,
+                "outgoing_length_m": outgoing_length,
+            }
+
+        dot = incoming_x * outgoing_x + incoming_y * outgoing_y
+        cross = incoming_x * outgoing_y - incoming_y * outgoing_x
+        signed_angle_deg = math.degrees(math.atan2(cross, dot))
+        angle_deg = abs(signed_angle_deg)
+
+        if not self.angle_adaptive_switch_enabled:
+            turn_class = "FIXED"
+            distance_m = self.waypoint_switch_distance_m
+            speed_mps = self.waypoint_switch_max_speed_mps
+            allow_pass = True
+        elif angle_deg <= self.turn_straight_max_deg:
+            turn_class = "STRAIGHT"
+            distance_m = self.turn_profiles[turn_class]["distance_m"]
+            speed_mps = self.turn_profiles[turn_class]["speed_mps"]
+            allow_pass = True
+        elif angle_deg <= self.turn_gentle_max_deg:
+            turn_class = "GENTLE"
+            distance_m = self.turn_profiles[turn_class]["distance_m"]
+            speed_mps = self.turn_profiles[turn_class]["speed_mps"]
+            allow_pass = True
+        elif angle_deg <= self.turn_medium_max_deg:
+            turn_class = "MEDIUM"
+            distance_m = self.turn_profiles[turn_class]["distance_m"]
+            speed_mps = self.turn_profiles[turn_class]["speed_mps"]
+            allow_pass = True
+        elif angle_deg <= self.turn_sharp_max_deg:
+            turn_class = "SHARP"
+            distance_m = self.turn_profiles[turn_class]["distance_m"]
+            speed_mps = self.turn_profiles[turn_class]["speed_mps"]
+            allow_pass = True
+        else:
+            # A near reversal is intentionally treated as a normal stop goal.
+            # Waiting for SUCCEEDED is safer than handing a U-turn to DWA while
+            # the vehicle is still moving through the waypoint.
+            turn_class = "UTURN"
+            distance_m = 0.0
+            speed_mps = 0.0
+            allow_pass = False
+
+        if allow_pass:
+            distance_cap = (
+                self.turn_switch_distance_cap_ratio *
+                min(incoming_length, outgoing_length))
+            distance_m = min(distance_m, distance_cap)
+
+        return {
+            "class": turn_class,
+            "angle_deg": angle_deg,
+            "signed_angle_deg": signed_angle_deg,
+            "distance_m": distance_m,
+            "speed_mps": speed_mps,
+            "allow_pass": allow_pass,
+            "incoming_length_m": incoming_length,
+            "outgoing_length_m": outgoing_length,
+        }
+
     def current_target_geometry(self):
         if self.latest_odom is None or self.current_index >= len(self.waypoints):
             return None
@@ -414,9 +602,81 @@ class WaypointExecutor(object):
                 self.publish_status()
                 return
 
-            # No pre-alignment or mid-course goal cancellation is allowed here.
-            # DWA keeps uninterrupted ownership of cmd_vel until move_base reports
-            # this waypoint as succeeded or failed.
+            # Intermediate waypoints use a route-angle-aware handover profile.
+            # Straight points may switch early at high speed; sharper points use
+            # a smaller radius and lower speed.  U-turn-like points wait for the
+            # normal move_base SUCCEEDED result.
+            if (self.pass_through_enabled and self.goal_active and
+                    self.current_index + 1 < len(self.waypoints)):
+                geometry = self.current_target_geometry()
+                speed_mps = self.current_horizontal_speed()
+                turn_profile = self.current_turn_profile()
+                if (geometry is not None and speed_mps is not None and
+                        turn_profile is not None):
+                    if not turn_profile["allow_pass"]:
+                        rospy.loginfo_throttle(
+                            1.0,
+                            "当前航点不允许提前切换：class=%s angle=%s，"
+                            "等待 move_base SUCCEEDED",
+                            turn_profile["class"],
+                            ("nan" if not math.isfinite(
+                                turn_profile["angle_deg"]) else
+                             "%.1fdeg" % turn_profile["angle_deg"]))
+                    else:
+                        switch_distance_m = turn_profile["distance_m"]
+                        switch_speed_mps = turn_profile["speed_mps"]
+                        distance_ok = geometry[2] <= switch_distance_m
+                        speed_gate_disabled = switch_speed_mps <= 0.0
+                        speed_ok = (
+                            speed_gate_disabled or
+                            speed_mps <= switch_speed_mps)
+
+                        if distance_ok and speed_ok:
+                            old_index = self.current_index
+                            old_name = self.waypoints[old_index]["name"]
+
+                            # Invalidate the old callback generation first,
+                            # but do NOT explicitly cancel the active goal.
+                            # Sending the next goal on the same action client
+                            # lets move_base preempt the old goal and accept the
+                            # new one without a cancel-only interval.
+                            self.invalidate_active_goal()
+                            self.current_index += 1
+                            self.last_command = "AUTO_PASS"
+                            self.last_transition = "PASSED_THROUGH"
+
+                            rospy.logwarn(
+                                "按转角提前切换航点 %d/%d [%s]："
+                                "class=%s angle=%.1fdeg，"
+                                "distance=%.3fm <= %.3fm，"
+                                "speed=%.3fm/s <= %.3fm/s，"
+                                "下一目标为 %d/%d [%s]",
+                                old_index + 1, len(self.waypoints), old_name,
+                                turn_profile["class"],
+                                turn_profile["angle_deg"],
+                                geometry[2], switch_distance_m,
+                                speed_mps, switch_speed_mps,
+                                self.current_index + 1, len(self.waypoints),
+                                self.waypoints[self.current_index]["name"])
+                            # Publish the pass-through event, then send the
+                            # next waypoint in this same control cycle.  Do not
+                            # wait for the next 50 ms timer tick.
+                            self.publish_status()
+                            self.send_current_goal()
+                            return
+
+                        if distance_ok and not speed_ok:
+                            rospy.loginfo_throttle(
+                                0.5,
+                                "已进入自适应切换范围但速度仍高："
+                                "class=%s angle=%.1fdeg，"
+                                "distance=%.3fm <= %.3fm，"
+                                "speed=%.3fm/s > %.3fm/s",
+                                turn_profile["class"],
+                                turn_profile["angle_deg"],
+                                geometry[2], switch_distance_m,
+                                speed_mps, switch_speed_mps)
+
             if not self.goal_active:
                 self.send_current_goal()
 
@@ -465,16 +725,36 @@ class WaypointExecutor(object):
         human_index = min(self.current_index + 1, total) if total > 0 else 0
         progress = "%d/%d" % (human_index, total)
 
+        speed_mps = self.current_horizontal_speed()
+        speed_text = "nan" if speed_mps is None else "%.3f" % speed_mps
+        turn_profile = self.current_turn_profile()
+        if turn_profile is None:
+            turn_class = "NONE"
+            turn_angle_text = "nan"
+            active_switch_distance_m = self.waypoint_switch_distance_m
+            active_switch_speed_mps = self.waypoint_switch_max_speed_mps
+        else:
+            turn_class = turn_profile["class"]
+            turn_angle_text = (
+                "nan" if not math.isfinite(turn_profile["angle_deg"]) else
+                "%.1f" % turn_profile["angle_deg"])
+            active_switch_distance_m = turn_profile["distance_m"]
+            active_switch_speed_mps = turn_profile["speed_mps"]
+
         if self.current_index < total:
             wp = self.waypoints[self.current_index]
             text = (
                 "state=%s progress=%s index=%d total=%d current=%s "
                 "lat=%.10f lon=%.10f east=%.3f north=%.3f "
+                "speed_mps=%s turn_class=%s turn_angle_deg=%s "
+                "switch_distance_m=%.3f switch_max_speed_mps=%.3f "
                 "goal_active=%s last_command=%s transition=%s "
                 "mode=direct_move_base_only error=%s" % (
                     self.state, progress, self.current_index, total,
                     wp["name"], wp["lat"], wp["lon"], wp["east"],
-                    wp["north"], str(self.goal_active), self.last_command,
+                    wp["north"], speed_text, turn_class, turn_angle_text,
+                    active_switch_distance_m, active_switch_speed_mps,
+                    str(self.goal_active), self.last_command,
                     self.last_transition, self.last_error))
         else:
             text = (

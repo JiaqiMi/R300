@@ -52,7 +52,7 @@
   -->
   <!-- 设置为false后默认用原来的逻辑 -->
   <arg name="angle_adaptive_switch_enabled" default="true"/>
-  <arg name="turn_straight_max_deg" default="15.0"/>
+  <arg name="turn_straight_max_deg" default="10.0"/>
   <arg name="turn_gentle_max_deg" default="35.0"/>
   <arg name="turn_medium_max_deg" default="70.0"/>
   <arg name="turn_sharp_max_deg" default="110.0"/>
@@ -61,11 +61,11 @@
 
   <!-- 适配 max_vel_x=2.5m/s、max_vel_theta=0.75rad/s 的初始分级。 -->
   <arg name="straight_switch_distance_m" default="3.5"/>
-  <arg name="straight_switch_max_speed_mps" default="2.0"/>
-  <arg name="gentle_switch_distance_m" default="2.8"/>
+  <arg name="straight_switch_max_speed_mps" default="2.6"/>
+  <arg name="gentle_switch_distance_m" default="2.5"/>
   <arg name="gentle_switch_max_speed_mps" default="1.8"/>
-  <arg name="medium_switch_distance_m" default="1.5"/>
-  <arg name="medium_switch_max_speed_mps" default="1.2"/>
+  <arg name="medium_switch_distance_m" default="2.0"/>
+  <arg name="medium_switch_max_speed_mps" default="1.5"/>
   <arg name="sharp_switch_distance_m" default="1.2"/>
   <arg name="sharp_switch_max_speed_mps" default="0.5"/>
 
