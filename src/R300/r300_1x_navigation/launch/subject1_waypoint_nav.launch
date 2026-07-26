@@ -31,13 +31,43 @@
   <arg name="dwa_yaw_rate_deadband_radps" default="0.015"/>
   <arg name="dwa_forward_filter_tau_s" default="0.10"/>
   <arg name="dwa_yaw_rate_filter_tau_s" default="0.15"/>
-  <arg name="dwa_max_yaw_rate_radps" default="0.75"/>
+  <arg name="dwa_max_yaw_rate_radps" default="0.70"/>
 
   <arg name="launch_base" default="true"/>
   <arg name="launch_lidar" default="false"/>
   <arg name="launch_rviz" default="false"/>
   <arg name="auto_start" default="false"/>
   <arg name="max_goal_distance_from_origin_m" default="5000.0"/>
+
+  <!-- Intermediate waypoint pass-through; the final waypoint still waits for SUCCEEDED. -->
+  <arg name="pass_through_enabled" default="true"/>
+  <arg name="waypoint_switch_distance_m" default="1.5"/>
+  <!-- 进入切换半径后，实测水平速度还必须低于该值；<=0 表示关闭速度门限。 -->
+  <arg name="waypoint_switch_max_speed_mps" default="0.60"/>
+
+  <!--
+    根据当前航点前后航段夹角自动选择切换距离和速度：
+      0° 为直线，90° 为直角弯，180° 为掉头。
+    大于 turn_sharp_max_deg 的近似掉头点不提前切换，等待 SUCCEEDED。
+  -->
+  <!-- 设置为false后默认用原来的逻辑 -->
+  <arg name="angle_adaptive_switch_enabled" default="true"/>
+  <arg name="turn_straight_max_deg" default="15.0"/>
+  <arg name="turn_gentle_max_deg" default="35.0"/>
+  <arg name="turn_medium_max_deg" default="70.0"/>
+  <arg name="turn_sharp_max_deg" default="110.0"/>
+  <arg name="turn_min_segment_length_m" default="1.0"/>
+  <arg name="turn_switch_distance_cap_ratio" default="0.45"/>
+
+  <!-- 适配 max_vel_x=2.5m/s、max_vel_theta=0.75rad/s 的初始分级。 -->
+  <arg name="straight_switch_distance_m" default="3.5"/>
+  <arg name="straight_switch_max_speed_mps" default="2.0"/>
+  <arg name="gentle_switch_distance_m" default="2.8"/>
+  <arg name="gentle_switch_max_speed_mps" default="1.8"/>
+  <arg name="medium_switch_distance_m" default="1.5"/>
+  <arg name="medium_switch_max_speed_mps" default="1.2"/>
+  <arg name="sharp_switch_distance_m" default="1.2"/>
+  <arg name="sharp_switch_max_speed_mps" default="0.5"/>
 
   <!-- Chassis: subscribe directly to DWA output. Scout wheel odometry/TF stays disabled. -->
   <group if="$(arg launch_base)">
@@ -112,12 +142,47 @@
         output="screen">
     <param name="waypoints_param" value="/subject1_waypoints/waypoints"/>
     <param name="origin_topic" value="$(arg origin_topic)"/>
-    <param name="odom_topic" value="$(arg localization_odom_topic)"/>
+    <!-- Pose is copied unchanged by the adapter, while twist is filtered. -->
+    <param name="odom_topic" value="$(arg dwa_odom_topic)"/>
     <param name="move_base_action" value="/move_base"/>
     <param name="goal_frame" value="map"/>
     <param name="auto_start" value="$(arg auto_start)"/>
     <param name="max_goal_distance_from_origin_m"
            value="$(arg max_goal_distance_from_origin_m)"/>
+    <param name="pass_through_enabled"
+           value="$(arg pass_through_enabled)"/>
+    <param name="waypoint_switch_distance_m"
+           value="$(arg waypoint_switch_distance_m)"/>
+    <param name="waypoint_switch_max_speed_mps"
+           value="$(arg waypoint_switch_max_speed_mps)"/>
+
+    <param name="angle_adaptive_switch_enabled"
+           value="$(arg angle_adaptive_switch_enabled)"/>
+    <param name="turn_straight_max_deg" value="$(arg turn_straight_max_deg)"/>
+    <param name="turn_gentle_max_deg" value="$(arg turn_gentle_max_deg)"/>
+    <param name="turn_medium_max_deg" value="$(arg turn_medium_max_deg)"/>
+    <param name="turn_sharp_max_deg" value="$(arg turn_sharp_max_deg)"/>
+    <param name="turn_min_segment_length_m"
+           value="$(arg turn_min_segment_length_m)"/>
+    <param name="turn_switch_distance_cap_ratio"
+           value="$(arg turn_switch_distance_cap_ratio)"/>
+
+    <param name="straight_switch_distance_m"
+           value="$(arg straight_switch_distance_m)"/>
+    <param name="straight_switch_max_speed_mps"
+           value="$(arg straight_switch_max_speed_mps)"/>
+    <param name="gentle_switch_distance_m"
+           value="$(arg gentle_switch_distance_m)"/>
+    <param name="gentle_switch_max_speed_mps"
+           value="$(arg gentle_switch_max_speed_mps)"/>
+    <param name="medium_switch_distance_m"
+           value="$(arg medium_switch_distance_m)"/>
+    <param name="medium_switch_max_speed_mps"
+           value="$(arg medium_switch_max_speed_mps)"/>
+    <param name="sharp_switch_distance_m"
+           value="$(arg sharp_switch_distance_m)"/>
+    <param name="sharp_switch_max_speed_mps"
+           value="$(arg sharp_switch_max_speed_mps)"/>
   </node>
 
   <group if="$(arg launch_rviz)">
