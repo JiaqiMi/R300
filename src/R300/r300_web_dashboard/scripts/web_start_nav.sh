@@ -35,6 +35,6 @@ NAV_SCRIPT="$NAV_DIR/start_r300_vision_nav.sh"
   KEEPALIVE_PID=$!
   trap 'kill $KEEPALIVE_PID 2>/dev/null || true' EXIT INT TERM
   cd "$NAV_DIR"
-  echo "start: ./start_r300_vision_nav.sh --no-rviz"
+  echo "start costmap: ./start_r300_vision_nav.sh --no-rviz"
   exec ./start_r300_vision_nav.sh --no-rviz
 } 2>&1 | tee -a "$LOG_FILE"

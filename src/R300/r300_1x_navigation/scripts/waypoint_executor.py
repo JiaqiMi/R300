@@ -116,6 +116,11 @@ class WaypointExecutor(object):
         self.current_index = 0
         self.goal_active = False
         self.last_error = ""
+        # Human-readable operator command and state-machine transition.  These
+        # are published with waypoint_status so both navigation modes expose
+        # the same progress and recent action information.
+        self.last_command = "NONE"
+        self.last_transition = "INITIALIZED"
 
         # A goal generation ID makes delayed PREEMPTED callbacks harmless after
         # pause/cancel/skip.  Only the currently active generation may advance
@@ -238,6 +243,8 @@ class WaypointExecutor(object):
 
             self.invalidate_active_goal()
             self.state = self.RUNNING
+            self.last_command = "START"
+            self.last_transition = "STARTED"
             rospy.logwarn("收到 /subject1/start_waypoints，开始执行航点")
             self.publish_status()
             return TriggerResponse(True, "开始执行航点")
@@ -249,6 +256,8 @@ class WaypointExecutor(object):
             self.state = self.IDLE
             self.current_index = 0
             self.last_error = ""
+            self.last_command = "CANCEL"
+            self.last_transition = "CANCELLED"
             self.publish_status()
             rospy.logwarn("已取消航点任务，并重置到第 1 个航点")
             return TriggerResponse(True, "已取消航点任务")
@@ -261,6 +270,8 @@ class WaypointExecutor(object):
             self.invalidate_active_goal()
             self.client.cancel_all_goals()
             self.state = self.PAUSED
+            self.last_command = "PAUSE"
+            self.last_transition = "PAUSED"
             self.publish_status()
             rospy.logwarn("航点任务已暂停")
             return TriggerResponse(True, "航点任务已暂停")
@@ -272,6 +283,8 @@ class WaypointExecutor(object):
 
             self.invalidate_active_goal()
             self.state = self.RUNNING
+            self.last_command = "RESUME"
+            self.last_transition = "RESUMED"
             rospy.logwarn("航点任务已恢复")
             self.publish_status()
             return TriggerResponse(True, "航点任务已恢复")
@@ -285,6 +298,8 @@ class WaypointExecutor(object):
             self.client.cancel_all_goals()
             self.current_index += 1
             self.state = self.RUNNING
+            self.last_command = "SKIP"
+            self.last_transition = "SKIPPED_TO_NEXT"
             rospy.logwarn("跳过到航点 %d/%d", self.current_index + 1,
                           len(self.waypoints))
             self.publish_status()
@@ -324,6 +339,7 @@ class WaypointExecutor(object):
         wp = self.waypoints[self.current_index]
         if not wp["enu_ready"]:
             self.state = self.FAILED
+            self.last_transition = "FAILED"
             self.last_error = "航点 ENU 未就绪，缺少 /one_x/origin"
             rospy.logerr(self.last_error)
             self.publish_status()
@@ -332,6 +348,7 @@ class WaypointExecutor(object):
         dist_origin = math.hypot(wp["east"], wp["north"])
         if dist_origin > self.max_goal_distance_from_origin_m:
             self.state = self.FAILED
+            self.last_transition = "FAILED"
             self.last_error = (
                 "拒绝航点 %s：距离原点 %.2f m 超过限制 %.2f m" % (
                     wp["name"], dist_origin,
@@ -365,6 +382,7 @@ class WaypointExecutor(object):
         generation = self.goal_generation
         self.active_goal_generation = generation
         self.goal_active = True
+        self.last_transition = "GOAL_SENT"
 
         self.client.send_goal(
             goal,
@@ -391,6 +409,7 @@ class WaypointExecutor(object):
             if self.current_index >= len(self.waypoints):
                 self.state = self.COMPLETED
                 self.invalidate_active_goal()
+                self.last_transition = "COMPLETED"
                 rospy.logwarn("全部航点已完成")
                 self.publish_status()
                 return
@@ -420,13 +439,16 @@ class WaypointExecutor(object):
                 rospy.logwarn("到达航点 %d/%d [%s]", self.current_index + 1,
                               len(self.waypoints), wp_name)
                 self.current_index += 1
+                self.last_transition = "WAYPOINT_REACHED"
                 if self.current_index >= len(self.waypoints):
                     self.state = self.COMPLETED
+                    self.last_transition = "COMPLETED"
                     rospy.logwarn("全部航点完成")
                 self.publish_status()
                 return
 
             self.state = self.FAILED
+            self.last_transition = "FAILED"
             self.last_error = (
                 "move_base 在航点 %d/%d [%s] 失败，status=%d" % (
                     self.current_index + 1, len(self.waypoints), wp_name,
@@ -439,21 +461,29 @@ class WaypointExecutor(object):
             self.publish_status()
 
     def publish_status(self):
-        if self.current_index < len(self.waypoints):
+        total = len(self.waypoints)
+        human_index = min(self.current_index + 1, total) if total > 0 else 0
+        progress = "%d/%d" % (human_index, total)
+
+        if self.current_index < total:
             wp = self.waypoints[self.current_index]
             text = (
-                "state=%s index=%d total=%d current=%s "
+                "state=%s progress=%s index=%d total=%d current=%s "
                 "lat=%.10f lon=%.10f east=%.3f north=%.3f "
-                "goal_active=%s mode=direct_move_base_only error=%s" % (
-                    self.state, self.current_index, len(self.waypoints),
+                "goal_active=%s last_command=%s transition=%s "
+                "mode=direct_move_base_only error=%s" % (
+                    self.state, progress, self.current_index, total,
                     wp["name"], wp["lat"], wp["lon"], wp["east"],
-                    wp["north"], str(self.goal_active), self.last_error))
+                    wp["north"], str(self.goal_active), self.last_command,
+                    self.last_transition, self.last_error))
         else:
             text = (
-                "state=%s index=%d total=%d goal_active=%s "
+                "state=%s progress=%s index=%d total=%d goal_active=%s "
+                "last_command=%s transition=%s "
                 "mode=direct_move_base_only error=%s" % (
-                    self.state, self.current_index, len(self.waypoints),
-                    str(self.goal_active), self.last_error))
+                    self.state, progress, self.current_index, total,
+                    str(self.goal_active), self.last_command,
+                    self.last_transition, self.last_error))
         self.status_pub.publish(String(data=text))
 
     def shutdown_cb(self):

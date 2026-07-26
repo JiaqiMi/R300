@@ -10,7 +10,7 @@
 
     <arg
         name="model_path"
-        default="$(find r300_yolo_detector)/models/model0722.pt"
+        default="$(find r300_yolo_detector)/models/model_c6_260723.pt"
     />
 
     <!-- ======================== -->
