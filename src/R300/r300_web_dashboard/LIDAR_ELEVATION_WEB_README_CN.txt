@@ -31,3 +31,14 @@ Web 轻量话题：
 - rospack find single_lidar_elevation 能找到该包。
 - MID-360 网口和 IP 已按原模块 README 配置。
 - GPU/CuPy/PyTorch 等依赖已按原模块 README 安装。
+
+高程框"车头朝上"视图（146d0d0 修复，勿删）：
+- 高程图是 odom 轴对齐的，网格只随车位置平移、不随朝向旋转；若前端按固定
+  方向绘制并画恒朝上的车辆箭头，车原地转圈时画面会零响应（人相对车头的
+  方位不更新）——这是实测踩过的坑。
+- 因此 lidar_web_adapter.py 经 TF 查询 FAST-LIO 树的 odom->body，把
+  robot_x/robot_y/robot_yaw 写入 elevation_json（version:2）；前端将整幅
+  高程图绕图心旋转 yaw（圆形视窗），车辆箭头保持朝上=车头。TF 未就绪的
+  头几秒降级为"odom x+ 朝上"并明确标注。
+- 注意：绝不能改用 /one_x/odom 的朝向——那是 1X 惯导的另一棵 odom 树，
+  两树 yaw 相差任意常量（详见 single_lidar_elevation/bringup/README）。
