@@ -1,0 +1,24 @@
+<launch>
+  <!--
+    雷达高程图避障适配器（对照原 subject1_vision_avoidance.launch）。
+
+    本 launch 不启动雷达驱动/FAST-LIO/高程图——单雷达感知栈须已在运行
+    （scripts/start_single_lidar_elevation.sh 或 web"启动雷达"按钮），即：
+      1) /elevation_mapping/elevation_map_raw 有 ~5Hz 数据
+      2) FAST-LIO 树 TF odom->camera_init->body 存在
+    本节点只在 FAST-LIO 树内查 TF，输出 base_link 系虚拟 LaserScan，
+    由 1X 树的 costmap 落图（两树互不跨查，红线见 bringup README）。
+  -->
+  <arg name="config_file"
+       default="$(find r300_1x_navigation)/config/subject1_lidar_obstacles.yaml"/>
+  <arg name="scan_topic" default="/r300_lidar/obstacle_scan"/>
+
+  <node pkg="r300_1x_navigation"
+        type="lidar_obstacle_scan_node.py"
+        name="lidar_obstacle_scan_node"
+        output="screen"
+        required="true">
+    <rosparam command="load" file="$(arg config_file)"/>
+    <param name="scan_topic" value="$(arg scan_topic)"/>
+  </node>
+</launch>

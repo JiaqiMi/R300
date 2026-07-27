@@ -1,0 +1,43 @@
+# 雷达高程图避障适配节点参数（lidar_obstacle_scan_node.py）
+# 对照文档：LIDAR_AVOIDANCE_VS_VISION_README_CN.md
+
+# ---- 输入/输出 ----
+elevation_topic: /elevation_mapping/elevation_map_raw   # 高程图（FAST-LIO odom 树, ~5Hz）
+scan_topic: /r300_lidar/obstacle_scan                    # 输出虚拟激光（对齐视觉链契约）
+debug_cloud_topic: /r300_lidar/obstacle_points           # 调试点云（rviz/web 用）
+publish_debug_cloud: true
+
+# ---- FAST-LIO 树内 frame（勿改成 1X 树的帧！两树同名 odom 不可跨查）----
+lio_map_frame: odom
+lio_body_frame: body
+output_frame: base_link          # 仅作为输出 frame_id 字符串（1X 树语义）
+
+# ---- 雷达安装外参（车体系: x前 y左）----
+# 2026-07-27 用户口述"雷达装在车头中间"：车体 0.9×0.7m、base_link 在几何中心
+# → ext_x 估计 0.40m（车头略内侧）、横向居中、朝前。±0.1m 误差对避障足够
+# （膨胀半径 0.65m 兜底）；精化方法见对照文档"外参标定"节。
+ext_x: 0.40
+ext_y: 0.0
+ext_yaw_deg: 0.0
+
+# ---- 地形判定（v3 语义）----
+drop_thresh: 0.15                # 负障碍：低于局部地面 15cm（坑/沟沿）
+pos_thresh: 0.15                 # 正障碍：高于局部地面 15cm
+max_height: 1.5                  # 高于此值视为天花板/横梁，不算障碍
+slope_thresh_deg: 30.0           # 几何陡坡上限（24cm 基线中心差分）
+min_range: 0.60                  # 车体半对角 0.57m，避免把自车格当障碍
+max_range: 5.5                   # 高程图 12m 图有效半径内
+ground_ring_min: 0.60            # 局部地面环带（中位数=地面基准）
+ground_ring_max: 1.60
+ground_ring_min_cells: 30
+sensor_height_above_ground: 0.48 # 环带不足时的几何地面退路（2026-07-27 实测）
+neg_confirm: 3                   # 负障碍连续 3 帧确认（5Hz 下 0.6s）
+pos_confirm: 2
+
+# ---- 虚拟扫描布局（对齐 vision_obstacle_layer_node 输出契约）----
+scan_fov_deg: 120.0              # ±60°（视觉链只有 ±27°）
+scan_angle_increment_deg: 0.5
+scan_range_min_m: 0.20
+scan_range_max_m: 10.5
+range_safety_margin_m: 0.15      # 束距离前移安全余量（视觉链为 0.2）
+input_timeout_s: 2.0             # 高程图断流告警阈值（断流即停发, 下游 TTL 3s 清空）
