@@ -1,17 +1,20 @@
 <launch>
   <!--
-    雷达高程图避障适配器（对照原 subject1_vision_avoidance.launch）。
+    雷达高程图避障适配器（结构对齐 subject1_vision_avoidance.launch）。
 
-    本 launch 不启动雷达驱动/FAST-LIO/高程图——单雷达感知栈须已在运行
-    （scripts/start_single_lidar_elevation.sh 或 web"启动雷达"按钮），即：
-      1) /elevation_mapping/elevation_map_raw 有 ~5Hz 数据
-      2) FAST-LIO 树 TF odom->camera_init->body 存在
-    本节点只在 FAST-LIO 树内查 TF，输出 base_link 系虚拟 LaserScan，
-    由 1X 树的 costmap 落图（两树互不跨查，红线见 bringup README）。
+    本 launch 不启动雷达驱动、FAST-LIO 或高程图；外部感知栈必须已经发布：
+      1) /elevation_mapping/elevation_map_raw（grid_map_msgs/GridMap）
+      2) FAST-LIO TF：odom -> body（名称可通过参数覆盖）
+
+    本节点只负责：高程图 -> base_link 语义虚拟 LaserScan。
   -->
   <arg name="config_file"
        default="$(find r300_1x_navigation)/config/subject1_lidar_obstacles.yaml"/>
+  <arg name="elevation_topic" default="/elevation_mapping/elevation_map_raw"/>
   <arg name="scan_topic" default="/r300_lidar/obstacle_scan"/>
+  <arg name="debug_cloud_topic" default="/r300_lidar/obstacle_points"/>
+  <arg name="lio_map_frame" default="odom"/>
+  <arg name="lio_body_frame" default="body"/>
 
   <node pkg="r300_1x_navigation"
         type="lidar_obstacle_scan_node.py"
@@ -19,6 +22,12 @@
         output="screen"
         required="true">
     <rosparam command="load" file="$(arg config_file)"/>
+
+    <!-- 显式参数位于 YAML 之后，允许一键脚本覆盖外部话题和 FAST-LIO frame。 -->
+    <param name="elevation_topic" value="$(arg elevation_topic)"/>
     <param name="scan_topic" value="$(arg scan_topic)"/>
+    <param name="debug_cloud_topic" value="$(arg debug_cloud_topic)"/>
+    <param name="lio_map_frame" value="$(arg lio_map_frame)"/>
+    <param name="lio_body_frame" value="$(arg lio_body_frame)"/>
   </node>
 </launch>

@@ -1,17 +1,14 @@
 <launch>
   <!--
-    共享 1X 航点导航核心 + 雷达高程图避障（镜像 subject1_waypoint_vision_nav.launch）。
+    共享 1X 航点导航核心 + 雷达高程图避障。
 
-    与视觉版的全部差异（即"替换"本身）：
-      dwa_config_file           -> subject1_dwa_lidar.yaml      (最高速度 2.5→1.5)
-      local_costmap_config_file -> subject1_local_costmap_lidar.yaml
-                                   (快照层订阅 /r300_lidar/obstacle_scan)
-      避障适配器                -> subject1_lidar_avoidance.launch
-                                   (高程图→LaserScan, 代替 检测→LaserScan)
-    其余(底盘/1X/dwa_odom_adapter/move_base/waypoint_executor)与视觉版完全一致。
+    结构与 subject1_waypoint_vision_nav.launch 一致：
+      - 公共导航核心：subject1_waypoint_nav.launch
+      - 雷达专用 DWA：subject1_dwa_lidar.yaml
+      - 雷达专用 local costmap：subject1_local_costmap_lidar.yaml
+      - 雷达适配器：subject1_lidar_avoidance.launch
 
-    启动前置：① one_x_localization_only.launch 已运行(odom->base_link TF)；
-             ② 单雷达感知栈已运行(高程图 5Hz)；③ 视觉检测可不启(仅目标识别需要)。
+    本 launch 不启动 1X，也不启动 MID-360 / FAST-LIO / 高程图。
   -->
   <arg name="can_port" default="can0"/>
   <arg name="waypoint_file"
@@ -19,6 +16,11 @@
 
   <arg name="lidar_config_file"
        default="$(find r300_1x_navigation)/config/subject1_lidar_obstacles.yaml"/>
+  <arg name="elevation_topic" default="/elevation_mapping/elevation_map_raw"/>
+  <arg name="obstacle_scan_topic" default="/r300_lidar/obstacle_scan"/>
+  <arg name="debug_cloud_topic" default="/r300_lidar/obstacle_points"/>
+  <arg name="lio_map_frame" default="odom"/>
+  <arg name="lio_body_frame" default="body"/>
 
   <arg name="launch_base" default="true"/>
   <arg name="launch_rviz" default="false"/>
@@ -65,5 +67,10 @@
 
   <include file="$(find r300_1x_navigation)/launch/subject1_lidar_avoidance.launch">
     <arg name="config_file" value="$(arg lidar_config_file)"/>
+    <arg name="elevation_topic" value="$(arg elevation_topic)"/>
+    <arg name="scan_topic" value="$(arg obstacle_scan_topic)"/>
+    <arg name="debug_cloud_topic" value="$(arg debug_cloud_topic)"/>
+    <arg name="lio_map_frame" value="$(arg lio_map_frame)"/>
+    <arg name="lio_body_frame" value="$(arg lio_body_frame)"/>
   </include>
 </launch>

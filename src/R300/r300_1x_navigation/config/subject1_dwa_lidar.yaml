@@ -7,13 +7,13 @@ DWAPlannerROS:
 
   # ---------------- 速度限制 ----------------
   # 仅作为开阔区域最高速度。
-  max_vel_x: 1.50
+  max_vel_x: 2.00
   min_vel_x: 0.00
 
   max_vel_y: 0.00
   min_vel_y: 0.00
 
-  max_vel_trans: 1.50
+  max_vel_trans: 2.00
   min_vel_trans: 0.05
 
   # 只有实车可以稳定达到时才使用0.45。
