@@ -7,13 +7,13 @@ DWAPlannerROS:
 
   # ---------------- 速度限制 ----------------
   # 仅作为开阔区域最高速度。
-  max_vel_x: 2.00
+  max_vel_x: 0.80
   min_vel_x: 0.00
 
   max_vel_y: 0.00
   min_vel_y: 0.00
 
-  max_vel_trans: 2.00
+  max_vel_trans: 0.80
   min_vel_trans: 0.05
 
   # 只有实车可以稳定达到时才使用0.45。
@@ -22,10 +22,10 @@ DWAPlannerROS:
 
   # ---------------- 真实动力学 ----------------
   # 保持与实车可靠制动能力一致。
-  acc_lim_x: 6.00
+  acc_lim_x: 1.00
   acc_lim_y: 0.00
-  acc_lim_trans: 6.00
-  acc_lim_theta: 6.00
+  acc_lim_trans: 1.00
+  acc_lim_theta: 1.00
 
   # ---------------- 到点条件 ----------------
   xy_goal_tolerance: 1.50
@@ -40,7 +40,7 @@ DWAPlannerROS:
 
   # ---------------- 轨迹预测 ----------------
   # 不再单纯通过超长预测距离承担制动安全。
-  sim_time: 2.00
+  sim_time: 2.50
   sim_granularity: 0.03
   angular_sim_granularity: 0.03
 
