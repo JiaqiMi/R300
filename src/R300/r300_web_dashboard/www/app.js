@@ -14,6 +14,8 @@ let localPlan = null;
 let scanData = null;
 let visionScanData = null;
 let activeVisionScanData = null;
+let lidarScanData = null;
+let activeLidarScanData = null;
 let lidarCloudData = null;
 let elevationData = null;
 let robotPose = null;  // {x, y, yaw, stampMs}
@@ -47,6 +49,9 @@ const viewState = {
   elevationCanvas: {scale: 1, tx: 0, ty: 0, dragging: false, lastX: 0, lastY: 0}
 };
 const cloudView = {yaw: -0.70, pitch: 0.62, zoom: 1.0, dragging: false, lastX: 0, lastY: 0};
+// 固定米制显示范围，避免每帧点云边界变化导致画面自动忽大忽小。
+// 只影响浏览器绘图，不改变 PointCloud2、FAST-LIO 或任何 ROS 坐标系。
+const CLOUD_DISPLAY_HALF_RANGE_M = 8.0;
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n=2) => (Number.isFinite(v) ? Number(v).toFixed(n) : "--");
@@ -139,6 +144,8 @@ function subscribeAll() {
   sub(t.scan, "sensor_msgs/LaserScan", 180);
   sub(t.vision_scan, "sensor_msgs/LaserScan", 180);
   sub(t.active_vision_scan, "sensor_msgs/LaserScan", 180);
+  if (t.lidar_scan) sub(t.lidar_scan, "sensor_msgs/LaserScan", 180);
+  if (t.active_lidar_scan) sub(t.active_lidar_scan, "sensor_msgs/LaserScan", 180);
   if (t.lidar_points_json) sub(t.lidar_points_json, "std_msgs/String", 300);
   if (t.elevation_json) sub(t.elevation_json, "std_msgs/String", 700);
   sub(t.detections, "r300_vision_msgs/DetectedObjectArray", 500);
@@ -164,6 +171,8 @@ function handleTopic(topic, msg) {
   else if (topic === t.scan) { scanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.vision_scan) { visionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.active_vision_scan) { activeVisionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
+  else if (topic === t.lidar_scan) { lidarScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
+  else if (topic === t.active_lidar_scan) { activeLidarScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.lidar_points_json) updateLidarCloud(msg);
   else if (topic === t.elevation_json) updateElevationMap(msg);
   else if (topic === t.detections) updateDetections(msg);
@@ -809,7 +818,9 @@ function drawPointCloud() {
   const arr = d.points;
   const unit = Number(d.scale) || 0.001;
   const b = Array.isArray(d.bounds) ? d.bounds : [-5,5,-5,5,-1,1];
-  const horizontal = Math.max(4, Math.abs(b[0]||0), Math.abs(b[1]||0), Math.abs(b[2]||0), Math.abs(b[3]||0));
+  // 不再按每一帧 bounds 自动适配缩放。MID-360 非重复扫描和抽样点数变化
+  // 会让 bounds 轻微变化，旧逻辑因此产生跳大跳小。这里固定为 ±8 m。
+  const horizontal = CLOUD_DISPLAY_HALF_RANGE_M;
   const scale = Math.min(c.width * 0.42 / horizontal, c.height * 0.48 / horizontal) * cloudView.zoom;
   const zMin = Number.isFinite(Number(b[4])) ? Number(b[4]) : -1;
   const zMax = Number.isFinite(Number(b[5])) ? Number(b[5]) : 1;
@@ -891,23 +902,11 @@ function drawElevationMap() {
   if (drawH>availH) { drawH=availH; drawW=drawH*aspect; }
   const x0=(c.width-drawW)/2, y0=(c.height-drawH)/2;
 
-  // 车头朝上视图：高程图网格是 odom 轴对齐的（不随车旋转），适配器经 FAST-LIO 树
-  // TF 提供 robot_yaw 后，把整幅图绕图心旋转即可让"上=车头"。
-  // 画面映射：上=odom +x、左=odom +y ⇒ canvas rotate(+yaw) 恰好把车头(odom 方位角 yaw)转回正上方。
-  // 注意 JSON null：typeof null === "object"，不能用 Number() 判断（Number(null)===0）。
-  const headingUp = (typeof d.robot_yaw === "number") && Number.isFinite(d.robot_yaw);
-  const yaw = headingUp ? d.robot_yaw : 0;
-  const cx=x0+drawW/2, cy=y0+drawH/2, clipR=Math.min(drawW,drawH)/2;
-
   ctx.save();
   applyView(ctx,"elevationCanvas");
   ctx.imageSmoothingEnabled=false;
-  if (headingUp) {
-    ctx.save();
-    ctx.beginPath(); ctx.arc(cx,cy,clipR,0,Math.PI*2); ctx.clip(); // 圆形视窗：旋转时四角不越出面板
-    ctx.translate(cx,cy); ctx.rotate(yaw); ctx.translate(-cx,-cy);
-  }
   ctx.drawImage(off,x0,y0,drawW,drawH);
+  ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5; ctx.strokeRect(x0,y0,drawW,drawH);
 
   if ($("showElevationGrid") && $("showElevationGrid").checked) {
     ctx.strokeStyle="rgba(255,255,255,.22)"; ctx.lineWidth=1;
@@ -919,37 +918,14 @@ function drawElevationMap() {
       [y0+drawH/2-m*sy,y0+drawH/2+m*sy].forEach(y=>{ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x0+drawW,y);ctx.stroke();});
     }
   }
-  if (headingUp) {
-    ctx.restore(); // 结束旋转与圆形裁剪
-    ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.arc(cx,cy,clipR,0,Math.PI*2); ctx.stroke();
-    // odom +x 方位角标（随车转动，供与 rviz/航向对照）：
-    // 未旋转画面中 odom+x 指向"上"(0,-1)，rotate(yaw) 后变为 (sin yaw, -cos yaw)。
-    const rr=clipR-12;
-    ctx.fillStyle="#9fd0ff"; ctx.font="11px Consolas";
-    ctx.fillText("x+", cx + rr*Math.sin(yaw) - 6, cy - rr*Math.cos(yaw) + 4);
-  } else {
-    ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5; ctx.strokeRect(x0,y0,drawW,drawH);
-  }
   if ($("showElevationRobot") && $("showElevationRobot").checked) {
-    if (headingUp) {
-      drawRobotArrow(ctx,cx,cy,-Math.PI/2,20,"#2563eb","#dbeafe"); // 车头朝上视图：箭头即车头
-    } else {
-      // 朝向未知（TF 未就绪）：只画位置点，避免固定箭头误导方向
-      ctx.beginPath(); ctx.arc(cx,cy,6,0,Math.PI*2);
-      ctx.fillStyle="#2563eb"; ctx.fill();
-      ctx.lineWidth=2; ctx.strokeStyle="#dbeafe"; ctx.stroke();
-    }
+    drawRobotArrow(ctx,x0+drawW/2,y0+drawH/2,-Math.PI/2,20,"#2563eb","#dbeafe");
   }
   ctx.restore();
 
   ctx.fillStyle="#eaffc0"; ctx.font="13px Microsoft YaHei";
-  if (headingUp) {
-    ctx.fillText("车头朝上",c.width/2-28,18);
-    ctx.fillText(`yaw ${(yaw*180/Math.PI).toFixed(1)}°`,8,c.height/2);
-  } else {
-    ctx.fillText("odom x+ 朝上（车辆朝向待 TF）",c.width/2-96,18);
-  }
+  ctx.fillText("前方 x+",c.width/2-28,18);
+  ctx.fillText("左 y+",8,c.height/2);
   ctx.fillStyle="#d7f549"; ctx.font="12px Consolas";
   ctx.fillText(`${fmt(lengthX,1)}m × ${fmt(lengthY,1)}m  center=(${fmt(d.center_x,1)}, ${fmt(d.center_y,1)})`,18,c.height-10);
   drawHint(ctx,"elevationCanvas");
@@ -1058,6 +1034,10 @@ function drawCostmap() {
     drawScanOnCostmap(ctx, visionScanData, map, c, "rgba(249,115,22,.90)", 3.4);
     drawScanOnCostmap(ctx, activeVisionScanData, map, c, "rgba(168,85,247,.95)", 3.8);
   }
+  if ($("showCostLidar") && $("showCostLidar").checked) {
+    drawScanOnCostmap(ctx, lidarScanData, map, c, "rgba(255,82,82,.94)", 3.4);
+    drawScanOnCostmap(ctx, activeLidarScanData, map, c, "rgba(255,224,87,.98)", 3.8);
+  }
   if ($("showCostRobot").checked) drawRobotArrowOnCostmap(ctx, map, c);
   ctx.restore();
   drawHint(ctx, "costmapCanvas");
@@ -1120,14 +1100,16 @@ function drawRobotArrow(ctx, x, y, canvasYaw, size, fill, stroke) {
 }
 
 function drawScan() {
-  // v11：保留雷达/视觉障碍统计，不绘制雷达大图，减轻浏览器压力。
+  // 保留轻量统计模式；雷达/视觉虚拟 LaserScan 主要叠加到 costmap 画布。
   const rawN = scanData && scanData.ranges ? scanData.ranges.length : 0;
   const rawFinite = countFiniteScan(scanData);
   const visionFinite = countFiniteScan(visionScanData);
-  const activeFinite = countFiniteScan(activeVisionScanData);
+  const visionActiveFinite = countFiniteScan(activeVisionScanData);
+  const lidarFinite = countFiniteScan(lidarScanData);
+  const lidarActiveFinite = countFiniteScan(activeLidarScanData);
 
   let nearest = Infinity;
-  [scanData, visionScanData, activeVisionScanData].forEach(scan => {
+  [scanData, visionScanData, activeVisionScanData, lidarScanData, activeLidarScanData].forEach(scan => {
     if (!scan || !scan.ranges) return;
     for (const r of scan.ranges) {
       if (Number.isFinite(r) && r >= scan.range_min && r <= scan.range_max && r < nearest) nearest = r;
@@ -1137,8 +1119,8 @@ function drawScan() {
 
   if ($("scanInfo")) {
     $("scanInfo").textContent = rawN
-      ? `/scan beams=${rawN}, finite=${rawFinite}, vision=${visionFinite}, active=${activeFinite}, nearest=${nearestText}`
-      : `等待 /scan，vision=${visionFinite}, active=${activeFinite}, nearest=${nearestText}`;
+      ? `/scan finite=${rawFinite}；视觉=${visionFinite}/${visionActiveFinite}；雷达=${lidarFinite}/${lidarActiveFinite}；nearest=${nearestText}`
+      : `等待 /scan；视觉=${visionFinite}/${visionActiveFinite}；雷达=${lidarFinite}/${lidarActiveFinite}；nearest=${nearestText}`;
   }
 }
 
@@ -1175,8 +1157,9 @@ function updatePlanStats() {
   $("globalStat").textContent = `${gN} 点, ${fmt(pathLength(globalPlan))} m`;
   $("localStat").textContent = `${lN} 点, ${fmt(pathLength(localPlan))} m`;
   if (lastCostmap) $("mapStat").textContent = `${lastCostmap.info.width}×${lastCostmap.info.height}, age=${fmt(ageSec(cfg.topics.costmap),1)}s`;
-  const obs = countFiniteScan(visionScanData) + countFiniteScan(activeVisionScanData);
-  $("obsStat").textContent = `视觉=${obs}, scan=${countFiniteScan(scanData)}`;
+  const visionObs = countFiniteScan(visionScanData) + countFiniteScan(activeVisionScanData);
+  const lidarObs = countFiniteScan(lidarScanData) + countFiniteScan(activeLidarScanData);
+  $("obsStat").textContent = `视觉=${visionObs}, 雷达=${lidarObs}, scan=${countFiniteScan(scanData)}`;
   $("dataAge").textContent = `odom ${fmt(ageSec(cfg.topics.odom),1)}s / map ${fmt(ageSec(cfg.topics.costmap),1)}s`;
 }
 
@@ -1209,6 +1192,7 @@ async function startProcess(name) {
   else if (name === "ins") await postApi("/api/start_ins");
   else if (name === "real_nav") await postApi("/api/start_real_nav");
   else if (name === "costmap") await postApi("/api/start_costmap");
+  else if (name === "lidar_nav") await postApi("/api/start_lidar_nav");
   else if (name === "lidar") await postApi("/api/start_lidar");
 }
 
@@ -1217,6 +1201,7 @@ async function stopProcess(name) {
   else if (name === "ins") await postApi("/api/stop_ins");
   else if (name === "real_nav") await postApi("/api/stop_real_nav");
   else if (name === "costmap") await postApi("/api/stop_costmap");
+  else if (name === "lidar_nav") await postApi("/api/stop_lidar_nav");
   else if (name === "lidar") await postApi("/api/stop_lidar");
 }
 
@@ -1236,6 +1221,7 @@ function renderProcessStatus(processes, message) {
   const ins = processes.ins || {};
   const realNav = processes.real_nav || {};
   const costmap = processes.costmap || {};
+  const lidarNav = processes.lidar_nav || {};
   const lidar = processes.lidar || {};
   if ($("cameraProcState")) {
     $("cameraProcState").textContent = cam.running ? `相机节点：运行中 pid=${cam.pid}` : "相机节点：未运行";
@@ -1248,6 +1234,9 @@ function renderProcessStatus(processes, message) {
   }
   if ($("costmapProcState")) {
     $("costmapProcState").textContent = costmap.running ? `视觉避障 / 代价地图：运行中 pid=${costmap.pid}` : "视觉避障 / 代价地图：未运行";
+  }
+  if ($("lidarNavProcState")) {
+    $("lidarNavProcState").textContent = lidarNav.running ? `雷达避障 / 代价地图：运行中 pid=${lidarNav.pid}` : "雷达避障 / 代价地图：未运行";
   }
   const lidarText = lidar.running ? `雷达感知：运行中 pid=${lidar.pid}` : "雷达感知：未运行";
   if ($("lidarProcState")) $("lidarProcState").textContent = lidarText;
@@ -1262,6 +1251,8 @@ function renderProcessStatus(processes, message) {
   (realNav.logs || []).slice(-70).forEach(x => lines.push(x));
   lines.push("[vision-navigation-costmap]");
   (costmap.logs || []).slice(-70).forEach(x => lines.push(x));
+  lines.push("[lidar-navigation-costmap]");
+  (lidarNav.logs || []).slice(-70).forEach(x => lines.push(x));
   lines.push("[lidar-elevation]");
   (lidar.logs || []).slice(-80).forEach(x => lines.push(x));
   if ($("nodeLog")) $("nodeLog").textContent = lines.join("\n") || "节点启动日志...";

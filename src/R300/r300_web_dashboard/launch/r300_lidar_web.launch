@@ -2,7 +2,7 @@
   <!-- 仅由 Web 按钮调用：单 MID-360 驱动 + FAST-LIO + GPU 高程图 + 轻量 Web 显示适配。 -->
   <arg name="lidar_ip" default="192_168_1_192"/>
   <arg name="user_config_path" default="$(find single_lidar_elevation)/config/MID360_single.json"/>
-  <arg name="tilt_pitch_deg" default="-42.3"/> <!-- 2026-07-27 重装后静置标定值，与 bringup launch 保持一致 -->
+  <arg name="tilt_pitch_deg" default="-55.5"/>
   <arg name="lio_input_crop" default="false"/>
 
   <include file="$(find single_lidar_elevation)/launch/single_lidar_elevation.launch">

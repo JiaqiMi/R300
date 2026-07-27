@@ -15,7 +15,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import rospy
-import tf2_ros
 from grid_map_msgs.msg import GridMap
 from sensor_msgs import point_cloud2
 from sensor_msgs.msg import PointCloud2
@@ -45,14 +44,6 @@ class LidarWebAdapter:
         )
         self.cloud_min_z_m = float(rospy.get_param("~cloud_min_z_m", -5.0))
         self.cloud_max_z_m = float(rospy.get_param("~cloud_max_z_m", 5.0))
-
-        # 高程图是 odom 轴对齐的、GridMap 不携带车辆朝向；前端"车头朝上"视图需要
-        # odom->body 的 yaw。必须取 FAST-LIO 这棵 TF 树（odom->camera_init->body），
-        # 绝不能用 /one_x/odom 的朝向——那是 1X 惯导的另一棵 odom 树，两树 yaw 差一个任意常量。
-        self.map_frame = str(rospy.get_param("~map_frame", "odom"))
-        self.base_frame = str(rospy.get_param("~base_frame", "body"))
-        self._tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
-        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer)
 
         self.cloud_pub = rospy.Publisher(
             self.cloud_output_topic, String, queue_size=1, latch=False
@@ -97,31 +88,6 @@ class LidarWebAdapter:
         except Exception:
             pass
         return rospy.Time.now().to_sec()
-
-    def _lookup_robot_pose(self) -> Optional[Tuple[float, float, float]]:
-        """查 odom->body 最新变换，返回 (x, y, yaw)；TF 未就绪时返回 None。
-
-        yaw 按 ZYX 欧拉角提取 = body x 轴在水平面上的方位角，雷达斜装（pitch≠0）
-        时依然正确，仅安装接近竖直（|pitch|→90°）时退化。
-        """
-        try:
-            t = self._tf_buffer.lookup_transform(
-                self.map_frame, self.base_frame, rospy.Time(0), rospy.Duration(0.05)
-            )
-        except tf2_ros.TransformException as exc:
-            rospy.logwarn_throttle(
-                10.0, "TF %s->%s 不可用，车辆朝向暂缺：%s", self.map_frame, self.base_frame, exc
-            )
-            return None
-        q = t.transform.rotation
-        yaw = math.atan2(
-            2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        )
-        return (
-            float(t.transform.translation.x),
-            float(t.transform.translation.y),
-            float(yaw),
-        )
 
     def _should_publish(self, kind: str, hz: float) -> bool:
         now = rospy.get_time()
@@ -273,15 +239,10 @@ class LidarWebAdapter:
             else:
                 actual_min = actual_max = color_min = color_max = 0.0
 
-            robot_pose = self._lookup_robot_pose()
-
             payload: Dict[str, object] = {
-                "version": 2,
+                "version": 1,
                 "stamp": self._stamp_to_sec(msg.info.header.stamp),
                 "frame_id": msg.info.header.frame_id,
-                "robot_x": round(robot_pose[0], 3) if robot_pose else None,
-                "robot_y": round(robot_pose[1], 3) if robot_pose else None,
-                "robot_yaw": round(robot_pose[2], 4) if robot_pose else None,
                 "rows": int(out_rows),
                 "cols": int(out_cols),
                 "source_rows": int(rows),
