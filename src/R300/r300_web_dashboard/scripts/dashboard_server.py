@@ -6,12 +6,13 @@ R300 Web 上位机静态文件服务器 + 轻量节点启动接口。
 说明：
 - 静态网页由本节点提供；
 - ROS 话题通讯由浏览器通过 rosbridge 完成；
-- 相机/视觉和导航/costmap 可从网页按钮启动；
+- 相机/视觉、1X惯导、纯实车导航、视觉避障导航/代价地图、MID-360点云/高程图可从网页按钮分别启动；
 - 仅用于本机局域网/实验环境，不建议暴露到公网。
 """
 
 from __future__ import print_function
 
+import csv
 import json
 import os
 import signal
@@ -20,6 +21,7 @@ import sys
 import threading
 import time
 from collections import deque
+from datetime import datetime
 try:
     from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 except ImportError:  # Python2 fallback, normally not used on Noetic
@@ -35,12 +37,15 @@ PROC_LOCK = threading.RLock()
 PROCS = {}
 LOGS = {
     "camera": deque(maxlen=160),
-    "nav": deque(maxlen=220),
+    "ins": deque(maxlen=220),
+    "real_nav": deque(maxlen=300),
+    "costmap": deque(maxlen=260),
+    "lidar": deque(maxlen=320),
 }
+TARGET_RECORD_LOCK = threading.RLock()
+TARGET_RECORDING = {"enabled": False, "path": None, "rows": 0}
 
-# 用户要求：点云/导航脚本需要 sudo 密码。仅保存在本地网页服务进程内。
-# 更安全的长期方案是配置 sudoers NOPASSWD 只允许指定脚本。
-NAV_SUDO_PASSWORD = "1234\n"
+# 点云/代价地图脚本内部按现有方式处理 sudo；网页服务只负责分开启动进程。
 
 
 def _package_www_dir():
@@ -137,10 +142,73 @@ def _stop_process(name):
             return False, "停止异常：%s" % exc
 
 
+
+def _target_record_dir():
+    path = os.path.expanduser("~/.ros/r300_web_dashboard/targets")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _target_record_status():
+    with TARGET_RECORD_LOCK:
+        return dict(TARGET_RECORDING)
+
+
+def _start_target_recording():
+    with TARGET_RECORD_LOCK:
+        if TARGET_RECORDING["enabled"] and TARGET_RECORDING["path"]:
+            return True, "目标本地记录已在运行", dict(TARGET_RECORDING)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(_target_record_dir(), "r300_targets_%s.csv" % stamp)
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            csv.writer(f).writerow([
+                "time", "source_topic", "frame_id", "selected", "class", "confidence",
+                "x_right_m", "y_down_m", "z_forward_m",
+                "vehicle_lat", "vehicle_lon", "vehicle_alt", "heading_deg",
+                "forward_m", "right_m", "north_m", "east_m",
+                "target_lat", "target_lon"
+            ])
+        TARGET_RECORDING.update({"enabled": True, "path": path, "rows": 0})
+        return True, "目标本地记录已开始", dict(TARGET_RECORDING)
+
+
+def _stop_target_recording():
+    with TARGET_RECORD_LOCK:
+        was_enabled = TARGET_RECORDING["enabled"]
+        TARGET_RECORDING["enabled"] = False
+        msg = "目标本地记录已停止" if was_enabled else "目标本地记录未运行"
+        return True, msg, dict(TARGET_RECORDING)
+
+
+def _append_target_records(records):
+    if not isinstance(records, list):
+        return False, "records 必须是数组", _target_record_status()
+    with TARGET_RECORD_LOCK:
+        if not TARGET_RECORDING["enabled"] or not TARGET_RECORDING["path"]:
+            return False, "目标本地记录未启动", dict(TARGET_RECORDING)
+        rows = []
+        for item in records[:200]:
+            if not isinstance(item, dict):
+                continue
+            rows.append([
+                item.get("time", ""), item.get("source_topic", ""), item.get("frame_id", ""),
+                item.get("selected", ""), item.get("class", ""), item.get("confidence", ""),
+                item.get("x", ""), item.get("y", ""), item.get("z", ""),
+                item.get("vehicle_lat", ""), item.get("vehicle_lon", ""), item.get("vehicle_alt", ""),
+                item.get("heading_deg", ""), item.get("forward_m", ""), item.get("right_m", ""),
+                item.get("north_m", ""), item.get("east_m", ""),
+                item.get("target_lat", ""), item.get("target_lon", "")
+            ])
+        if rows:
+            with open(TARGET_RECORDING["path"], "a", newline="", encoding="utf-8-sig") as f:
+                csv.writer(f).writerows(rows)
+            TARGET_RECORDING["rows"] += len(rows)
+        return True, "已写入 %d 条目标" % len(rows), dict(TARGET_RECORDING)
+
 def _process_status():
     with PROC_LOCK:
         out = {}
-        for name in ("camera", "nav"):
+        for name in ("camera", "ins", "real_nav", "costmap", "lidar"):
             proc = PROCS.get(name)
             out[name] = {
                 "running": bool(_is_running(proc)),
@@ -170,9 +238,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_json_body(self, max_bytes=2 * 1024 * 1024):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except Exception:
+            length = 0
+        if length < 0 or length > max_bytes:
+            raise ValueError("请求体过大")
+        raw = self.rfile.read(length) if length else b"{}"
+        return json.loads(raw.decode("utf-8"))
+
     def do_GET(self):
         if self.path.startswith("/api/process_status"):
             self._send_json({"ok": True, "processes": _process_status()})
+            return
+        if self.path.startswith("/api/target_record/status"):
+            self._send_json({"ok": True, "recording": _target_record_status()})
             return
         return SimpleHTTPRequestHandler.do_GET(self)
 
@@ -183,18 +264,73 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             ok, msg = _start_process("camera", cmd, needs_password=False)
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
-        if path == "/api/start_nav":
-            cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_nav.sh"
-            ok, msg = _start_process("nav", cmd, needs_password=True)
+        if path == "/api/start_ins":
+            cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_ins.sh"
+            ok, msg = _start_process("ins", cmd, needs_password=False)
+            self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path == "/api/start_real_nav":
+            with PROC_LOCK:
+                visual_proc = PROCS.get("costmap")
+                visual_running = _is_running(visual_proc)
+            if visual_running:
+                ok, msg = False, "视觉避障导航/代价地图正在运行，请先停止后再启动纯实车导航。"
+            else:
+                cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_real_nav.sh"
+                ok, msg = _start_process("real_nav", cmd, needs_password=True)
+            self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path in ("/api/start_costmap", "/api/start_nav"):
+            with PROC_LOCK:
+                real_proc = PROCS.get("real_nav")
+                real_running = _is_running(real_proc)
+            if real_running:
+                ok, msg = False, "纯实车导航正在运行，请先停止后再启动视觉避障导航/代价地图。"
+            else:
+                cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_nav.sh"
+                ok, msg = _start_process("costmap", cmd, needs_password=True)
+            self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path == "/api/start_lidar":
+            cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_lidar_elevation.sh"
+            ok, msg = _start_process("lidar", cmd, needs_password=False)
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/stop_camera":
             ok, msg = _stop_process("camera")
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
-        if path == "/api/stop_nav":
-            ok, msg = _stop_process("nav")
+        if path == "/api/stop_ins":
+            ok, msg = _stop_process("ins")
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path == "/api/stop_real_nav":
+            ok, msg = _stop_process("real_nav")
+            self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path in ("/api/stop_costmap", "/api/stop_nav"):
+            ok, msg = _stop_process("costmap")
+            self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path == "/api/stop_lidar":
+            ok, msg = _stop_process("lidar")
+            self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path == "/api/target_record/start":
+            ok, msg, status = _start_target_recording()
+            self._send_json({"ok": ok, "message": msg, "recording": status})
+            return
+        if path == "/api/target_record/stop":
+            ok, msg, status = _stop_target_recording()
+            self._send_json({"ok": ok, "message": msg, "recording": status})
+            return
+        if path == "/api/target_record/append":
+            try:
+                body = self._read_json_body()
+                ok, msg, status = _append_target_records(body.get("records", []))
+                self._send_json({"ok": ok, "message": msg, "recording": status}, code=200 if ok else 409)
+            except Exception as exc:
+                self._send_json({"ok": False, "message": str(exc), "recording": _target_record_status()}, code=400)
             return
         self._send_json({"ok": False, "message": "unknown api: " + path}, code=404)
 
@@ -224,7 +360,10 @@ def main():
     rospy.spin()
     try:
         _stop_process("camera")
-        _stop_process("nav")
+        _stop_process("costmap")
+        _stop_process("real_nav")
+        _stop_process("ins")
+        _stop_process("lidar")
     except Exception:
         pass
     httpd.shutdown()

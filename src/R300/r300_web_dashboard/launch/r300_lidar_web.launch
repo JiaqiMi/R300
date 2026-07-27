@@ -1,0 +1,30 @@
+<launch>
+  <!-- 仅由 Web 按钮调用：单 MID-360 驱动 + FAST-LIO + GPU 高程图 + 轻量 Web 显示适配。 -->
+  <arg name="lidar_ip" default="192_168_1_192"/>
+  <arg name="user_config_path" default="$(find single_lidar_elevation)/config/MID360_single.json"/>
+  <arg name="tilt_pitch_deg" default="-55.5"/>
+  <arg name="lio_input_crop" default="false"/>
+
+  <include file="$(find single_lidar_elevation)/launch/single_lidar_elevation.launch">
+    <arg name="lidar_ip" value="$(arg lidar_ip)"/>
+    <arg name="user_config_path" value="$(arg user_config_path)"/>
+    <arg name="tilt_pitch_deg" value="$(arg tilt_pitch_deg)"/>
+    <arg name="publish_base_link_tf" value="false"/>
+    <arg name="lio_input_crop" value="$(arg lio_input_crop)"/>
+    <arg name="rviz" value="false"/>
+  </include>
+
+  <!-- 只压缩并转发显示数据，不参与雷达、FAST-LIO、高程图或导航计算。 -->
+  <node pkg="r300_web_dashboard" type="lidar_web_adapter.py"
+        name="r300_lidar_web_adapter" output="screen" required="false">
+    <param name="cloud_topic" value="/cloud_registered_body"/>
+    <param name="elevation_topic" value="/elevation_mapping/elevation_map_raw"/>
+    <param name="cloud_output_topic" value="/r300_web/lidar_points_json"/>
+    <param name="elevation_output_topic" value="/r300_web/elevation_json"/>
+    <param name="max_cloud_points" value="6000"/>
+    <param name="cloud_publish_hz" value="2.0"/>
+    <param name="elevation_publish_hz" value="1.0"/>
+    <param name="elevation_max_dim" value="150"/>
+    <param name="cloud_max_range_m" value="35.0"/>
+  </node>
+</launch>

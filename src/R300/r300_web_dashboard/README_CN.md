@@ -1,5 +1,13 @@
 # R300 Web 上位机
 
+## v20：新增纯实车导航模式
+
+- `① 启动 1X 惯导`：执行 `start_1x.sh`。
+- `②A 启动纯实车导航`：执行 `start_real_nav.sh --no-rviz`，不接入视觉障碍。
+- `②B 启动视觉避障 / 代价地图`：继续执行 `start_r300_vision_nav.sh --no-rviz`。
+- ②A 与 ②B 为互斥模式；纯实车导航就绪后，通过网页“开始航点”执行经纬度航点。
+
+
 这个包用于把 R300 当前 ROS 系统中的定位、视觉、路径、局部代价地图、激光雷达和航点控制集中显示到浏览器中。
 
 ## 1. 功能
@@ -230,6 +238,15 @@ http://100.106.189.126:8090
 
 注意：本版本为了快速测试，在本地 Web 服务中处理了点云/导航脚本的 sudo 密码输入。该方式只适合实验室内网调试。长期使用建议改成 sudoers 中只对指定脚本配置 NOPASSWD。
 
+## v17：网页启动顺序拆分（仅 Web 改动）
+
+网页中原来的“启动点云/代价地图”操作拆成两步：
+
+1. `启动导航（1X）`：执行 `cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key && ./start_1x.sh`；
+2. `启动代价地图`：继续执行原有 `./start_r300_vision_nav.sh --no-rviz`。
+
+ROS 导航、惯导和代价地图程序均未修改，仅增加网页进程入口与状态显示。
+
 ## v5：网页按钮启动点云/代价地图
 
 本版将网页按钮改为调用 wrapper 脚本：
@@ -245,3 +262,9 @@ http://100.106.189.126:8090
 ~/.ros/r300_web_dashboard/web_start_camera.log
 ~/.ros/r300_web_dashboard/web_start_nav.log
 ```
+
+## v19：MID-360 点云与 GPU 高程图
+
+在保持相机、导航（1X）、代价地图和目标经纬度回传逻辑不变的基础上，新增一组共同启停的雷达感知界面：左侧显示 `/cloud_registered_body` 配准点云，右侧显示 `/elevation_mapping/elevation_map_raw` 的 `elevation` 层。网页按钮启动 `r300_lidar_web.launch`，其内部包含原 `single_lidar_elevation.launch`（`rviz:=false`）以及仅用于压缩显示数据的 `lidar_web_adapter.py`。
+
+详细说明见 `LIDAR_ELEVATION_WEB_README_CN.txt`。

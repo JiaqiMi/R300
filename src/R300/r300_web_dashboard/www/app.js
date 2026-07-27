@@ -1,4 +1,4 @@
-/* R300 Web 上位机 v4 kiwi。
+/* R300 Web 上位机 v6 kiwi：导航/代价地图分步启动 + 目标回传 + MID-360点云/高程图。
  * 设计原则：浏览器直接通过 rosbridge JSON 协议订阅 ROS1 话题；
  * 视频由已有 web_video_server 提供；不直接发布 /cmd_vel。
  */
@@ -14,8 +14,18 @@ let localPlan = null;
 let scanData = null;
 let visionScanData = null;
 let activeVisionScanData = null;
+let lidarCloudData = null;
+let elevationData = null;
 let robotPose = null;  // {x, y, yaw, stampMs}
 let headingDeg = null;
+let latestGps = null;
+let latestDetections = [];
+let latestTargetPointMsg = null;
+let targetRecords = [];
+let targetLocalRecording = false;
+let targetLocalStatus = {enabled: false, path: null, rows: 0};
+let pendingTargetRecords = [];
+let targetFlushTimer = null;
 let safetyState = {limit: null, estop: null};
 let insGpsFirstValidMs = null;
 let insGpsLastMsg = null;
@@ -33,8 +43,10 @@ let lastRx = {};
 
 const viewState = {
   costmapCanvas: {scale: 1, tx: 0, ty: 0, dragging: false, lastX: 0, lastY: 0},
-  scanCanvas: {scale: 1, tx: 0, ty: 0, dragging: false, lastX: 0, lastY: 0}
+  scanCanvas: {scale: 1, tx: 0, ty: 0, dragging: false, lastX: 0, lastY: 0},
+  elevationCanvas: {scale: 1, tx: 0, ty: 0, dragging: false, lastX: 0, lastY: 0}
 };
+const cloudView = {yaw: -0.70, pitch: 0.62, zoom: 1.0, dragging: false, lastX: 0, lastY: 0};
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n=2) => (Number.isFinite(v) ? Number(v).toFixed(n) : "--");
@@ -127,6 +139,8 @@ function subscribeAll() {
   sub(t.scan, "sensor_msgs/LaserScan", 180);
   sub(t.vision_scan, "sensor_msgs/LaserScan", 180);
   sub(t.active_vision_scan, "sensor_msgs/LaserScan", 180);
+  if (t.lidar_points_json) sub(t.lidar_points_json, "std_msgs/String", 300);
+  if (t.elevation_json) sub(t.elevation_json, "std_msgs/String", 700);
   sub(t.detections, "r300_vision_msgs/DetectedObjectArray", 500);
   sub(t.target_point, "geometry_msgs/PointStamped", 500);
   sub(t.dynamic_state, "std_msgs/String", 250);
@@ -150,6 +164,8 @@ function handleTopic(topic, msg) {
   else if (topic === t.scan) { scanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.vision_scan) { visionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.active_vision_scan) { activeVisionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
+  else if (topic === t.lidar_points_json) updateLidarCloud(msg);
+  else if (topic === t.elevation_json) updateElevationMap(msg);
   else if (topic === t.detections) updateDetections(msg);
   else if (topic === t.target_point) updateTargetPoint(msg);
   else if (topic === t.dynamic_state) $("dynState").textContent = msg.data;
@@ -182,12 +198,22 @@ function updateOdom(m) {
 function updateHeading() {
   if (Number.isFinite(headingDeg)) $("heading").textContent = `${fmt(headingDeg, 1)}°`;
   else if (robotPose) $("heading").textContent = `${fmt(robotPose.yaw * 180 / Math.PI, 1)}° (odom yaw)`;
+  renderTargetPoint();
 }
 
 function updateGps(m, label) {
   if (!Number.isFinite(m.latitude) || !Number.isFinite(m.longitude)) return;
+  if (Math.abs(Number(m.latitude)) < 1e-9 && Math.abs(Number(m.longitude)) < 1e-9) return;
+  latestGps = {
+    lat: Number(m.latitude),
+    lon: Number(m.longitude),
+    alt: Number.isFinite(Number(m.altitude)) ? Number(m.altitude) : 0.0,
+    label: label,
+    receivedMs: Date.now()
+  };
   $("gps").textContent = `${label}: ${fmt(m.latitude, 7)}, ${fmt(m.longitude, 7)}`;
   updateInsGpsPanel(m, label);
+  renderTargetPoint();
   // 卫星地图默认使用 /one_x/fix；如果 fix 不发布，也接受 gps_fix 作为兜底。
   const fixTopic = (cfg.satellite_map && cfg.satellite_map.fix_topic) || cfg.topics.fix;
   const topicKey = label === "GPS" ? cfg.topics.gps_fix : cfg.topics.fix;
@@ -259,22 +285,279 @@ function updateSafety(k, v) {
   $("safety").textContent = `${limit} / ${estop}`;
 }
 
-function updateDetections(m) {
-  const arr = m.objects || m.detections || [];
-  $("detectionCount").textContent = `${arr.length} 个目标`;
-  if (!arr.length) { $("detections").textContent = "当前无检测目标"; return; }
-  $("detections").textContent = arr.slice(0, 12).map((o, i) => {
-    const cls = o.class_name || o.label || o.name || o.class_id || "object";
-    const conf = o.confidence !== undefined ? fmt(o.confidence, 2) : "--";
-    let pos = "";
-    if (o.position) pos = ` pos=(${fmt(o.position.x)}, ${fmt(o.position.y)}, ${fmt(o.position.z)})`;
-    if (o.center) pos = ` center=(${fmt(o.center.x)}, ${fmt(o.center.y)}, ${fmt(o.center.z)})`;
-    return `${i}: ${cls}  conf=${conf}${pos}`;
-  }).join("\n");
+function normalizeDeg(v) {
+  let x = Number(v) % 360;
+  if (x < 0) x += 360;
+  return x;
 }
+
+function getObjPosition(o) {
+  const p = o.position || o.position_camera || o.center_3d || o.center || o.point ||
+            (o.pose && o.pose.position) || (o.pose && o.pose.pose && o.pose.pose.position) || null;
+  if (!p) return null;
+  const out = {x: Number(p.x), y: Number(p.y), z: Number(p.z)};
+  return Number.isFinite(out.x) && Number.isFinite(out.y) && Number.isFinite(out.z) ? out : null;
+}
+
+function resolveVehicleHeadingDeg() {
+  const geoCfg = cfg.target_geolocation || {};
+  const maxAge = Number.isFinite(Number(geoCfg.max_heading_age_s)) ? Number(geoCfg.max_heading_age_s) : 5.0;
+  if (Number.isFinite(headingDeg) && ageSec(cfg.topics.heading_deg) <= maxAge) {
+    return {deg: normalizeDeg(headingDeg), source: cfg.topics.heading_deg};
+  }
+  if (geoCfg.allow_odom_yaw_fallback !== false && robotPose && (Date.now() - robotPose.stampMs) / 1000 <= maxAge) {
+    // ROS ENU yaw：东为0°、逆时针为正；转换为北0°、顺时针为正。
+    return {deg: normalizeDeg(90.0 - robotPose.yaw * 180.0 / Math.PI), source: `${cfg.topics.odom} yaw换算`};
+  }
+  return null;
+}
+
+function estimateTargetLatLon(pos) {
+  const geoCfg = cfg.target_geolocation || {};
+  if (geoCfg.enabled === false) return {ok: false, reason: '目标经纬度计算已关闭'};
+  if (!latestGps || !pos) return {ok: false, reason: '等待有效惯导经纬度'};
+  const maxGpsAge = Number.isFinite(Number(geoCfg.max_gps_age_s)) ? Number(geoCfg.max_gps_age_s) : 5.0;
+  if ((Date.now() - latestGps.receivedMs) / 1000 > maxGpsAge) return {ok: false, reason: '惯导经纬度已超时'};
+  const headingInfo = resolveVehicleHeadingDeg();
+  if (!headingInfo) return {ok: false, reason: '等待有效航向'};
+
+  // 检测节点发布 camera optical 坐标：x向右、y向下、z向前。
+  const forward = Number(pos.z) + Number(geoCfg.camera_forward_offset_m || 0.0);
+  const right = Number(pos.x) + Number(geoCfg.camera_right_offset_m || 0.0);
+  if (!Number.isFinite(forward) || !Number.isFinite(right) || forward <= 0) {
+    return {ok: false, reason: '目标三维深度无效'};
+  }
+
+  const h = headingInfo.deg * Math.PI / 180.0;
+  const north = forward * Math.cos(h) - right * Math.sin(h);
+  const east = forward * Math.sin(h) + right * Math.cos(h);
+
+  // WGS84局部切平面小距离换算，比固定111320更适合米级目标定位。
+  const lat0 = latestGps.lat * Math.PI / 180.0;
+  const a = 6378137.0;
+  const e2 = 6.69437999014e-3;
+  const sinLat = Math.sin(lat0);
+  const w = Math.sqrt(1.0 - e2 * sinLat * sinLat);
+  const rn = a / w;
+  const rm = a * (1.0 - e2) / (w * w * w);
+  const alt = Number.isFinite(latestGps.alt) ? latestGps.alt : 0.0;
+  const cosLat = Math.max(1e-8, Math.abs(Math.cos(lat0))) * Math.sign(Math.cos(lat0) || 1);
+  const lat = latestGps.lat + north / (rm + alt) * 180.0 / Math.PI;
+  const lon = latestGps.lon + east / ((rn + alt) * cosLat) * 180.0 / Math.PI;
+
+  return {
+    ok: true, lat, lon, north, east, forward, right,
+    headingDeg: headingInfo.deg, headingSource: headingInfo.source,
+    vehicleLat: latestGps.lat, vehicleLon: latestGps.lon, vehicleAlt: latestGps.alt
+  };
+}
+
+function targetClassName(o) {
+  return String(o.class_name || o.label || o.name ||
+                (o.class_id !== undefined ? `class_${o.class_id}` : 'object'));
+}
+
+function targetConfidence(o) {
+  const v = o.confidence !== undefined ? o.confidence :
+            (o.score !== undefined ? o.score : o.probability);
+  return Number(v);
+}
+
+function matchTargetObject(point) {
+  if (!point || !latestDetections.length) return null;
+  let best = null;
+  let bestD = Infinity;
+  latestDetections.forEach(o => {
+    const p = getObjPosition(o);
+    if (!p) return;
+    const d = Math.hypot(p.x - point.x, p.y - point.y, p.z - point.z);
+    if (d < bestD) { bestD = d; best = o; }
+  });
+  const tol = Number(cfg.target_geolocation?.target_match_tolerance_m || 0.30);
+  return best && bestD <= tol ? {object: best, error: bestD} : null;
+}
+
+function updateDetections(m) {
+  const arr = m.objects || m.detections || m.targets || [];
+  latestDetections = arr;
+  if ($('detectionCount')) $('detectionCount').textContent = `${arr.length} 个目标`;
+  if (!arr.length) {
+    latestTargetPointMsg = null;
+    if ($('detections')) $('detections').textContent = '当前无检测目标';
+    renderTargetPoint();
+    return;
+  }
+
+  const lines = [];
+  const frameRecords = [];
+  const frameId = (m.header && m.header.frame_id) || '';
+  const targetPoint = latestTargetPointMsg && (latestTargetPointMsg.point || latestTargetPointMsg.position);
+  const matched = matchTargetObject(targetPoint);
+
+  arr.slice(0, 32).forEach((o, i) => {
+    const cls = targetClassName(o);
+    const conf = targetConfidence(o);
+    const pos = getObjPosition(o);
+    const isSelected = matched && matched.object === o;
+    if (!pos || o.depth_valid === false) {
+      lines.push(`${i + 1}. ${isSelected ? '[当前目标] ' : ''}${cls} | conf=${fmt(conf, 2)} | 无有效三维深度，无法计算经纬度`);
+      return;
+    }
+    const geo = estimateTargetLatLon(pos);
+    const cameraText = `相机(x右/y下/z前)=(${fmt(pos.x, 2)}, ${fmt(pos.y, 2)}, ${fmt(pos.z, 2)}) m`;
+    const geoText = geo.ok
+      ? `目标经纬度=(${fmt(geo.lat, 8)}, ${fmt(geo.lon, 8)})`
+      : `目标经纬度=--（${geo.reason}）`;
+    lines.push(`${i + 1}. ${isSelected ? '[当前目标] ' : ''}${cls} | conf=${fmt(conf, 2)} | ${cameraText} | ${geoText}`);
+
+    const rec = {
+      time: new Date().toISOString(), source_topic: cfg.topics.detections, frame_id: frameId,
+      selected: !!isSelected, class: cls, confidence: conf,
+      x: pos.x, y: pos.y, z: pos.z,
+      vehicle_lat: geo.ok ? geo.vehicleLat : (latestGps ? latestGps.lat : ''),
+      vehicle_lon: geo.ok ? geo.vehicleLon : (latestGps ? latestGps.lon : ''),
+      vehicle_alt: geo.ok ? geo.vehicleAlt : (latestGps ? latestGps.alt : ''),
+      heading_deg: geo.ok ? geo.headingDeg : '',
+      forward_m: geo.ok ? geo.forward : '', right_m: geo.ok ? geo.right : '',
+      north_m: geo.ok ? geo.north : '', east_m: geo.ok ? geo.east : '',
+      target_lat: geo.ok ? geo.lat : '', target_lon: geo.ok ? geo.lon : ''
+    };
+    targetRecords.push(rec);
+    frameRecords.push(rec);
+  });
+
+  if (targetRecords.length > 10000) targetRecords = targetRecords.slice(-10000);
+  if ($('detections')) $('detections').textContent = `frame=${frameId || '--'}\n` + lines.join('\n');
+  renderTargetRecordStatus();
+  if (frameRecords.length) queueTargetRecords(frameRecords);
+  renderTargetPoint();
+}
+
 function updateTargetPoint(m) {
-  const p = m.point;
-  $("targetPoint").textContent = `/r300_vision/target_point\nframe=${m.header.frame_id}\nx=${fmt(p.x)} y=${fmt(p.y)} z=${fmt(p.z)}`;
+  latestTargetPointMsg = m;
+  renderTargetPoint();
+}
+
+function renderTargetPoint() {
+  if (!$('targetPoint')) return;
+  if (!latestTargetPointMsg) {
+    $('targetPoint').textContent = `等待 ${cfg?.topics?.target_point || '/r300_vision/target_point'} ...`;
+    if ($('targetGeoStatus')) $('targetGeoStatus').textContent = '等待三维目标点';
+    return;
+  }
+  const pRaw = latestTargetPointMsg.point || latestTargetPointMsg.position || {};
+  const p = {x: Number(pRaw.x), y: Number(pRaw.y), z: Number(pRaw.z)};
+  const frame = (latestTargetPointMsg.header && latestTargetPointMsg.header.frame_id) || '--';
+  if (![p.x, p.y, p.z].every(Number.isFinite)) {
+    $('targetPoint').textContent = `${cfg.topics.target_point}\nframe=${frame}\n目标点三维坐标无效`;
+    if ($('targetGeoStatus')) $('targetGeoStatus').textContent = '目标三维坐标无效';
+    return;
+  }
+  const matched = matchTargetObject(p);
+  const cls = matched ? targetClassName(matched.object) : '未匹配到检测类型';
+  const conf = matched ? targetConfidence(matched.object) : NaN;
+  const geo = estimateTargetLatLon(p);
+  const distance = Math.hypot(p.x, p.y, p.z);
+  const lines = [
+    `${cfg.topics.target_point}`,
+    `类型=${cls}${Number.isFinite(conf) ? `  conf=${fmt(conf, 2)}` : ''}`,
+    `frame=${frame}`,
+    `相机坐标 x右=${fmt(p.x, 3)}  y下=${fmt(p.y, 3)}  z前=${fmt(p.z, 3)} m`,
+    `三维距离=${fmt(distance, 3)} m`
+  ];
+  if (geo.ok) {
+    lines.push(`车辆经纬度 lat=${fmt(geo.vehicleLat, 8)}  lon=${fmt(geo.vehicleLon, 8)}`);
+    lines.push(`目标经纬度 lat=${fmt(geo.lat, 8)}  lon=${fmt(geo.lon, 8)}`);
+    lines.push(`局部位移 北=${fmt(geo.north, 2)} m  东=${fmt(geo.east, 2)} m`);
+    lines.push(`航向=${fmt(geo.headingDeg, 2)}°（${geo.headingSource}）`);
+    if ($('targetGeoStatus')) $('targetGeoStatus').textContent = `已计算：${cls}，lat=${fmt(geo.lat, 8)}，lon=${fmt(geo.lon, 8)}`;
+  } else {
+    lines.push(`目标经纬度=--（${geo.reason}）`);
+    if ($('targetGeoStatus')) $('targetGeoStatus').textContent = geo.reason;
+  }
+  $('targetPoint').textContent = lines.join('\n');
+}
+
+function clearTargetRecords() {
+  targetRecords = [];
+  renderTargetRecordStatus();
+}
+
+function csvCell(v) {
+  const text = v === null || v === undefined ? '' : String(v);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadTargetsCsv() {
+  const rows = ['time,source_topic,frame_id,selected,class,confidence,x_right_m,y_down_m,z_forward_m,vehicle_lat,vehicle_lon,vehicle_alt,heading_deg,forward_m,right_m,north_m,east_m,target_lat,target_lon'];
+  targetRecords.forEach(r => rows.push([
+    r.time, r.source_topic, r.frame_id, r.selected, r.class, r.confidence,
+    r.x, r.y, r.z, r.vehicle_lat, r.vehicle_lon, r.vehicle_alt, r.heading_deg,
+    r.forward_m, r.right_m, r.north_m, r.east_m, r.target_lat, r.target_lon
+  ].map(csvCell).join(',')));
+  downloadText(`r300_targets_${timestampName()}.csv`, rows.join('\n'));
+}
+
+function renderTargetRecordStatus() {
+  const localText = targetLocalStatus.enabled ? `本地记录中 ${targetLocalStatus.rows || 0} 条` : `本地已停 ${targetLocalStatus.rows || 0} 条`;
+  if ($('targetRecordInfo')) $('targetRecordInfo').textContent = `浏览器 ${targetRecords.length} 条；${localText}`;
+  if ($('targetRecordFile')) $('targetRecordFile').textContent = targetLocalStatus.path || '--';
+}
+
+async function targetRecordApi(path, body = null) {
+  const options = {method: 'POST', headers: {'Content-Type': 'application/json'}};
+  if (body !== null) options.body = JSON.stringify(body);
+  const res = await fetch(path, options);
+  const data = await res.json();
+  if (data.recording) {
+    targetLocalStatus = data.recording;
+    targetLocalRecording = !!data.recording.enabled;
+    renderTargetRecordStatus();
+  }
+  if (!data.ok) throw new Error(data.message || '目标记录接口失败');
+  appendNodeLog(`${nowTime()} ${data.message || path}`);
+  return data;
+}
+
+async function startTargetRecording() {
+  try { await targetRecordApi('/api/target_record/start'); }
+  catch (e) { appendNodeLog(`${nowTime()} 启动目标记录失败：${e}`); }
+}
+
+async function stopTargetRecording() {
+  try { await flushTargetRecords(); await targetRecordApi('/api/target_record/stop'); }
+  catch (e) { appendNodeLog(`${nowTime()} 停止目标记录失败：${e}`); }
+}
+
+function queueTargetRecords(records) {
+  if (!targetLocalRecording) return;
+  pendingTargetRecords.push(...records);
+  if (pendingTargetRecords.length > 500) pendingTargetRecords = pendingTargetRecords.slice(-500);
+  if (!targetFlushTimer) targetFlushTimer = setTimeout(flushTargetRecords, 500);
+}
+
+async function flushTargetRecords() {
+  if (targetFlushTimer) { clearTimeout(targetFlushTimer); targetFlushTimer = null; }
+  if (!targetLocalRecording || !pendingTargetRecords.length) return;
+  const batch = pendingTargetRecords.splice(0, 200);
+  try { await targetRecordApi('/api/target_record/append', {records: batch}); }
+  catch (e) {
+    pendingTargetRecords.unshift(...batch);
+    appendNodeLog(`${nowTime()} 写入目标记录失败：${e}`);
+  }
+  if (pendingTargetRecords.length && targetLocalRecording) targetFlushTimer = setTimeout(flushTargetRecords, 700);
+}
+
+async function refreshTargetRecordStatus() {
+  try {
+    const res = await fetch('/api/target_record/status?ts=' + Date.now(), {cache: 'no-store'});
+    const data = await res.json();
+    if (data.recording) {
+      targetLocalStatus = data.recording;
+      targetLocalRecording = !!data.recording.enabled;
+      renderTargetRecordStatus();
+    }
+  } catch (e) {}
 }
 
 
@@ -390,6 +673,253 @@ function downloadText(filename, text) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
 }
 
+
+function parseJsonTopicMessage(msg, label) {
+  try {
+    const data = typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data;
+    if (!data || typeof data !== "object") throw new Error("empty payload");
+    return data;
+  } catch (e) {
+    console.warn(`${label} JSON parse failed`, e);
+    return null;
+  }
+}
+
+function updateLidarCloud(msg) {
+  const data = parseJsonTopicMessage(msg, "lidar cloud");
+  if (!data || !Array.isArray(data.points)) return;
+  lidarCloudData = data;
+  const bounds = Array.isArray(data.bounds) ? data.bounds : [0,0,0,0,0,0];
+  if ($("cloudInfo")) {
+    $("cloudInfo").textContent = `${data.frame_id || "--"}，显示 ${data.count || 0}/${data.source_points || 0} 点，z=${fmt(bounds[4],2)}~${fmt(bounds[5],2)} m`;
+  }
+  drawPointCloud();
+}
+
+function updateElevationMap(msg) {
+  const data = parseJsonTopicMessage(msg, "elevation map");
+  if (!data || !Array.isArray(data.values)) return;
+  elevationData = data;
+  if ($("elevationInfo")) {
+    $("elevationInfo").textContent = `${data.frame_id || "--"}，${data.source_rows || data.rows}×${data.source_cols || data.cols}，res=${fmt(data.resolution,3)} m，valid=${data.valid_count || 0}`;
+  }
+  if ($("elevationRange")) {
+    $("elevationRange").textContent = `${fmt(data.min,2)} m → ${fmt(data.max,2)} m`;
+  }
+  drawElevationMap();
+}
+
+function setupPointCloudCanvas() {
+  const c = $("cloudCanvas");
+  if (!c) return;
+  c.addEventListener("mousedown", (e) => {
+    cloudView.dragging = true;
+    cloudView.lastX = e.clientX;
+    cloudView.lastY = e.clientY;
+  });
+  window.addEventListener("mouseup", () => { cloudView.dragging = false; });
+  window.addEventListener("mousemove", (e) => {
+    if (!cloudView.dragging) return;
+    const dx = e.clientX - cloudView.lastX;
+    const dy = e.clientY - cloudView.lastY;
+    cloudView.lastX = e.clientX;
+    cloudView.lastY = e.clientY;
+    cloudView.yaw += dx * 0.008;
+    cloudView.pitch = clamp(cloudView.pitch - dy * 0.006, 0.08, 1.45);
+    drawPointCloud();
+  });
+  c.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    cloudView.zoom = clamp(cloudView.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), 0.25, 8.0);
+    drawPointCloud();
+  }, {passive: false});
+  c.addEventListener("dblclick", resetCloudView);
+  ["showElevationGrid", "showElevationRobot"].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener("change", drawElevationMap);
+  });
+}
+
+function resetCloudView() {
+  cloudView.yaw = -0.70;
+  cloudView.pitch = 0.62;
+  cloudView.zoom = 1.0;
+  drawPointCloud();
+}
+
+function cloudColor(z, zMin, zMax) {
+  let t = (z - zMin) / Math.max(0.05, zMax - zMin);
+  t = clamp(t, 0, 1);
+  const hue = 220 - 190 * t;
+  return `hsl(${hue}, 92%, ${48 + 12*t}%)`;
+}
+
+function projectCloudPoint(x, y, z, scale, canvas) {
+  const cyaw = Math.cos(cloudView.yaw), syaw = Math.sin(cloudView.yaw);
+  const forward = cyaw * x - syaw * y;
+  const left = syaw * x + cyaw * y;
+  const sp = Math.sin(cloudView.pitch), cp = Math.cos(cloudView.pitch);
+  return {
+    x: canvas.width * 0.50 - left * scale,
+    y: canvas.height * 0.68 - (forward * sp + z * cp) * scale,
+    depth: forward * cp - z * sp
+  };
+}
+
+function drawCloudAxis(ctx, canvas, scale) {
+  const axes = [
+    {p:[2,0,0], color:"#ff5a5f", label:"前 x+"},
+    {p:[0,2,0], color:"#6ee7ff", label:"左 y+"},
+    {p:[0,0,1.5], color:"#d7f549", label:"上 z+"}
+  ];
+  const o = projectCloudPoint(0,0,0,scale,canvas);
+  axes.forEach(a => {
+    const p = projectCloudPoint(a.p[0],a.p[1],a.p[2],scale,canvas);
+    ctx.strokeStyle = a.color;
+    ctx.fillStyle = a.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(p.x,p.y); ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill();
+    ctx.font = "12px Consolas";
+    ctx.fillText(a.label,p.x+5,p.y-5);
+  });
+}
+
+function drawPointCloud() {
+  const c = $("cloudCanvas");
+  if (!c) return;
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.fillStyle = "#020b05";
+  ctx.fillRect(0,0,c.width,c.height);
+  ctx.strokeStyle = "rgba(151,234,34,.16)";
+  ctx.lineWidth = 1;
+  for (let y=40; y<c.height; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(c.width,y); ctx.stroke(); }
+  for (let x=40; x<c.width; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,c.height); ctx.stroke(); }
+
+  if (!lidarCloudData || !Array.isArray(lidarCloudData.points) || lidarCloudData.points.length < 3) {
+    ctx.fillStyle = "#b7cf9b";
+    ctx.font = "18px Microsoft YaHei";
+    ctx.fillText("等待 MID-360 / FAST-LIO 配准点云...", 28, 42);
+    drawCloudAxis(ctx,c,35);
+    return;
+  }
+
+  const d = lidarCloudData;
+  const arr = d.points;
+  const unit = Number(d.scale) || 0.001;
+  const b = Array.isArray(d.bounds) ? d.bounds : [-5,5,-5,5,-1,1];
+  const horizontal = Math.max(4, Math.abs(b[0]||0), Math.abs(b[1]||0), Math.abs(b[2]||0), Math.abs(b[3]||0));
+  const scale = Math.min(c.width * 0.42 / horizontal, c.height * 0.48 / horizontal) * cloudView.zoom;
+  const zMin = Number.isFinite(Number(b[4])) ? Number(b[4]) : -1;
+  const zMax = Number.isFinite(Number(b[5])) ? Number(b[5]) : 1;
+  const projected = [];
+  for (let i=0; i+2<arr.length; i+=3) {
+    const x = Number(arr[i]) * unit;
+    const y = Number(arr[i+1]) * unit;
+    const z = Number(arr[i+2]) * unit;
+    if (!Number.isFinite(x+y+z)) continue;
+    const p = projectCloudPoint(x,y,z,scale,c);
+    if (p.x < -20 || p.x > c.width+20 || p.y < -20 || p.y > c.height+20) continue;
+    projected.push({x:p.x,y:p.y,z:z,depth:p.depth});
+  }
+  projected.sort((a,bp) => bp.depth - a.depth);
+  const radius = clamp(1.2 * Math.sqrt(cloudView.zoom), 1.0, 3.0);
+  for (const p of projected) {
+    ctx.fillStyle = cloudColor(p.z,zMin,zMax);
+    ctx.fillRect(p.x-radius,p.y-radius,radius*2,radius*2);
+  }
+  drawCloudAxis(ctx,c,scale);
+  ctx.fillStyle = "#d7f549";
+  ctx.font = "13px Consolas";
+  ctx.fillText(`points=${projected.length}  yaw=${fmt(cloudView.yaw*180/Math.PI,0)}°  pitch=${fmt(cloudView.pitch*180/Math.PI,0)}°  zoom=${fmt(cloudView.zoom,2)}x`, 18, c.height-18);
+}
+
+function elevationColor(t) {
+  t = clamp(t,0,1);
+  const stops = [
+    [0.00, 24, 68, 170],
+    [0.25, 24, 180, 220],
+    [0.50, 52, 211, 153],
+    [0.75, 245, 210, 72],
+    [1.00, 239, 68, 68]
+  ];
+  for (let i=1; i<stops.length; i++) {
+    if (t <= stops[i][0]) {
+      const a=stops[i-1], b=stops[i], u=(t-a[0])/(b[0]-a[0]);
+      return [Math.round(a[1]+(b[1]-a[1])*u),Math.round(a[2]+(b[2]-a[2])*u),Math.round(a[3]+(b[3]-a[3])*u)];
+    }
+  }
+  return [239,68,68];
+}
+
+function drawElevationMap() {
+  const c = $("elevationCanvas");
+  if (!c) return;
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.fillStyle = "#020b05";
+  ctx.fillRect(0,0,c.width,c.height);
+  if (!elevationData || !Array.isArray(elevationData.values)) {
+    ctx.fillStyle = "#b7cf9b";
+    ctx.font = "18px Microsoft YaHei";
+    ctx.fillText("等待 GPU 高程图...", 28, 42);
+    return;
+  }
+
+  const d=elevationData, rows=Number(d.rows)||0, cols=Number(d.cols)||0;
+  if (rows<=0 || cols<=0 || d.values.length < rows*cols) return;
+  const off=document.createElement("canvas"); off.width=cols; off.height=rows;
+  const octx=off.getContext("2d"), img=octx.createImageData(cols,rows);
+  const unit=Number(d.scale)||0.001, invalid=Number(d.invalid);
+  const lo=Number(d.color_min), hi=Number(d.color_max), denom=Math.max(0.02,hi-lo);
+  for (let i=0;i<rows*cols;i++) {
+    const raw=Number(d.values[i]), k=i*4;
+    if (!Number.isFinite(raw) || raw===invalid) {
+      img.data[k]=5; img.data[k+1]=18; img.data[k+2]=9; img.data[k+3]=255;
+      continue;
+    }
+    const value=raw*unit, rgb=elevationColor((value-lo)/denom);
+    img.data[k]=rgb[0]; img.data[k+1]=rgb[1]; img.data[k+2]=rgb[2]; img.data[k+3]=255;
+  }
+  octx.putImageData(img,0,0);
+
+  const margin=28, availW=c.width-2*margin, availH=c.height-2*margin;
+  const lengthX=Math.max(0.1,Number(d.length_x)||rows), lengthY=Math.max(0.1,Number(d.length_y)||cols);
+  const aspect=lengthY/lengthX;
+  let drawW=availW, drawH=drawW/aspect;
+  if (drawH>availH) { drawH=availH; drawW=drawH*aspect; }
+  const x0=(c.width-drawW)/2, y0=(c.height-drawH)/2;
+
+  ctx.save();
+  applyView(ctx,"elevationCanvas");
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(off,x0,y0,drawW,drawH);
+  ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5; ctx.strokeRect(x0,y0,drawW,drawH);
+
+  if ($("showElevationGrid") && $("showElevationGrid").checked) {
+    ctx.strokeStyle="rgba(255,255,255,.22)"; ctx.lineWidth=1;
+    const sx=drawW/lengthY, sy=drawH/lengthX;
+    for (let m=1; m<lengthY/2; m+=1) {
+      [x0+drawW/2-m*sx,x0+drawW/2+m*sx].forEach(x=>{ctx.beginPath();ctx.moveTo(x,y0);ctx.lineTo(x,y0+drawH);ctx.stroke();});
+    }
+    for (let m=1; m<lengthX/2; m+=1) {
+      [y0+drawH/2-m*sy,y0+drawH/2+m*sy].forEach(y=>{ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x0+drawW,y);ctx.stroke();});
+    }
+  }
+  if ($("showElevationRobot") && $("showElevationRobot").checked) {
+    drawRobotArrow(ctx,x0+drawW/2,y0+drawH/2,-Math.PI/2,20,"#2563eb","#dbeafe");
+  }
+  ctx.restore();
+
+  ctx.fillStyle="#eaffc0"; ctx.font="13px Microsoft YaHei";
+  ctx.fillText("前方 x+",c.width/2-28,18);
+  ctx.fillText("左 y+",8,c.height/2);
+  ctx.fillStyle="#d7f549"; ctx.font="12px Consolas";
+  ctx.fillText(`${fmt(lengthX,1)}m × ${fmt(lengthY,1)}m  center=(${fmt(d.center_x,1)}, ${fmt(d.center_y,1)})`,18,c.height-10);
+  drawHint(ctx,"elevationCanvas");
+}
+
 function setupInteractiveCanvas(canvasId, redrawFn) {
   const c = $(canvasId), st = viewState[canvasId];
   if (!c || !st) return;
@@ -417,7 +947,7 @@ function setupInteractiveCanvas(canvasId, redrawFn) {
   window.addEventListener("mouseup", () => { st.dragging = false; });
   c.addEventListener("dblclick", () => resetCanvasView(canvasId));
 }
-function resetCanvasView(canvasId) { const st = viewState[canvasId]; if (!st) return; st.scale = 1; st.tx = 0; st.ty = 0; drawCostmap(); drawScan(); }
+function resetCanvasView(canvasId) { const st = viewState[canvasId]; if (!st) return; st.scale = 1; st.tx = 0; st.ty = 0; drawCostmap(); drawScan(); drawElevationMap(); }
 function applyView(ctx, canvasId) { const st = viewState[canvasId]; ctx.translate(st.tx, st.ty); ctx.scale(st.scale, st.scale); }
 function drawHint(ctx, canvasId) {
   const st = viewState[canvasId];
@@ -641,12 +1171,18 @@ async function postApi(path) {
 
 async function startProcess(name) {
   if (name === "camera") await postApi("/api/start_camera");
-  else if (name === "nav") await postApi("/api/start_nav");
+  else if (name === "ins") await postApi("/api/start_ins");
+  else if (name === "real_nav") await postApi("/api/start_real_nav");
+  else if (name === "costmap") await postApi("/api/start_costmap");
+  else if (name === "lidar") await postApi("/api/start_lidar");
 }
 
 async function stopProcess(name) {
   if (name === "camera") await postApi("/api/stop_camera");
-  else if (name === "nav") await postApi("/api/stop_nav");
+  else if (name === "ins") await postApi("/api/stop_ins");
+  else if (name === "real_nav") await postApi("/api/stop_real_nav");
+  else if (name === "costmap") await postApi("/api/stop_costmap");
+  else if (name === "lidar") await postApi("/api/stop_lidar");
 }
 
 async function refreshProcessStatus() {
@@ -662,19 +1198,37 @@ async function refreshProcessStatus() {
 function renderProcessStatus(processes, message) {
   if (!processes) return;
   const cam = processes.camera || {};
-  const nav = processes.nav || {};
+  const ins = processes.ins || {};
+  const realNav = processes.real_nav || {};
+  const costmap = processes.costmap || {};
+  const lidar = processes.lidar || {};
   if ($("cameraProcState")) {
     $("cameraProcState").textContent = cam.running ? `相机节点：运行中 pid=${cam.pid}` : "相机节点：未运行";
   }
-  if ($("navProcState")) {
-    $("navProcState").textContent = nav.running ? `点云/导航：运行中 pid=${nav.pid}` : "点云/导航：未运行";
+  if ($("insProcState")) {
+    $("insProcState").textContent = ins.running ? `1X 惯导：运行中 pid=${ins.pid}` : "1X 惯导：未运行";
   }
+  if ($("realNavProcState")) {
+    $("realNavProcState").textContent = realNav.running ? `纯实车导航：运行中 pid=${realNav.pid}` : "纯实车导航：未运行";
+  }
+  if ($("costmapProcState")) {
+    $("costmapProcState").textContent = costmap.running ? `视觉避障 / 代价地图：运行中 pid=${costmap.pid}` : "视觉避障 / 代价地图：未运行";
+  }
+  const lidarText = lidar.running ? `雷达感知：运行中 pid=${lidar.pid}` : "雷达感知：未运行";
+  if ($("lidarProcState")) $("lidarProcState").textContent = lidarText;
+  if ($("lidarProcStateMirror")) $("lidarProcStateMirror").textContent = lidarText;
   const lines = [];
   if (message) lines.push(`${nowTime()} ${message}`);
   lines.push("[camera]");
   (cam.logs || []).slice(-30).forEach(x => lines.push(x));
-  lines.push("[nav]");
-  (nav.logs || []).slice(-60).forEach(x => lines.push(x));
+  lines.push("[1X-INS]");
+  (ins.logs || []).slice(-50).forEach(x => lines.push(x));
+  lines.push("[pure-real-navigation]");
+  (realNav.logs || []).slice(-70).forEach(x => lines.push(x));
+  lines.push("[vision-navigation-costmap]");
+  (costmap.logs || []).slice(-70).forEach(x => lines.push(x));
+  lines.push("[lidar-elevation]");
+  (lidar.logs || []).slice(-80).forEach(x => lines.push(x));
   if ($("nodeLog")) $("nodeLog").textContent = lines.join("\n") || "节点启动日志...";
 }
 
@@ -688,10 +1242,13 @@ async function main() {
   initSatelliteMap();
   setupInteractiveCanvas("costmapCanvas", drawCostmap);
   setupInteractiveCanvas("scanCanvas", drawScan);
+  setupInteractiveCanvas("elevationCanvas", drawElevationMap);
+  setupPointCloudCanvas();
   connectRosbridge();
-  drawCostmap(); drawScan();
+  drawCostmap(); drawScan(); drawPointCloud(); drawElevationMap();
   setInterval(() => { updatePlanStats(); drawScan(); updateInsTimer(); }, 500);
-  setInterval(drawCostmap, 1000);
+  setInterval(() => { drawCostmap(); drawPointCloud(); drawElevationMap(); }, 1000);
+  refreshTargetRecordStatus();
   refreshProcessStatus();
   setInterval(refreshProcessStatus, 2000);
 }

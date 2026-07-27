@@ -186,7 +186,7 @@ echo "[1/3] 启动D435i和YOLO节点……"
 
 roslaunch \
     r300_yolo_detector \
-    r300_system.launch \
+    r300_system_dual.launch \
     enable_web:="${ENABLE_WEB}" \
     web_port:="${WEB_PORT}" \
     web_address:="${WEB_ADDRESS}" &
