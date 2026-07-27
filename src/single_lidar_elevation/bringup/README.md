@@ -41,7 +41,7 @@ roslaunch single_lidar_elevation single_lidar_elevation.launch
 # 常用参数：
 #   lidar_ip:=192_168_1_192       雷达 IP（下划线格式，须与驱动 json 一致，默认即前雷达固定 IP）
 #   user_config_path:=/path/x.json 驱动网络配置，换 IP 时可指向自己的 json
-#   tilt_pitch_deg:=-45           雷达安装俯仰修正；水平安装填 0
+#   tilt_pitch_deg:=-42.3         雷达安装俯仰修正 = -实测俯仰角；水平安装填 0（当前实车 2026-07-27 标定值）
 #   publish_base_link_tf:=false   是否发布 body->base_link 恒等 TF（默认关，见下方 TF 警告）
 #   lio_input_crop:=false         FAST-LIO 输入前裁剪（车体进视场时先标定 crop_front.yaml 再开）
 #   rviz:=true                    打开预配置可视化

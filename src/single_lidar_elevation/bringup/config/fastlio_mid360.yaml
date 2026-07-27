@@ -7,7 +7,8 @@ common:
 preprocess:
     lidar_type: 1                # 1 = Livox 系列
     scan_line: 4
-    blind: 0.2
+    blind: 0.4                   # 2026-07-27 重装后实测：安装支架自体点簇在 r<0.3m（13.6k点/5帧），
+                                 # 原 0.2 挡不住会污染里程计；新安装最近地面 ≈0.72m，0.4 不伤地面。
 
 mapping:
     acc_cov: 0.1

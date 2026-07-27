@@ -8,7 +8,7 @@ lidar_ip="${LIDAR_IP:-192.168.1.192}"
 host_ip="${LIDAR_HOST_IP:-192.168.1.50}"
 network_profile="${LIDAR_PROFILE:-mid360-lidar}"
 rviz_enabled="${RVIZ:-1}"
-tilt_pitch_deg="${TILT_PITCH_DEG:--55.5}"
+tilt_pitch_deg="${TILT_PITCH_DEG:--42.3}"  # 2026-07-27 重装后静置标定值
 lio_input_crop="${LIO_INPUT_CROP:-false}"
 restart_existing="${RESTART_EXISTING:-1}"
 
