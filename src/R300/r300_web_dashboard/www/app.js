@@ -891,11 +891,23 @@ function drawElevationMap() {
   if (drawH>availH) { drawH=availH; drawW=drawH*aspect; }
   const x0=(c.width-drawW)/2, y0=(c.height-drawH)/2;
 
+  // 车头朝上视图：高程图网格是 odom 轴对齐的（不随车旋转），适配器经 FAST-LIO 树
+  // TF 提供 robot_yaw 后，把整幅图绕图心旋转即可让"上=车头"。
+  // 画面映射：上=odom +x、左=odom +y ⇒ canvas rotate(+yaw) 恰好把车头(odom 方位角 yaw)转回正上方。
+  // 注意 JSON null：typeof null === "object"，不能用 Number() 判断（Number(null)===0）。
+  const headingUp = (typeof d.robot_yaw === "number") && Number.isFinite(d.robot_yaw);
+  const yaw = headingUp ? d.robot_yaw : 0;
+  const cx=x0+drawW/2, cy=y0+drawH/2, clipR=Math.min(drawW,drawH)/2;
+
   ctx.save();
   applyView(ctx,"elevationCanvas");
   ctx.imageSmoothingEnabled=false;
+  if (headingUp) {
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx,cy,clipR,0,Math.PI*2); ctx.clip(); // 圆形视窗：旋转时四角不越出面板
+    ctx.translate(cx,cy); ctx.rotate(yaw); ctx.translate(-cx,-cy);
+  }
   ctx.drawImage(off,x0,y0,drawW,drawH);
-  ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5; ctx.strokeRect(x0,y0,drawW,drawH);
 
   if ($("showElevationGrid") && $("showElevationGrid").checked) {
     ctx.strokeStyle="rgba(255,255,255,.22)"; ctx.lineWidth=1;
@@ -907,14 +919,37 @@ function drawElevationMap() {
       [y0+drawH/2-m*sy,y0+drawH/2+m*sy].forEach(y=>{ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x0+drawW,y);ctx.stroke();});
     }
   }
+  if (headingUp) {
+    ctx.restore(); // 结束旋转与圆形裁剪
+    ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(cx,cy,clipR,0,Math.PI*2); ctx.stroke();
+    // odom +x 方位角标（随车转动，供与 rviz/航向对照）：
+    // 未旋转画面中 odom+x 指向"上"(0,-1)，rotate(yaw) 后变为 (sin yaw, -cos yaw)。
+    const rr=clipR-12;
+    ctx.fillStyle="#9fd0ff"; ctx.font="11px Consolas";
+    ctx.fillText("x+", cx + rr*Math.sin(yaw) - 6, cy - rr*Math.cos(yaw) + 4);
+  } else {
+    ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5; ctx.strokeRect(x0,y0,drawW,drawH);
+  }
   if ($("showElevationRobot") && $("showElevationRobot").checked) {
-    drawRobotArrow(ctx,x0+drawW/2,y0+drawH/2,-Math.PI/2,20,"#2563eb","#dbeafe");
+    if (headingUp) {
+      drawRobotArrow(ctx,cx,cy,-Math.PI/2,20,"#2563eb","#dbeafe"); // 车头朝上视图：箭头即车头
+    } else {
+      // 朝向未知（TF 未就绪）：只画位置点，避免固定箭头误导方向
+      ctx.beginPath(); ctx.arc(cx,cy,6,0,Math.PI*2);
+      ctx.fillStyle="#2563eb"; ctx.fill();
+      ctx.lineWidth=2; ctx.strokeStyle="#dbeafe"; ctx.stroke();
+    }
   }
   ctx.restore();
 
   ctx.fillStyle="#eaffc0"; ctx.font="13px Microsoft YaHei";
-  ctx.fillText("前方 x+",c.width/2-28,18);
-  ctx.fillText("左 y+",8,c.height/2);
+  if (headingUp) {
+    ctx.fillText("车头朝上",c.width/2-28,18);
+    ctx.fillText(`yaw ${(yaw*180/Math.PI).toFixed(1)}°`,8,c.height/2);
+  } else {
+    ctx.fillText("odom x+ 朝上（车辆朝向待 TF）",c.width/2-96,18);
+  }
   ctx.fillStyle="#d7f549"; ctx.font="12px Consolas";
   ctx.fillText(`${fmt(lengthX,1)}m × ${fmt(lengthY,1)}m  center=(${fmt(d.center_x,1)}, ${fmt(d.center_y,1)})`,18,c.height-10);
   drawHint(ctx,"elevationCanvas");
