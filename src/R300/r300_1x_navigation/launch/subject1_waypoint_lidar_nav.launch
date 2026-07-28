@@ -33,6 +33,15 @@
   <arg name="sign_config_file"
        default="$(find r300_1x_navigation)/config/subject1_direction_sign.yaml"/>
 
+  <!--
+    比赛保底版自主泊车：全部 GPS 航点完成后自动启动。
+    搜索 park -> 靠近停车区域 -> 搜索 parking_slot
+    -> vehicle 占用筛选 -> 前进驶入空车位。
+  -->
+  <arg name="parking_enabled" default="true"/>
+  <arg name="parking_config_file"
+       default="$(find r300_1x_navigation)/config/subject1_parking.yaml"/>
+
   <arg name="launch_base" default="true"/>
   <arg name="launch_rviz" default="false"/>
   <arg name="auto_start" default="false"/>
@@ -99,6 +108,24 @@
       <param name="pause_service" value="/subject1/pause_waypoints"/>
       <param name="resume_service" value="/subject1/resume_waypoints"/>
       <param name="waypoint_status_topic" value="/subject1/waypoint_status"/>
+    </node>
+  </group>
+
+
+  <group if="$(arg parking_enabled)">
+    <node pkg="r300_1x_navigation"
+          type="parking_manager.py"
+          name="parking_manager"
+          output="screen"
+          required="true">
+      <rosparam command="load" file="$(arg parking_config_file)"/>
+      <param name="enabled" value="true"/>
+      <param name="detections_topic" value="$(arg detections_topic)"/>
+      <param name="waypoint_status_topic" value="/subject1/waypoint_status"/>
+      <param name="cmd_vel_topic" value="/subject1/cmd_vel_raw"/>
+      <param name="move_base_action" value="/move_base"/>
+      <param name="map_frame" value="map"/>
+      <param name="base_frame" value="base_link"/>
     </node>
   </group>
 </launch>

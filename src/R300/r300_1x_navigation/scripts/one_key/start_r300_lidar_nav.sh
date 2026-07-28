@@ -41,6 +41,10 @@ SIGN_GUIDANCE_ENABLED="${SIGN_GUIDANCE_ENABLED:-true}"
 DETECTIONS_TOPIC="${DETECTIONS_TOPIC:-/r300_vision/detections}"
 SIGN_CONFIG_FILE="${SIGN_CONFIG_FILE:-}"
 
+# 全部航点结束后自动执行比赛保底版泊车。默认开启。
+PARKING_ENABLED="${PARKING_ENABLED:-true}"
+PARKING_CONFIG_FILE="${PARKING_CONFIG_FILE:-}"
+
 LAUNCH_BASE="${LAUNCH_BASE:-true}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-true}"
 ODOM_PATH="${ODOM_PATH:-true}"
@@ -84,6 +88,9 @@ usage() {
   --no-sign-guidance       关闭指示牌功能，保持原纯雷达导航
   --detections-topic NAME  指定视觉检测话题
   --sign-config PATH       指定指示牌临时目标参数 YAML
+  --parking                开启航点完成后的自主泊车（默认）
+  --no-parking             关闭自主泊车
+  --parking-config PATH    指定自主泊车参数 YAML
   --lio-map-frame NAME     FAST-LIO 地图坐标系，默认 odom
   --lio-body-frame NAME    FAST-LIO 车体坐标系，默认 body
   --timeout SEC            单项检查超时，默认 60 秒
@@ -94,6 +101,7 @@ usage() {
   ELEVATION_TOPIC, OBSTACLE_SCAN_TOPIC,
   DEBUG_CLOUD_TOPIC, LIO_MAP_FRAME, LIO_BODY_FRAME,
   SIGN_GUIDANCE_ENABLED, DETECTIONS_TOPIC, SIGN_CONFIG_FILE,
+  PARKING_ENABLED, PARKING_CONFIG_FILE,
   READY_TIMEOUT, LIDAR_HOLD_TIME_S,
   LAUNCH_RVIZ, LAUNCH_BASE, ODOM_PATH, SETUP_CAN, AUTO_RUN
 USAGE
@@ -133,6 +141,13 @@ while [[ $# -gt 0 ]]; do
     --sign-config)
       [[ $# -ge 2 ]] || { error "--sign-config 后缺少路径"; exit 2; }
       SIGN_CONFIG_FILE="$2"; shift 2 ;;
+    --parking)
+      PARKING_ENABLED="true"; shift ;;
+    --no-parking)
+      PARKING_ENABLED="false"; shift ;;
+    --parking-config)
+      [[ $# -ge 2 ]] || { error "--parking-config 后缺少路径"; exit 2; }
+      PARKING_CONFIG_FILE="$2"; shift 2 ;;
     --lio-map-frame)
       [[ $# -ge 2 ]] || { error "--lio-map-frame 后缺少坐标系名称"; exit 2; }
       LIO_MAP_FRAME="$2"; shift 2 ;;
@@ -163,6 +178,11 @@ fi
 if [[ "$SIGN_GUIDANCE_ENABLED" != "true" &&
       "$SIGN_GUIDANCE_ENABLED" != "false" ]]; then
   error "SIGN_GUIDANCE_ENABLED 只能是 true 或 false：$SIGN_GUIDANCE_ENABLED"
+  exit 2
+fi
+if [[ "$PARKING_ENABLED" != "true" &&
+      "$PARKING_ENABLED" != "false" ]]; then
+  error "PARKING_ENABLED 只能是 true 或 false：$PARKING_ENABLED"
   exit 2
 fi
 
@@ -258,6 +278,25 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
   SIGN_CONFIG_FILE="$(readlink -f "$SIGN_CONFIG_FILE")"
 fi
 
+if [[ "$PARKING_ENABLED" == "true" ]]; then
+  PARKING_NODE="$PKG_PATH/scripts/parking_manager.py"
+  [[ -f "$PARKING_NODE" ]] || {
+    error "未找到自主泊车节点：$PARKING_NODE"; exit 1;
+  }
+  if [[ ! -x "$PARKING_NODE" ]]; then
+    warn "正在添加执行权限：$PARKING_NODE"
+    chmod +x "$PARKING_NODE"
+  fi
+
+  if [[ -z "$PARKING_CONFIG_FILE" ]]; then
+    PARKING_CONFIG_FILE="$PKG_PATH/config/subject1_parking.yaml"
+  fi
+  [[ -f "$PARKING_CONFIG_FILE" ]] || {
+    error "自主泊车参数文件不存在：$PARKING_CONFIG_FILE"; exit 1;
+  }
+  PARKING_CONFIG_FILE="$(readlink -f "$PARKING_CONFIG_FILE")"
+fi
+
 REQUIRED_PACKAGES=(
   move_base map_server navfn dwa_local_planner costmap_2d
   grid_map_msgs scout_base robot_state_publisher r300_simulation
@@ -267,9 +306,9 @@ for dependency in "${REQUIRED_PACKAGES[@]}"; do
     error "缺少 ROS 功能包：$dependency"; exit 1;
   }
 done
-if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" || "$PARKING_ENABLED" == "true" ]]; then
   rospack find r300_vision_msgs >/dev/null 2>&1 || {
-    error "开启指示牌功能时缺少 ROS 功能包：r300_vision_msgs"; exit 1;
+    error "开启视觉指示牌或自主泊车时缺少 ROS 功能包：r300_vision_msgs"; exit 1;
   }
 fi
 python3 - <<'PY' >/dev/null 2>&1 || {
@@ -445,6 +484,7 @@ ROSLAUNCH_ARGS=(
   "lio_map_frame:=$LIO_MAP_FRAME"
   "lio_body_frame:=$LIO_BODY_FRAME"
   "sign_guidance_enabled:=$SIGN_GUIDANCE_ENABLED"
+  "parking_enabled:=$PARKING_ENABLED"
   "detections_topic:=$DETECTIONS_TOPIC"
   "auto_start:=false"
   "max_goal_distance_from_origin_m:=$MAX_GOAL_DIST"
@@ -452,6 +492,9 @@ ROSLAUNCH_ARGS=(
 [[ -n "$WAYPOINT_FILE" ]] && ROSLAUNCH_ARGS+=("waypoint_file:=$WAYPOINT_FILE")
 if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
   ROSLAUNCH_ARGS+=("sign_config_file:=$SIGN_CONFIG_FILE")
+fi
+if [[ "$PARKING_ENABLED" == "true" ]]; then
+  ROSLAUNCH_ARGS+=("parking_config_file:=$PARKING_CONFIG_FILE")
 fi
 
 mkdir -p "$LOG_DIR"
@@ -598,6 +641,18 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
     exit 1
   fi
   ok "视觉指示牌临时目标节点已就绪"
+fi
+
+if [[ "$PARKING_ENABLED" == "true" ]]; then
+  wait_message /subject1/parking/state "自主泊车状态"
+  check_topic_type /subject1/parking/state std_msgs/String "自主泊车状态"
+  wait_service /subject1/parking/start "自主泊车手动启动服务"
+  wait_service /subject1/parking/reset "自主泊车复位服务"
+  if ! rosnode list 2>/dev/null | grep -qx '/parking_manager'; then
+    error "自主泊车节点未运行：/parking_manager"
+    exit 1
+  fi
+  ok "自主泊车节点已就绪"
 fi
 
 # ------------------------------ 参数一致性 -----------------------------------

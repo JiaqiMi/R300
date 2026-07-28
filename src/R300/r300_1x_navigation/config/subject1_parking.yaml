@@ -1,0 +1,82 @@
+# 比赛保底版自主泊车参数
+# 流程：航点完成 -> 搜索 park -> 靠近 P 牌 -> 搜索 parking_slot
+#      -> vehicle 占用筛选 -> 前进驶入最近空车位。
+
+enabled: true
+auto_start_on_waypoint_completed: true
+single_use: true
+
+# ROS 接口
+detections_topic: /r300_vision/detections
+waypoint_status_topic: /subject1/waypoint_status
+cmd_vel_topic: /subject1/cmd_vel_raw
+move_base_action: /move_base
+map_frame: map
+base_frame: base_link
+
+# YOLO 类别名称。白框模型训练完成后请确保类别名称与这里一致。
+park_classes:
+  - park
+slot_classes:
+  - parking_slot
+vehicle_classes:
+  - vehicle
+
+# 检测筛选
+park_min_confidence: 0.65
+slot_min_confidence: 0.55
+vehicle_min_confidence: 0.45
+confirm_frames: 3
+confirm_max_gap_s: 0.80
+candidate_match_px: 90
+max_detection_age_s: 0.80
+min_bbox_width_px: 20
+min_bbox_height_px: 20
+min_target_distance_m: 0.40
+max_target_distance_m: 15.0
+
+# 搜索时采用“旋转一小段 -> 停顿看图 -> 再旋转”的方式，避免运动模糊。
+search_angular_speed_radps: 0.28
+search_direction: 1.0
+search_rotate_s: 0.90
+search_pause_s: 0.55
+search_timeout_s: 90.0
+
+# 靠近停车牌与驶入车位
+# 当前 DWA xy_goal_tolerance 较大，因此 P 牌 standoff 设置得较小；
+# move_base 实际往往会在更远处判定到达。
+park_sign_standoff_m: 1.0
+min_approach_travel_m: 0.60
+# 向白框中心方向再延伸一点，提升“部分进入车位”的概率。
+slot_goal_extension_m: 0.80
+goal_timeout_s: 35.0
+action_server_timeout_s: 8.0
+tf_timeout_s: 1.0
+
+# 空车位判定：满足任意一项即视为占用：
+# 1) vehicle 中心落在 parking_slot 检测框内；
+# 2) vehicle 框与 parking_slot 框重叠比例达到阈值；
+# 3) 两者三维平面距离小于 occupied_distance_m。
+vehicle_center_margin_ratio: 0.08
+vehicle_overlap_ratio_threshold: 0.45
+occupied_distance_m: 1.80
+
+# RealSense 相机光学坐标 -> ROS base_link(FLU)
+# 相机：X右、Y下、Z前；base_link：X前、Y左、Z上。
+# Xb=Zc, Yb=-Xc, Zb=-Yc
+camera_to_base_rotation:
+  - 0.0
+  - 0.0
+  - 1.0
+  - -1.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - -1.0
+  - 0.0
+
+# 暂按现有视觉配置：相机位于车体原点前方 0.30m、上方 0.10m。
+camera_in_base_translation_m:
+  - 0.30
+  - 0.00
+  - 0.10

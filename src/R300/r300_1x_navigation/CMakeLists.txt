@@ -99,6 +99,7 @@ catkin_install_python(PROGRAMS
   scripts/vision_obstacle_layer_node.py
   scripts/lidar_obstacle_scan_node.py
   scripts/direction_sign_local_goal.py
+  scripts/parking_manager.py
   scripts/vision_clear_scan_node.py
   scripts/costmap_web_viewer.py
   scripts/dwa_web_tuner.py
