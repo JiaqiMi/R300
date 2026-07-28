@@ -103,7 +103,10 @@ class ElevationMap:
         weight_file = subprocess.getoutput('echo "' + param.weight_file + '"')
         param.load_weights(weight_file)
 
-        if param.use_chainer:
+        if not param.enable_traversability:
+            # R300 补丁：CNN 关闭时不加载网络（torch 后端可省 ~2GB 显存）
+            self.traversability_filter = None
+        elif param.use_chainer:
             self.traversability_filter = get_filter_chainer(param.w1, param.w2, param.w3, param.w_out)
         else:
             self.traversability_filter = get_filter_torch(param.w1, param.w2, param.w3, param.w_out)
@@ -372,27 +375,31 @@ class ElevationMap:
 
             if self.param.enable_overlap_clearance:
                 self.clear_overlap_map(t)
-            # dilation + CNN traversability（R300 补丁：enable_traversability=false 时跳过。
-            # 本项目避障节点用几何陡坡判定，CNN 层无消费者且实测平地误报高，
-            # 关闭可节省整图卷积的 GPU 开销，用于把 map_length 扩到 16m）
+            # R300 补丁：enable_traversability=false 时只跳过 CNN 推理本身。
+            # dilation 与下方 update_normal 必须常开——normal_map 被可见性清除的
+            # 掠射保护使用（custom_kernels.py: fabs(ray·norm)<cleanup_cos_thresh 则
+            # 跳过清除；零法线会让清除整体失效、动态障碍永不消失）。
+            self.traversability_input *= 0.0
+            self.dilation_filter_kernel(
+                self.elevation_map[5],
+                self.elevation_map[2] + self.elevation_map[6],
+                self.traversability_input,
+                self.traversability_mask_dummy,
+                size=(self.cell_n * self.cell_n),
+            )
             if self.param.enable_traversability:
-                self.traversability_input *= 0.0
-                self.dilation_filter_kernel(
-                    self.elevation_map[5],
-                    self.elevation_map[2] + self.elevation_map[6],
-                    self.traversability_input,
-                    self.traversability_mask_dummy,
-                    size=(self.cell_n * self.cell_n),
-                )
                 # calculate traversability
                 traversability = self.traversability_filter(self.traversability_input)
                 self.elevation_map[3][3:-3, 3:-3] = traversability.reshape(
                     (traversability.shape[2], traversability.shape[3])
                 )
+            else:
+                # CNN 关闭：traversability 层置 1.0（全图可通行），保持漂移补偿的
+                # 门（error_counting_kernel: map_t > traversability_inlier=0.9）正常工作。
+                self.elevation_map[3][3:-3, 3:-3] = 1.0
 
-        # calculate normal vectors（normal_x/y/z 层同样无消费者，随开关一并跳过）
-        if self.param.enable_traversability:
-            self.update_normal(self.traversability_input)
+        # calculate normal vectors
+        self.update_normal(self.traversability_input)
 
     def clear_overlap_map(self, t):
         """Clear overlapping areas around the map center.
