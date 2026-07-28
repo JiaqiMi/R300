@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+from urllib.parse import parse_qs, urlparse
 from collections import deque
 from datetime import datetime
 try:
@@ -43,9 +44,10 @@ LOGS = {
     "lidar_nav": deque(maxlen=300),
     "lidar": deque(maxlen=320),
     "lidar_display": deque(maxlen=220),
+    "target_recorder": deque(maxlen=260),
 }
 TARGET_RECORD_LOCK = threading.RLock()
-TARGET_RECORDING = {"enabled": False, "path": None, "rows": 0}
+TARGET_RECORD_ROOT = os.path.expanduser(os.environ.get("R300_TARGET_RECORD_DIR", "~/r300_target_records"))
 
 # 点云/代价地图脚本内部按现有方式处理 sudo；网页服务只负责分开启动进程。
 
@@ -141,6 +143,7 @@ def _runtime_flags(nodes=None):
         "sign_guidance": "/direction_sign_local_goal" in nodes,
         "lidar": bool(nodes & lidar_sensor_nodes),
         "lidar_display": "/r300_lidar_web_adapter" in nodes,
+        "target_recorder": "/r300_target_snapshot_recorder" in nodes,
     }
 
 
@@ -275,74 +278,126 @@ def _run_stop_script(name, script_path, success_message, timeout_s=30):
 
 
 
-def _target_record_dir():
-    path = os.path.expanduser("~/.ros/r300_web_dashboard/targets")
-    os.makedirs(path, exist_ok=True)
-    return path
+def _target_record_paths():
+    root = os.path.abspath(os.path.expanduser(TARGET_RECORD_ROOT))
+    candidate_dir = os.path.join(root, "candidate_records")
+    submit_dir = os.path.join(root, "submit_results")
+    return {
+        "root": root,
+        "candidate_dir": candidate_dir,
+        "submit_dir": submit_dir,
+        "candidate_index": os.path.join(candidate_dir, "index.json"),
+        "candidate_summary": os.path.join(candidate_dir, "summary.csv"),
+        "submit_index": os.path.join(submit_dir, "index.json"),
+        "submit_summary": os.path.join(submit_dir, "summary.csv"),
+    }
+
+
+def _read_target_index(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        records = payload.get("records", [])
+        return records if isinstance(records, list) else []
+    except Exception:
+        return []
 
 
 def _target_record_status():
-    with TARGET_RECORD_LOCK:
-        return dict(TARGET_RECORDING)
+    paths = _target_record_paths()
+    candidate_records = _read_target_index(paths["candidate_index"])
+    submit_records = _read_target_index(paths["submit_index"])
+    enabled = _runtime_running("target_recorder")
+
+    display_records = []
+    for rank, record in enumerate(submit_records[:10], start=1):
+        if not isinstance(record, dict):
+            continue
+        item = {
+            "rank": rank,
+            "class_id": record.get("class_id"),
+            "class_name": record.get("class_name", ""),
+            "confidence": record.get("confidence"),
+            "target_latitude": record.get("target_latitude"),
+            "target_longitude": record.get("target_longitude"),
+            "gps_valid": bool(record.get("gps_valid", False)),
+            "heading_valid": bool(record.get("heading_valid", False)),
+            "geolocation_valid": bool(record.get("geolocation_valid", False)),
+            "depth_m": record.get("depth_m"),
+            "record_id": record.get("record_id", ""),
+            "image_file": record.get("image_file", ""),
+        }
+        if item["image_file"]:
+            item["image_url"] = (
+                "/api/target_record/image?scope=submit&file="
+                + str(item["image_file"])
+            )
+        display_records.append(item)
+
+    return {
+        "enabled": enabled,
+        "path": paths["submit_summary"],
+        "rows": len(candidate_records),
+        "output_dir": paths["root"],
+        "candidate_dir": paths["candidate_dir"],
+        "submit_dir": paths["submit_dir"],
+        "candidate_summary": paths["candidate_summary"],
+        "submit_summary": paths["submit_summary"],
+        "candidate_count": len(candidate_records),
+        "submit_count": len(submit_records),
+        "submit_records": display_records,
+    }
 
 
 def _start_target_recording():
-    with TARGET_RECORD_LOCK:
-        if TARGET_RECORDING["enabled"] and TARGET_RECORDING["path"]:
-            return True, "目标本地记录已在运行", dict(TARGET_RECORDING)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(_target_record_dir(), "r300_targets_%s.csv" % stamp)
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            csv.writer(f).writerow([
-                "time", "source_topic", "frame_id", "selected", "class", "confidence",
-                "x_right_m", "y_down_m", "z_forward_m",
-                "vehicle_lat", "vehicle_lon", "vehicle_alt", "heading_deg",
-                "forward_m", "right_m", "north_m", "east_m",
-                "target_lat", "target_lon"
-            ])
-        TARGET_RECORDING.update({"enabled": True, "path": path, "rows": 0})
-        return True, "目标本地记录已开始", dict(TARGET_RECORDING)
+    if _runtime_running("target_recorder"):
+        return True, "比赛目标图片记录器已在运行", _target_record_status()
+    cmd = (
+        "bash ~/r300_ws/src/R300/r300_web_dashboard/"
+        "scripts/web_start_target_recorder.sh"
+    )
+    ok, msg = _start_process("target_recorder", cmd, needs_password=False)
+    if ok:
+        msg = "比赛目标图片记录器正在启动；按 YAML 规则保存图片、JSON、候选库和 Top10"
+    return ok, msg, _target_record_status()
 
 
 def _stop_target_recording():
-    with TARGET_RECORD_LOCK:
-        was_enabled = TARGET_RECORDING["enabled"]
-        TARGET_RECORDING["enabled"] = False
-        msg = "目标本地记录已停止" if was_enabled else "目标本地记录未运行"
-        return True, msg, dict(TARGET_RECORDING)
+    if not _runtime_running("target_recorder") and not _is_running(PROCS.get("target_recorder")):
+        return True, "比赛目标图片记录器未运行", _target_record_status()
+    ok, msg = _run_stop_script(
+        "target_recorder",
+        "~/r300_ws/src/R300/r300_web_dashboard/scripts/web_stop_target_recorder.sh",
+        "比赛目标图片记录器已停止；已保存结果保留在磁盘",
+        timeout_s=20,
+    )
+    return ok, msg, _target_record_status()
 
 
 def _append_target_records(records):
-    if not isinstance(records, list):
-        return False, "records 必须是数组", _target_record_status()
-    with TARGET_RECORD_LOCK:
-        if not TARGET_RECORDING["enabled"] or not TARGET_RECORDING["path"]:
-            return False, "目标本地记录未启动", dict(TARGET_RECORDING)
-        rows = []
-        for item in records[:200]:
-            if not isinstance(item, dict):
-                continue
-            rows.append([
-                item.get("time", ""), item.get("source_topic", ""), item.get("frame_id", ""),
-                item.get("selected", ""), item.get("class", ""), item.get("confidence", ""),
-                item.get("x", ""), item.get("y", ""), item.get("z", ""),
-                item.get("vehicle_lat", ""), item.get("vehicle_lon", ""), item.get("vehicle_alt", ""),
-                item.get("heading_deg", ""), item.get("forward_m", ""), item.get("right_m", ""),
-                item.get("north_m", ""), item.get("east_m", ""),
-                item.get("target_lat", ""), item.get("target_lon", "")
-            ])
-        if rows:
-            with open(TARGET_RECORDING["path"], "a", newline="", encoding="utf-8-sig") as f:
-                csv.writer(f).writerows(rows)
-            TARGET_RECORDING["rows"] += len(rows)
-        return True, "已写入 %d 条目标" % len(rows), dict(TARGET_RECORDING)
+    # 旧版浏览器逐帧 CSV 录制已停用。正式本地记录由
+    # target_snapshot_recorder.py 负责，避免每帧重复写入数千条。
+    return False, "浏览器逐帧CSV本地录制已停用，请使用比赛目标图片记录器", _target_record_status()
+
+
+def _safe_target_image_path(scope, filename):
+    paths = _target_record_paths()
+    base = paths["submit_dir"] if scope == "submit" else paths["candidate_dir"]
+    base = os.path.abspath(base)
+    requested = os.path.abspath(os.path.join(base, str(filename)))
+    if requested != base and not requested.startswith(base + os.sep):
+        return None
+    if not os.path.isfile(requested):
+        return None
+    return requested
+
 
 def _process_status():
     nodes = _ros_nodes_snapshot()
     runtime = _runtime_flags(nodes)
     result = {}
     with PROC_LOCK:
-        for name in ("camera", "ins", "real_nav", "costmap", "lidar_nav", "lidar", "lidar_display"):
+        for name in ("camera", "ins", "real_nav", "costmap", "lidar_nav", "lidar", "lidar_display", "target_recorder"):
             proc = PROCS.get(name)
             tracked_running = bool(_is_running(proc))
             runtime_running = bool(runtime.get(name, False))
@@ -387,6 +442,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_binary_file(self, path, content_type="application/octet-stream"):
+        try:
+            size = os.path.getsize(path)
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with open(path, "rb") as f:
+                while True:
+                    chunk = f.read(1024 * 256)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except Exception as exc:
+            self._send_json({"ok": False, "message": str(exc)}, code=500)
+
     def _read_json_body(self, max_bytes=2 * 1024 * 1024):
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -398,11 +469,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         return json.loads(raw.decode("utf-8"))
 
     def do_GET(self):
-        if self.path.startswith("/api/process_status"):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/process_status":
             self._send_json({"ok": True, "processes": _process_status()})
             return
-        if self.path.startswith("/api/target_record/status"):
+        if parsed.path == "/api/target_record/status":
             self._send_json({"ok": True, "recording": _target_record_status()})
+            return
+        if parsed.path == "/api/target_record/image":
+            query = parse_qs(parsed.query)
+            scope = str((query.get("scope") or ["submit"])[0])
+            filename = str((query.get("file") or [""])[0])
+            path = _safe_target_image_path(scope, filename)
+            if not path:
+                self._send_json({"ok": False, "message": "目标图片不存在或路径无效"}, code=404)
+                return
+            self._send_binary_file(path, content_type="image/jpeg")
             return
         return SimpleHTTPRequestHandler.do_GET(self)
 
@@ -602,6 +684,7 @@ def main():
         _stop_process("ins")
         _stop_process("lidar")
         _stop_process("lidar_display")
+        _stop_process("target_recorder")
     except Exception:
         pass
     httpd.shutdown()

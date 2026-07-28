@@ -40,8 +40,6 @@ let latestTargetPointMsg = null;
 let targetRecords = [];
 let targetLocalRecording = false;
 let targetLocalStatus = {enabled: false, path: null, rows: 0};
-let pendingTargetRecords = [];
-let targetFlushTimer = null;
 let safetyState = {limit: null, estop: null};
 let insGpsFirstValidMs = null;
 let insGpsLastMsg = null;
@@ -708,7 +706,6 @@ function updateDetections(m) {
   if (targetRecords.length > 10000) targetRecords = targetRecords.slice(-10000);
   if ($('detections')) $('detections').textContent = `frame=${frameId || '--'}\n` + lines.join('\n');
   renderTargetRecordStatus();
-  if (frameRecords.length) queueTargetRecords(frameRecords);
   renderTargetPoint();
 }
 
@@ -792,7 +789,6 @@ function updateTargetFeedback(msg) {
     }
   }
   renderTargetRecordStatus();
-  if (frameRecords.length) queueTargetRecords(frameRecords);
   renderTargetPoint();
 }
 
@@ -861,10 +857,64 @@ function downloadTargetsCsv() {
   downloadText(`r300_targets_${timestampName()}.csv`, rows.join('\n'));
 }
 
+function escapeHtml(text) {
+  return String(text === null || text === undefined ? '' : text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderSavedTargetGallery() {
+  const box = $('targetSavedGallery');
+  if (!box) return;
+  const records = Array.isArray(targetLocalStatus.submit_records)
+    ? targetLocalStatus.submit_records
+    : [];
+  if (!records.length) {
+    box.innerHTML = '<div class="saved-target-empty">当前尚无满足规则的提交候选图</div>';
+    return;
+  }
+  box.innerHTML = records.map((r, index) => {
+    const cls = escapeHtml(r.class_name || `class_${r.class_id ?? '?'}`);
+    const lat = Number(r.target_latitude);
+    const lon = Number(r.target_longitude);
+    const geo = Number.isFinite(lat) && Number.isFinite(lon)
+      ? `${lat.toFixed(8)}, ${lon.toFixed(8)}`
+      : '经纬度无效';
+    const conf = Number(r.confidence);
+    const url = escapeHtml((r.image_url || '') + `&ts=${encodeURIComponent(r.record_id || index)}`);
+    return `
+      <article class="saved-target-card">
+        ${url ? `<img src="${url}" alt="${cls}" loading="lazy">` : ''}
+        <div><b>#${Number(r.rank || index + 1)} ${cls}</b></div>
+        <div>conf=${Number.isFinite(conf) ? conf.toFixed(3) : '--'}</div>
+        <div>${escapeHtml(geo)}</div>
+      </article>`;
+  }).join('');
+}
+
 function renderTargetRecordStatus() {
-  const localText = targetLocalStatus.enabled ? `本地记录中 ${targetLocalStatus.rows || 0} 条` : `本地已停 ${targetLocalStatus.rows || 0} 条`;
-  if ($('targetRecordInfo')) $('targetRecordInfo').textContent = `浏览器 ${targetRecords.length} 条；${localText}`;
-  if ($('targetRecordFile')) $('targetRecordFile').textContent = targetLocalStatus.path || '--';
+  const enabled = Boolean(targetLocalStatus.enabled);
+  const candidateCount = Number(targetLocalStatus.candidate_count || 0);
+  const submitCount = Number(targetLocalStatus.submit_count || 0);
+  const localText = enabled
+    ? `比赛图片记录中：候选 ${candidateCount}，提交 ${submitCount}/10`
+    : `比赛图片记录已停：候选 ${candidateCount}，提交 ${submitCount}/10`;
+  if ($('targetRecordInfo')) {
+    $('targetRecordInfo').textContent = `浏览器显示历史 ${targetRecords.length} 条；${localText}`;
+  }
+  if ($('targetRecordFile')) {
+    $('targetRecordFile').textContent = targetLocalStatus.submit_summary || targetLocalStatus.path || '--';
+  }
+  if ($('targetCandidateFile')) {
+    $('targetCandidateFile').textContent = targetLocalStatus.candidate_summary || '--';
+  }
+  if ($('targetRecorderState')) {
+    $('targetRecorderState').textContent = enabled ? '运行中' : '已停止';
+  }
+  renderSavedTargetGallery();
 }
 
 async function targetRecordApi(path, body = null) {
@@ -883,33 +933,34 @@ async function targetRecordApi(path, body = null) {
 }
 
 async function startTargetRecording() {
-  try { await targetRecordApi('/api/target_record/start'); }
-  catch (e) { appendNodeLog(`${nowTime()} 启动目标记录失败：${e}`); }
+  try {
+    await targetRecordApi('/api/target_record/start');
+    // roslaunch启动需要短暂时间，随后根据真实ROS节点与磁盘索引刷新状态。
+    setTimeout(refreshTargetRecordStatus, 600);
+    setTimeout(refreshTargetRecordStatus, 1800);
+  } catch (e) {
+    appendNodeLog(`${nowTime()} 启动比赛目标图片记录失败：${e}`);
+  }
 }
 
 async function stopTargetRecording() {
-  try { await flushTargetRecords(); await targetRecordApi('/api/target_record/stop'); }
-  catch (e) { appendNodeLog(`${nowTime()} 停止目标记录失败：${e}`); }
-}
-
-function queueTargetRecords(records) {
-  if (!targetLocalRecording) return;
-  pendingTargetRecords.push(...records);
-  if (pendingTargetRecords.length > 500) pendingTargetRecords = pendingTargetRecords.slice(-500);
-  if (!targetFlushTimer) targetFlushTimer = setTimeout(flushTargetRecords, 500);
-}
-
-async function flushTargetRecords() {
-  if (targetFlushTimer) { clearTimeout(targetFlushTimer); targetFlushTimer = null; }
-  if (!targetLocalRecording || !pendingTargetRecords.length) return;
-  const batch = pendingTargetRecords.splice(0, 200);
-  try { await targetRecordApi('/api/target_record/append', {records: batch}); }
-  catch (e) {
-    pendingTargetRecords.unshift(...batch);
-    appendNodeLog(`${nowTime()} 写入目标记录失败：${e}`);
+  // 先立即更新浏览器状态，防止停止请求过程中继续被误认为“记录中”。
+  targetLocalRecording = false;
+  targetLocalStatus = {...targetLocalStatus, enabled: false};
+  renderTargetRecordStatus();
+  try {
+    await targetRecordApi('/api/target_record/stop');
+    setTimeout(refreshTargetRecordStatus, 500);
+  } catch (e) {
+    appendNodeLog(`${nowTime()} 停止比赛目标图片记录失败：${e}`);
+    await refreshTargetRecordStatus();
   }
-  if (pendingTargetRecords.length && targetLocalRecording) targetFlushTimer = setTimeout(flushTargetRecords, 700);
 }
+
+// 兼容旧页面调用：正式本地保存不再逐帧把浏览器记录POST到CSV。
+// 图片、经纬度、去重、候选库和Top10全部由target_snapshot_recorder.py处理。
+function queueTargetRecords(_records) {}
+async function flushTargetRecords() {}
 
 async function refreshTargetRecordStatus() {
   try {
@@ -1780,6 +1831,7 @@ async function main() {
   refreshTargetRecordStatus();
   refreshProcessStatus();
   setInterval(refreshProcessStatus, 2500);
+  setInterval(refreshTargetRecordStatus, 2000);
 
   window.addEventListener("online", () => { ensureRosbridgeConnected(); setVideoUrl(true); });
   document.addEventListener("visibilitychange", () => {

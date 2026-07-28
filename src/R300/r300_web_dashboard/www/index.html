@@ -6,6 +6,13 @@
   <title>别打了我是酱油</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
+  <style>
+    .saved-target-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:14px}
+    .saved-target-card{border:1px solid rgba(168,255,52,.25);border-radius:12px;padding:10px;background:#031207;color:#dff7c8;font-family:Consolas,monospace;overflow:hidden}
+    .saved-target-card img{width:100%;height:120px;object-fit:cover;border-radius:8px;background:#000;margin-bottom:8px}
+    .saved-target-card div{margin:3px 0;overflow-wrap:anywhere}
+    .saved-target-empty{padding:16px;border:1px dashed rgba(168,255,52,.25);border-radius:10px;color:#a9c88f}
+  </style>
 </head>
 <body>
   <header class="topbar">
@@ -204,15 +211,18 @@
     <section class="card detection-card">
       <div class="card-title"><h2>目标回传 / 视觉检测</h2><span id="detectionCount">--</span></div>
       <div class="target-actions">
-        <button class="kiwi" onclick="startTargetRecording()">开始本地记录</button>
-        <button class="soft" onclick="stopTargetRecording()">停止本地记录</button>
+        <button class="kiwi" onclick="startTargetRecording()">开始比赛图片记录</button>
+        <button class="soft" onclick="stopTargetRecording()">停止比赛图片记录</button>
         <button class="soft" onclick="downloadTargetsCsv()">下载浏览器CSV</button>
         <button class="soft" onclick="clearTargetRecords()">清空浏览器记录</button>
         <span id="targetRecordInfo" class="proc-state">浏览器 0 条；本地未记录</span>
       </div>
       <div class="kv"><span>统一实时回传</span><b>/r300_vision/target_feedback_json</b></div>
       <div class="kv"><span>目标经纬度计算</span><b id="targetGeoStatus">等待目标回传节点、惯导定位、航向和三维目标</b></div>
-      <div class="kv"><span>本地保存文件</span><b id="targetRecordFile">--</b></div>
+      <div class="kv"><span>图片记录器状态</span><b id="targetRecorderState">已停止</b></div>
+      <div class="kv"><span>候选结果 CSV</span><b id="targetCandidateFile">--</b></div>
+      <div class="kv"><span>Top10 提交 CSV</span><b id="targetRecordFile">--</b></div>
+      <div id="targetSavedGallery" class="saved-target-gallery"><div class="saved-target-empty">当前尚无满足规则的提交候选图</div></div>
       <pre id="detections">等待 /r300_vision/detections ...</pre>
       <pre id="targetPoint">等待 /r300_vision/target_point ...</pre>
     </section>
