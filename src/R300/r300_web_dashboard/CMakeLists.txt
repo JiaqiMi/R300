@@ -15,6 +15,7 @@ install(PROGRAMS
   scripts/web_start_lidar_nav.sh
   scripts/web_stop_lidar_nav.sh
   scripts/web_start_lidar_elevation.sh
+  scripts/web_start_lidar_display.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

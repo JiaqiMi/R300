@@ -1,30 +1,46 @@
 <launch>
-  <!-- 仅由 Web 按钮调用：单 MID-360 驱动 + FAST-LIO + GPU 高程图 + 轻量 Web 显示适配。 -->
+  <!--
+    Web 雷达功能拆分：
+      1) start_sensor_stack=true：MID-360 + FAST-LIO + GPU 高程计算；
+      2) start_web_adapter=true：把点云/高程压缩成 rosbridge JSON 话题。
+
+    默认只启动雷达感知，不向浏览器传输点云/高程。需要查看时，由网页
+    “显示点云 / 高程”按钮单独启动 Web 适配器。
+  -->
+  <arg name="start_sensor_stack" default="true"/>
+  <arg name="start_web_adapter" default="false"/>
+
   <arg name="lidar_ip" default="192_168_1_192"/>
   <arg name="user_config_path" default="$(find single_lidar_elevation)/config/MID360_single.json"/>
-  <arg name="tilt_pitch_deg" default="-42.3"/> <!-- 2026-07-27 重装后静置标定值，与 bringup launch 保持一致，勿回退成 -55.5 -->
+  <arg name="tilt_pitch_deg" default="-42.3"/>
   <arg name="lio_input_crop" default="false"/>
 
-  <include file="$(find single_lidar_elevation)/launch/single_lidar_elevation.launch">
-    <arg name="lidar_ip" value="$(arg lidar_ip)"/>
-    <arg name="user_config_path" value="$(arg user_config_path)"/>
-    <arg name="tilt_pitch_deg" value="$(arg tilt_pitch_deg)"/>
-    <arg name="publish_base_link_tf" value="false"/>
-    <arg name="lio_input_crop" value="$(arg lio_input_crop)"/>
-    <arg name="rviz" value="false"/>
-  </include>
+  <group if="$(arg start_sensor_stack)">
+    <include file="$(find single_lidar_elevation)/launch/single_lidar_elevation.launch">
+      <arg name="lidar_ip" value="$(arg lidar_ip)"/>
+      <arg name="user_config_path" value="$(arg user_config_path)"/>
+      <arg name="tilt_pitch_deg" value="$(arg tilt_pitch_deg)"/>
+      <arg name="publish_base_link_tf" value="false"/>
+      <arg name="lio_input_crop" value="$(arg lio_input_crop)"/>
+      <arg name="rviz" value="false"/>
+    </include>
+  </group>
 
-  <!-- 只压缩并转发显示数据，不参与雷达、FAST-LIO、高程图或导航计算。 -->
-  <node pkg="r300_web_dashboard" type="lidar_web_adapter.py"
+  <!--
+    只负责显示数据压缩，不参与雷达、FAST-LIO、高程图或导航计算。
+    使用较低的发布量，避免 rosbridge 9090 与浏览器被大 JSON 持续占用。
+  -->
+  <node if="$(arg start_web_adapter)"
+        pkg="r300_web_dashboard" type="lidar_web_adapter.py"
         name="r300_lidar_web_adapter" output="screen" required="false">
     <param name="cloud_topic" value="/cloud_registered_body"/>
     <param name="elevation_topic" value="/elevation_mapping/elevation_map_raw"/>
     <param name="cloud_output_topic" value="/r300_web/lidar_points_json"/>
     <param name="elevation_output_topic" value="/r300_web/elevation_json"/>
-    <param name="max_cloud_points" value="6000"/>
-    <param name="cloud_publish_hz" value="2.0"/>
+    <param name="max_cloud_points" value="3000"/>
+    <param name="cloud_publish_hz" value="1.0"/>
     <param name="elevation_publish_hz" value="1.0"/>
-    <param name="elevation_max_dim" value="150"/>
+    <param name="elevation_max_dim" value="100"/>
     <param name="cloud_max_range_m" value="35.0"/>
   </node>
 </launch>

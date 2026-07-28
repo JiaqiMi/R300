@@ -7,13 +7,13 @@ DWAPlannerROS:
 
   # ---------------- 速度限制 ----------------
   # 仅作为开阔区域最高速度。
-  max_vel_x: 0.80
+  max_vel_x: 1.50
   min_vel_x: 0.00
 
   max_vel_y: 0.00
   min_vel_y: 0.00
 
-  max_vel_trans: 0.80
+  max_vel_trans: 1.50
   min_vel_trans: 0.05
 
   # 只有实车可以稳定达到时才使用0.45。
@@ -53,7 +53,7 @@ DWAPlannerROS:
   # 允许更明显地离开穿过障碍的全局直线路径。
   path_distance_bias: 24.0
   goal_distance_bias: 18.0
-  occdist_scale: 0.15
+  occdist_scale: 0.25
 
   # 保留少量前视引导，但避免0.30造成过度回正。
   forward_point_distance: 0.30
