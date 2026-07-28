@@ -42,6 +42,7 @@ LOGS = {
     "costmap": deque(maxlen=260),
     "lidar_nav": deque(maxlen=300),
     "lidar": deque(maxlen=320),
+    "lidar_display": deque(maxlen=220),
 }
 TARGET_RECORD_LOCK = threading.RLock()
 TARGET_RECORDING = {"enabled": False, "path": None, "rows": 0}
@@ -87,6 +88,63 @@ def _reader_thread(name, proc):
 
 def _is_running(proc):
     return proc is not None and proc.poll() is None
+
+
+
+
+def _ros_nodes_snapshot():
+    """Return current ROS node names without trusting Web child-process memory.
+
+    Browser refresh does not restart ROS nodes, and the dashboard server may also
+    be restarted independently.  PROCS therefore cannot be the sole source of
+    truth for subsystem status.
+    """
+    try:
+        result = subprocess.run(
+            ["rosnode", "list"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=1.5,
+            universal_newlines=True,
+        )
+        if result.returncode != 0:
+            return set()
+        return {line.strip() for line in (result.stdout or "").splitlines() if line.strip()}
+    except Exception:
+        return set()
+
+
+def _runtime_flags(nodes=None):
+    """Infer subsystem state from actual ROS nodes.
+
+    This is intentionally read-only: it never starts, stops, or restarts nodes.
+    """
+    nodes = _ros_nodes_snapshot() if nodes is None else set(nodes)
+
+    camera_nodes = {
+        "/r300_dual_yolo_depth_node",
+        "/camera/realsense2_camera",
+        "/camera/realsense2_camera_manager",
+    }
+    lidar_sensor_nodes = {
+        "/livox_lidar_publisher2",
+        "/laserMapping",
+        "/elevation_mapping",
+    }
+
+    return {
+        "camera": bool(nodes & camera_nodes),
+        "ins": "/one_x_serial_driver" in nodes,
+        "real_nav": False,
+        "costmap": "/move_base" in nodes and "/vision_obstacle_layer_node" in nodes,
+        "lidar_nav": "/move_base" in nodes and "/lidar_obstacle_scan_node" in nodes,
+        "lidar": bool(nodes & lidar_sensor_nodes),
+        "lidar_display": "/r300_lidar_web_adapter" in nodes,
+    }
+
+
+def _runtime_running(name):
+    return bool(_runtime_flags().get(name, False))
 
 
 def _start_process(name, command, needs_password=False):
@@ -279,17 +337,23 @@ def _append_target_records(records):
         return True, "已写入 %d 条目标" % len(rows), dict(TARGET_RECORDING)
 
 def _process_status():
+    nodes = _ros_nodes_snapshot()
+    runtime = _runtime_flags(nodes)
+    result = {}
     with PROC_LOCK:
-        out = {}
-        for name in ("camera", "ins", "real_nav", "costmap", "lidar_nav", "lidar"):
+        for name in ("camera", "ins", "real_nav", "costmap", "lidar_nav", "lidar", "lidar_display"):
             proc = PROCS.get(name)
-            out[name] = {
-                "running": bool(_is_running(proc)),
-                "pid": None if proc is None else proc.pid,
+            tracked_running = bool(_is_running(proc))
+            runtime_running = bool(runtime.get(name, False))
+            result[name] = {
+                "running": tracked_running or runtime_running,
+                "tracked_running": tracked_running,
+                "runtime_detected": runtime_running,
+                "pid": proc.pid if tracked_running else None,
                 "returncode": None if proc is None else proc.poll(),
-                "logs": list(LOGS.get(name, []))[-30:],
+                "logs": list(LOGS.get(name, [])),
             }
-        return out
+    return result
 
 
 class DashboardHandler(SimpleHTTPRequestHandler):
@@ -333,8 +397,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?", 1)[0]
         if path == "/api/start_camera":
-            cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_camera.sh"
-            ok, msg = _start_process("camera", cmd, needs_password=False)
+            if _runtime_running("camera"):
+                ok, msg = False, "相机/视觉 ROS 节点已在运行，未重复启动"
+            else:
+                cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_camera.sh"
+                ok, msg = _start_process("camera", cmd, needs_password=False)
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/start_ins":
@@ -382,8 +449,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/start_lidar":
-            cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_lidar_elevation.sh"
-            ok, msg = _start_process("lidar", cmd, needs_password=False)
+            if _runtime_running("lidar"):
+                ok, msg = False, "雷达感知/高程 ROS 节点已在运行，未重复启动"
+            else:
+                cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_lidar_elevation.sh"
+                ok, msg = _start_process("lidar", cmd, needs_password=False)
+            self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path == "/api/start_lidar_display":
+            if _runtime_running("lidar_display"):
+                ok, msg = False, "点云/高程 Web 适配节点已在运行，未重复启动"
+            else:
+                cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_lidar_display.sh"
+                ok, msg = _start_process("lidar_display", cmd, needs_password=False)
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/stop_camera":
@@ -425,6 +503,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/stop_lidar":
             ok, msg = _stop_process("lidar")
+            self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
+            return
+        if path == "/api/stop_lidar_display":
+            ok, msg = _stop_process("lidar_display")
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/target_record/start":
@@ -476,6 +558,7 @@ def main():
         _stop_process("real_nav")
         _stop_process("ins")
         _stop_process("lidar")
+        _stop_process("lidar_display")
     except Exception:
         pass
     httpd.shutdown()

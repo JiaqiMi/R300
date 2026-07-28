@@ -705,3 +705,37 @@ footer { display: flex; justify-content: space-between; gap: 10px; padding: 10px
   font-size: 12px;
   line-height: 1.55;
 }
+
+/* =========================================================
+ * v23：分区日志 + 雷达显示按需传输
+ * ========================================================= */
+.subsystem-log {
+  width: 100%;
+  min-height: 118px;
+  max-height: 180px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid rgba(151, 234, 34, .18);
+  border-radius: 9px;
+  background: rgba(1, 12, 5, .82);
+  color: #cfe9bd;
+  font: 12px/1.5 Consolas, "JetBrains Mono", monospace;
+}
+.nav-log { min-height: 150px; max-height: 240px; }
+.lidar-log { min-height: 135px; max-height: 220px; }
+.lidar-display-note { margin-top: 10px; }
+.lidar-actions {
+  display: grid !important;
+  grid-template-columns: minmax(190px, auto) minmax(190px, auto) minmax(220px, 1fr);
+  align-items: center;
+  gap: 8px !important;
+}
+.lidar-actions .proc-state { min-width: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 900px) {
+  .lidar-actions { grid-template-columns: 1fr !important; }
+  .subsystem-log { max-height: 240px; }
+}
