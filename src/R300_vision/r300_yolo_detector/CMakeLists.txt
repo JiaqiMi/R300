@@ -27,6 +27,9 @@ catkin_package(
 catkin_install_python(
   PROGRAMS
     scripts/yolo_depth_node.py
+    scripts/dual_yolo_depth_node.py
+    scripts/target_snapshot_recorder.py
+
   DESTINATION
     ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
