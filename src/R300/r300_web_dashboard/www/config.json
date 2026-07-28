@@ -36,6 +36,8 @@
     "scan": "/scan",
     "vision_scan": "/r300_vision/obstacle_scan",
     "active_vision_scan": "/r300_vision/active_obstacle_scan",
+    "lidar_scan": "/r300_lidar/obstacle_scan",
+    "active_lidar_scan": "/r300_lidar/active_obstacle_scan",
     "detections": "/r300_vision/detections",
     "target_point": "/r300_vision/target_point",
     "dynamic_state": "/subject1/dynamic/state",

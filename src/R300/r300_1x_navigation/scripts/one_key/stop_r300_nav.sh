@@ -22,6 +22,7 @@ NODES=(
   /waypoint_executor
   /dwa_odom_adapter
   /vision_obstacle_layer_node
+  /lidar_obstacle_scan_node
   /vision_costmap_scan_node
   /scout_base_node
   /robot_state_publisher

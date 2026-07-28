@@ -97,6 +97,7 @@ catkin_install_python(PROGRAMS
   scripts/ultrasonic_filter_node.py
   scripts/ultrasonic_estop_node.py
   scripts/vision_obstacle_layer_node.py
+  scripts/lidar_obstacle_scan_node.py
   scripts/vision_clear_scan_node.py
   scripts/costmap_web_viewer.py
   scripts/dwa_web_tuner.py
@@ -110,6 +111,7 @@ install(PROGRAMS
   scripts/one_key/start_localization_only.sh
   scripts/one_key/start_real_nav.sh
   scripts/one_key/start_r300_vision_nav.sh
+  scripts/one_key/start_r300_lidar_nav.sh
   scripts/one_key/start_dwa_web_tuner.sh
   scripts/one_key/stop_r300_nav.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

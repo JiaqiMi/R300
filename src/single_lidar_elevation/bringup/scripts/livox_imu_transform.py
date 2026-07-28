@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # 雷达内置 IMU 姿态倾角修正：/livox/imu_filtered -> /imu/data
-# 倾角由 ~tilt_pitch_deg 参数给出（斜装 45° 的前雷达为 -45；水平安装填 0）。
+# 倾角由 ~tilt_pitch_deg 参数给出，约定 = -实测俯仰角（水平安装填 0）。
+# 当前 R300 实车 2026-07-27 标定值为 -42.3（launch 会传入并覆盖本默认值）。
 
 import math
 import numpy as np
@@ -11,7 +12,7 @@ import tf.transformations as tft
 
 rospy.init_node('livox_imu_transform')
 
-tilt_pitch_deg = float(rospy.get_param('~tilt_pitch_deg', -45.0))
+tilt_pitch_deg = float(rospy.get_param('~tilt_pitch_deg', -42.3))
 
 pub = rospy.Publisher('/imu/data', Imu, queue_size=10)
 

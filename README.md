@@ -50,12 +50,13 @@ pass
 
 ## 1X 惯导、导航规划与控制（r300_1x_navigation）
 
-该功能包负责 R300 无人车的 1X 惯导解析、经纬度航点导航、`move_base + Navfn + DWA` 路径规划、视觉障碍接入、仿真调参和运行数据记录。
+该功能包负责 R300 无人车的 1X 惯导解析、经纬度航点管理、`move_base + Navfn + DWA` 路径规划与运动控制，并提供纯实车导航、视觉避障导航、雷达高程避障导航、仿真调参、在线调参和运行数据记录等功能。
 
-当前推荐架构如下：
+当前推荐的基础导航链路如下：
 
 ```text
 独立 1X 解析
+    ↓
 /one_x/odom
     ↓
 dwa_odom_adapter
@@ -67,37 +68,88 @@ move_base + Navfn + DWA
 /subject1/cmd_vel_raw
     ↓
 scout_base_node
+    ↓
+R300 底盘
 ```
 
 视觉避障模式额外增加：
 
 ```text
+RealSense D435i + YOLO
+    ↓
 /r300_vision/detections
+    ↓
+vision_obstacle_layer_node
     ↓
 /r300_vision/obstacle_scan
     ↓
-VisionSnapshotLayer + InflationLayer
+vision_snapshot_layer + InflationLayer
     ↓
 local_costmap
     ↓
 DWA
 ```
 
-纯实车导航和视觉避障导航共同使用 1X、航点执行器、`dwa_odom_adapter` 和 `/subject1/dwa_odom`。两者主要区别为：
+雷达高程避障模式额外增加：
 
-| 模式 | DWA 参数 | 局部障碍 |
-|---|---|---|
-| 纯实车导航 | `config/subject1_dwa.yaml` | 不加载视觉障碍层 |
-| 视觉避障导航 | `config/subject1_dwa_vision.yaml` | 加载 `VisionSnapshotLayer` |
+```text
+Livox MID-360
+    ↓
+FAST-LIO
+    ↓
+/cloud_registered_body
+    ↓
+elevation_mapping
+    ↓
+/elevation_mapping/elevation_map_raw
+    ↓
+lidar_obstacle_scan_node.py
+    ↓
+/r300_lidar/obstacle_scan
+    ↓
+lidar_snapshot_layer + InflationLayer
+    ↓
+local_costmap
+    ↓
+DWA
+```
+
+三种实车导航模式共同使用：
+
+- 1X 惯导定位；
+- `dwa_odom_adapter`；
+- `/subject1/dwa_odom`；
+- `waypoint_executor`；
+- `move_base`；
+- `NavfnROS`；
+- `DWAPlannerROS`；
+- `/subject1/cmd_vel_raw`；
+- `scout_base_node`。
+
+三种模式的主要区别如下：
+
+| 模式 | DWA 参数 | 局部障碍来源 | Local Costmap 配置 |
+|---|---|---|---|
+| 纯实车导航 | `config/subject1_dwa.yaml` | 不加载外部障碍层 | `config/subject1_local_costmap.yaml` |
+| 视觉避障导航 | `config/subject1_dwa_vision.yaml` | RealSense + YOLO | `config/subject1_local_costmap_vision.yaml` |
+| 雷达避障导航 | `config/subject1_dwa_lidar.yaml` | MID-360 + FAST-LIO + 高程图 | `config/subject1_local_costmap_lidar.yaml` |
+
+> 纯实车导航、视觉避障导航和雷达避障导航均会启动独立的 `move_base`、航点执行器和底盘控制节点，三种模式不能同时运行。
 
 ---
 
 ### 1. 编译与权限
 
+编译 `r300_1x_navigation`：
+
 ```bash
 cd ~/r300_ws
 source /opt/ros/noetic/setup.bash
-catkin_make --pkg r300_1x_navigation -DCMAKE_BUILD_TYPE=Release -j4
+
+catkin_make --pkg r300_1x_navigation \
+  -DCMAKE_BUILD_TYPE=Release \
+  -j4
+
 source ~/r300_ws/devel/setup.bash
 ```
 
@@ -109,9 +161,36 @@ chmod +x *.sh
 chmod +x ../*.py
 ```
 
+也可以执行权限修复脚本：
+
+```bash
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
+./fix_permissions.sh
+```
+
+雷达避障节点依赖：
+
+```bash
+sudo apt update
+sudo apt install -y \
+  ros-noetic-grid-map-msgs \
+  python3-numpy \
+  python3-rospkg
+```
+
 ---
 
 ### 2. 推荐启动顺序
+
+所有实车导航模式都建议按照以下顺序启动：
+
+```text
+1. 启动外部传感器或感知节点
+2. 单独启动 1X 惯导解析
+3. 启动对应导航模式
+4. 检查定位、TF、障碍和代价地图
+5. 手动开始航点任务
+```
 
 #### 2.1 单独启动 1X
 
@@ -128,7 +207,14 @@ cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 INS_PORT=/dev/ttyUSB0 ./start_1x.sh
 ```
 
-1X 默认以 `deferred` 模式运行：先发布原始解析数据，导航启动时再由导航脚本调用 `/one_x/set_current_origin`，以当时最新位置建立 ENU 原点。初始方向仍使用 1X 的真实航向，不会强制归零。
+1X 默认以 `deferred` 模式运行。在该模式下：
+
+1. `start_1x.sh` 先启动串口解析；
+2. 1X 持续发布原始惯导数据；
+3. 此时不会立即固定导航原点；
+4. 导航脚本启动时调用 `/one_x/set_current_origin`；
+5. 以导航启动时最新位置建立 ENU 原点；
+6. 初始方向继续使用 1X 的真实航向，不会强制归零。
 
 常用检查：
 
@@ -139,6 +225,19 @@ rostopic echo -n 1 /one_x/attitude
 rostopic echo -n 1 /one_x/ins_status
 ```
 
+检查原点设置服务：
+
+```bash
+rosservice list | grep /one_x/set_current_origin
+```
+
+导航启动后检查：
+
+```bash
+rostopic hz /one_x/odom
+rosrun tf tf_echo odom base_link
+```
+
 #### 2.2 启动纯实车导航
 
 终端 2：
@@ -146,6 +245,12 @@ rostopic echo -n 1 /one_x/ins_status
 ```bash
 cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 ./start_real_nav.sh --no-rviz
+```
+
+启动完成后手动开始航点：
+
+```bash
+rosservice call /subject1/start_waypoints "{}"
 ```
 
 完成检查后自动开始航点：
@@ -158,30 +263,51 @@ cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 
 ```text
 config/subject1_dwa.yaml
+config/subject1_local_costmap.yaml
 ```
 
-临时指定其他 DWA 文件：
+临时指定其他 DWA 参数文件：
 
 ```bash
 ./start_real_nav.sh \
   --no-rviz \
-  --dwa-config ~/r300_ws/src/R300/r300_1x_navigation/config/subject1_dwa_test.yaml
+  --dwa-config \
+  ~/r300_ws/src/R300/r300_1x_navigation/config/subject1_dwa_test.yaml
 ```
+
+纯实车导航不会加载视觉或雷达障碍层，适用于：
+
+- 无障碍场地调试；
+- 航点跟踪测试；
+- 1X 定位与控制验证；
+- DWA 基础参数测试。
 
 #### 2.3 启动视觉避障导航
 
-先确保相机和视觉检测节点已运行：
+首先启动相机和视觉检测系统：
+
+```bash
+~/r300_ws/scripts/start_r300.sh web
+```
+
+检查相机和视觉识别结果：
 
 ```bash
 rostopic hz /camera/color/camera_info
 rostopic hz /r300_vision/detections
 ```
 
-再启动导航：
+再启动视觉避障导航：
 
 ```bash
 cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 ./start_r300_vision_nav.sh --no-rviz
+```
+
+启动完成后手动开始航点：
+
+```bash
+rosservice call /subject1/start_waypoints "{}"
 ```
 
 完成视觉链路检查后自动开始航点：
@@ -196,18 +322,224 @@ cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 ./start_r300_vision_nav.sh --no-base --no-rviz
 ```
 
-视觉导航默认加载：
+视觉避障导航默认加载：
 
 ```text
 config/subject1_dwa_vision.yaml
 config/subject1_local_costmap_vision.yaml
 ```
 
+视觉避障链路：
+
+```text
+/r300_vision/detections
+    ↓
+/r300_vision/obstacle_scan
+    ↓
+vision_snapshot_layer
+    ↓
+/r300_vision/active_obstacle_scan
+    ↓
+local_costmap
+    ↓
+DWA
+```
+
+视觉障碍只进入局部代价地图，不会直接修改 Navfn 生成的全局路径。
+
+#### 2.4 启动雷达点云和高程图
+
+雷达避障导航启动前，必须先启动：
+
+- MID-360 雷达驱动；
+- FAST-LIO；
+- 雷达点云配准；
+- GPU 高程地图。
+
+终端 2：
+
+```bash
+cd ~/r300_ws
+
+LIDAR_INTERFACE=eth1 \
+LIDAR_HOST_IP=192.168.1.50 \
+LIDAR_IP=192.168.1.192 \
+LIDAR_PROFILE=mid360-lidar \
+RVIZ=0 \
+./scripts/start_single_lidar_elevation.sh
+```
+
+其中：
+
+| 参数 | 说明 |
+|---|---|
+| `LIDAR_INTERFACE` | 雷达连接使用的网口 |
+| `LIDAR_HOST_IP` | 工控机雷达网口地址 |
+| `LIDAR_IP` | MID-360 地址 |
+| `LIDAR_PROFILE` | NetworkManager 连接名称 |
+| `RVIZ` | 是否启动雷达 RViz |
+
+启动后检查：
+
+```bash
+rostopic hz /cloud_registered_body
+rostopic hz /Odometry
+rostopic hz /elevation_mapping/elevation_map_raw
+```
+
+检查 FAST-LIO TF：
+
+```bash
+rosrun tf tf_echo odom body
+```
+
+雷达初始化阶段建议保持车辆和雷达静止，等待点云、高程图和 TF 稳定后再启动导航。
+
+#### 2.5 启动雷达避障导航
+
+确认以下内容均已运行：
+
+```text
+1X 惯导解析
+MID-360
+FAST-LIO
+elevation_mapping
+```
+
+关键检查：
+
+```bash
+rostopic hz /one_x/ins_fix
+rostopic hz /cloud_registered_body
+rostopic hz /elevation_mapping/elevation_map_raw
+```
+
+然后启动雷达避障导航：
+
+```bash
+cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
+./start_r300_lidar_nav.sh --no-rviz
+```
+
+启动完成后手动开始航点：
+
+```bash
+rosservice call /subject1/start_waypoints "{}"
+```
+
+完成雷达链路检查后自动开始航点：
+
+```bash
+./start_r300_lidar_nav.sh --no-rviz --run
+```
+
+台架检查、不启动底盘：
+
+```bash
+./start_r300_lidar_nav.sh --no-base --no-rviz
+```
+
+不自动配置 CAN：
+
+```bash
+./start_r300_lidar_nav.sh --no-setup-can --no-rviz
+```
+
+指定其他航点文件：
+
+```bash
+./start_r300_lidar_nav.sh \
+  --no-rviz \
+  --waypoints \
+  ~/r300_ws/src/R300/r300_1x_navigation/config/subject1_waypoints_test.yaml
+```
+
+查看完整参数：
+
+```bash
+./start_r300_lidar_nav.sh --help
+```
+
+雷达避障导航默认加载：
+
+```text
+config/subject1_dwa_lidar.yaml
+config/subject1_local_costmap_lidar.yaml
+```
+
+雷达障碍转换链路：
+
+```text
+/elevation_mapping/elevation_map_raw
+    ↓
+lidar_obstacle_scan_node.py
+    ↓
+/r300_lidar/obstacle_scan
+    ↓
+lidar_snapshot_layer
+    ↓
+/r300_lidar/active_obstacle_scan
+    ↓
+local_costmap
+    ↓
+DWA
+```
+
+雷达障碍转换节点依据高程差与坡度阈值提取正障碍、负障碍、高程突变和陡坡区域。具体检测距离、障碍高度阈值、负障碍阈值和坡度阈值由雷达障碍转换节点参数控制。
+
+#### 2.6 通过 Web 启动雷达避障
+
+启动 R300 Web 控制台：
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/r300_ws/devel/setup.bash
+roslaunch r300_web_dashboard r300_web_dashboard.launch
+```
+
+浏览器访问：
+
+```text
+http://工控机IP:8090
+```
+
+推荐按钮顺序：
+
+```text
+① 启动 1X 惯导
+    ↓
+启动雷达 / 点云 / 高程
+    ↓
+等待点云和高程图刷新
+    ↓
+②C 启动雷达避障 / 代价地图
+    ↓
+开始航点
+```
+
+Web 中雷达导航按钮的调用关系为：
+
+```text
+r300_web_dashboard
+    ↓
+web_start_lidar_nav.sh
+    ↓
+r300_1x_navigation/scripts/one_key/start_r300_lidar_nav.sh
+```
+
+雷达避障导航的正式启动逻辑位于：
+
+```text
+r300_1x_navigation/scripts/one_key/start_r300_lidar_nav.sh
+```
+
+Web 包只保留按钮接口和日志包装，不再保存雷达导航的核心启动逻辑。
+
 ---
 
 ### 3. 航点控制、状态和进度
 
-航点文件：
+默认航点文件：
 
 ```text
 config/subject1_waypoints.yaml
@@ -240,7 +572,7 @@ transition     GOAL_SENT / WAYPOINT_REACHED / PAUSED / FAILED 等
 error          失败原因
 ```
 
-两种导航模式的最大允许航点距离默认统一为 `5000 m`。运行时检查：
+三种导航模式的最大允许航点距离默认统一为 `5000 m`。运行时检查：
 
 ```bash
 rosparam get /waypoint_executor/max_goal_distance_from_origin_m
@@ -250,7 +582,7 @@ rosparam get /waypoint_executor/max_goal_distance_from_origin_m
 
 ### 4. 主要话题
 
-#### 1X 原始与导航数据
+#### 4.1 1X 原始与导航数据
 
 | 话题 | 说明 |
 |---|---|
@@ -265,28 +597,71 @@ rosparam get /waypoint_executor/max_goal_distance_from_origin_m
 | `/one_x/odom` | 1X 位置、姿态和速度 |
 | `/one_x/diagnostics` | 串口、帧校验和状态诊断 |
 
-#### 规划与控制
+#### 4.2 规划与控制
 
 | 话题 | 说明 |
 |---|---|
 | `/subject1/dwa_odom` | DWA 实际使用的速度反馈 |
 | `/subject1/cmd_vel_raw` | DWA 输出到底盘的速度指令 |
 | `/subject1/waypoint_status` | 航点状态和进度 |
-| `/move_base/NavfnROS/plan` | 全局路径 |
+| `/move_base/NavfnROS/plan` | Navfn 全局路径 |
 | `/move_base/DWAPlannerROS/local_plan` | DWA 局部路径 |
 | `/move_base/local_costmap/costmap` | DWA 使用的局部代价地图 |
 
-#### 视觉障碍
+#### 4.3 视觉障碍
 
 | 话题 | 说明 |
 |---|---|
-| `/r300_vision/detections` | 视觉检测结果 |
+| `/r300_vision/detections` | 视觉目标检测结果 |
 | `/r300_vision/obstacle_scan` | 视觉障碍扫描 |
-| `/r300_vision/active_obstacle_scan` | 当前仍有效的障碍扫描 |
+| `/r300_vision/active_obstacle_scan` | 当前仍有效的视觉障碍扫描 |
+
+#### 4.4 雷达点云和高程图
+
+| 话题 | 说明 |
+|---|---|
+| `/cloud_registered_body` | FAST-LIO 配准后的雷达点云 |
+| `/Odometry` | FAST-LIO 输出的雷达里程计 |
+| `/elevation_mapping/elevation_map_raw` | 雷达生成的原始二维高程地图 |
+
+#### 4.5 雷达障碍
+
+| 话题 | 说明 |
+|---|---|
+| `/r300_lidar/obstacle_scan` | 高程地图转换后的障碍 `LaserScan` |
+| `/r300_lidar/obstacle_points` | 雷达检测出的障碍调试点云 |
+| `/r300_lidar/active_obstacle_scan` | 经障碍保持层处理后的有效扫描 |
 
 ---
 
-### 5. DWA Web 仿真调参
+### 5. 三种导航模式的配置文件
+
+#### 5.1 纯实车导航
+
+```text
+config/subject1_dwa.yaml
+config/subject1_local_costmap.yaml
+```
+
+#### 5.2 视觉避障导航
+
+```text
+config/subject1_dwa_vision.yaml
+config/subject1_local_costmap_vision.yaml
+```
+
+#### 5.3 雷达避障导航
+
+```text
+config/subject1_dwa_lidar.yaml
+config/subject1_local_costmap_lidar.yaml
+```
+
+不同导航模式的参数文件相互独立。修改视觉 DWA 参数不会影响雷达模式；修改雷达代价地图参数也不会影响纯实车模式。
+
+---
+
+### 6. DWA Web 仿真调参
 
 启动独立仿真调参台：
 
@@ -311,17 +686,17 @@ ssh -L 8090:127.0.0.1:8090 explorer@工控机IP
 
 - DWA、`move_base`、局部 costmap 和膨胀层参数调节；
 - 单点和多航点任务；
-- 人工添加视觉障碍；
+- 人工添加障碍；
 - 全局路径、局部路径、轨迹和 costmap 显示；
 - 参数、航点和障碍配置导出。
 
-仿真模式不启动 1X、相机、YOLO 和底盘。它与实车导航共用 `/move_base` 等命名空间，**不要与纯实车导航或视觉避障导航同时运行**。
+仿真模式不启动 1X、相机、YOLO、MID-360、FAST-LIO、高程图和实车底盘。它与实车导航共用 `/move_base` 等命名空间，因此不要与纯实车导航、视觉避障导航或雷达避障导航同时运行。
 
 ---
 
-### 6. 实时在线调参
+### 7. 实时在线调参
 
-先启动纯实车导航或视觉避障导航，再另开终端：
+先启动任意一种实车导航模式，再另开终端：
 
 ```bash
 cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
@@ -352,22 +727,25 @@ http://127.0.0.1:8072
 2. 修改需要调整的字段；
 3. 点击“应用已修改项”；
 4. 参数在下一个控制周期或 costmap 更新周期生效；
-5. 调试完成后导出 YAML 或 JSON。
+5. 调试完成后导出 YAML 或 JSON；
+6. 将确认有效的参数手动写回对应配置文件。
 
-在线调参只修改当前 ROS 运行值，**不会自动写回配置文件**。重启导航后会重新加载磁盘中的 YAML。`latch_xy_goal_tolerance` 等非动态参数仍需修改 YAML 后重启。
+在线调参只修改当前 ROS 运行值，不会自动写回配置文件。重启导航后会重新加载磁盘中的 YAML。`latch_xy_goal_tolerance` 等非动态参数仍需修改 YAML 后重启。
 
-实车运动过程中优先调整评分权重和采样参数；速度、加速度、控制频率、膨胀半径和地图尺寸应停车后再修改。
+实车运动过程中优先调整路径评分权重、障碍评分权重、速度和角速度采样数量以及 `sim_time`。最大速度、最大角速度、加速度、控制频率、代价地图尺寸、分辨率、膨胀半径和障碍保持时间应停车后再修改。
 
 ---
 
-### 7. 链路检查
+### 8. 导航链路检查
+
+运行统一检查脚本：
 
 ```bash
 cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 ./check_r300_nav.sh
 ```
 
-关键检查命令：
+关键检查：
 
 ```bash
 rosparam get /move_base/DWAPlannerROS/odom_topic
@@ -386,9 +764,128 @@ rosrun tf tf_echo odom base_link
 /dwa_odom_adapter/output_odom_topic = /subject1/dwa_odom
 ```
 
+检查 CAN：
+
+```bash
+ip -details -statistics link show can0
+timeout 5 candump can0
+```
+
+检查底盘控制节点：
+
+```bash
+rosnode info /scout_base_node
+```
+
 ---
 
-### 8. ROS Bag 记录
+### 9. 视觉避障链路检查
+
+检查视觉输入：
+
+```bash
+rostopic hz /r300_vision/detections
+```
+
+检查障碍转换和保持后的障碍：
+
+```bash
+rostopic hz /r300_vision/obstacle_scan
+rostopic hz /r300_vision/active_obstacle_scan
+```
+
+检查视觉模式 local costmap 插件和参数：
+
+```bash
+rosparam get /move_base/local_costmap/plugins
+rosparam get /move_base/local_costmap/vision_snapshot_layer
+rostopic hz /move_base/local_costmap/costmap
+```
+
+---
+
+### 10. 雷达避障链路检查
+
+#### 10.1 检查雷达网络
+
+```bash
+ip -4 addr show eth1
+ip route get 192.168.1.192
+ping -I eth1 -c 4 192.168.1.192
+```
+
+#### 10.2 检查 MID-360 驱动
+
+```bash
+rostopic list | grep -E 'livox|lidar'
+```
+
+根据实际雷达驱动话题检查频率：
+
+```bash
+rostopic hz /livox/lidar
+```
+
+#### 10.3 检查 FAST-LIO
+
+```bash
+rostopic hz /cloud_registered_body
+rostopic hz /Odometry
+rosrun tf tf_echo odom body
+```
+
+#### 10.4 检查高程地图
+
+```bash
+rostopic hz /elevation_mapping/elevation_map_raw
+rostopic type /elevation_mapping/elevation_map_raw
+```
+
+正常消息类型应为：
+
+```text
+grid_map_msgs/GridMap
+```
+
+#### 10.5 检查雷达障碍转换
+
+```bash
+rostopic hz /r300_lidar/obstacle_scan
+rostopic hz /r300_lidar/obstacle_points
+rostopic echo -n 1 /r300_lidar/obstacle_scan
+```
+
+#### 10.6 检查雷达障碍保持层
+
+```bash
+rostopic hz /r300_lidar/active_obstacle_scan
+```
+
+#### 10.7 检查 local costmap
+
+```bash
+rostopic hz /move_base/local_costmap/costmap
+rosparam get /move_base/local_costmap/plugins
+rosparam get /move_base/local_costmap/lidar_snapshot_layer
+```
+
+正常插件列表应包含：
+
+```text
+lidar_snapshot_layer
+inflation_layer
+```
+
+#### 10.8 检查 DWA
+
+```bash
+rostopic hz /move_base/DWAPlannerROS/local_plan
+rostopic hz /subject1/cmd_vel_raw
+```
+
+---
+
+### 11. ROS Bag 记录
 
 开始记录：
 
@@ -403,7 +900,23 @@ cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 OUT=~/bags/r300_test_01 ./record_r300_bag.sh
 ```
 
-按 `Ctrl+C` 正常结束并写入 bag 索引。默认保存 1X 原始数据、导航里程计、DWA 反馈、速度指令、规划路径、航点状态、视觉障碍和 TF 等关键话题。
+按 `Ctrl+C` 正常结束并写入 bag 索引。默认应记录 1X 原始数据、导航里程计、DWA 反馈、速度指令、规划路径、航点状态、视觉障碍、雷达障碍和 TF 等关键话题。
+
+建议雷达模式重点记录：
+
+```text
+/cloud_registered_body
+/Odometry
+/elevation_mapping/elevation_map_raw
+/r300_lidar/obstacle_scan
+/r300_lidar/obstacle_points
+/r300_lidar/active_obstacle_scan
+/move_base/local_costmap/costmap
+/move_base/DWAPlannerROS/local_plan
+/subject1/cmd_vel_raw
+/tf
+/tf_static
+```
 
 查看记录：
 
@@ -412,11 +925,13 @@ rosbag info ~/bags/文件名.bag
 rqt_bag ~/bags/文件名.bag
 ```
 
+点云和高程地图数据量较大，长时间记录时应关注磁盘空间和写入速度。
+
 ---
 
-### 9. 停止系统
+### 12. 停止系统
 
-只停止导航、保留独立 1X：
+只停止导航，保留独立运行的 1X：
 
 ```bash
 cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
@@ -435,18 +950,55 @@ cd ~/r300_ws/src/R300/r300_1x_navigation/scripts/one_key
 ./stop_r300_nav.sh --with-1x
 ```
 
+雷达模式下执行 `stop_r300_nav.sh` 通常只停止：
+
+- `move_base`；
+- DWA；
+- 航点执行器；
+- `scout_base_node`；
+- 雷达障碍转换节点；
+- 雷达局部障碍层。
+
+不会停止独立启动的：
+
+- MID-360；
+- FAST-LIO；
+- elevation_mapping；
+- Web 点云显示；
+- Web 高程图显示。
+
+如需完全停止雷达感知系统，应在对应雷达启动终端按 `Ctrl+C`。通过 Web 使用时，建议按以下顺序停止：
+
+```text
+停止雷达避障 / 代价地图
+    ↓
+停止雷达 / 点云 / 高程
+    ↓
+停止 1X 惯导
+```
+
 ---
 
-### 10. 使用注意
+### 13. 使用注意
 
-- 先启动 `start_1x.sh`，再启动纯实车或视觉避障导航；
-- 纯实车和视觉避障导航不要同时启动；
-- `scout_base_node` 的 `odom_pub` 应保持关闭，避免与 1X 的 `odom → base_link` 冲突；
-- 两种模式均通过 `dwa_odom_adapter` 使用 `/subject1/dwa_odom`；
-- 纯实车和视觉模式分别使用 `subject1_dwa.yaml` 与 `subject1_dwa_vision.yaml`；
-- Web 仿真参数与在线运行参数互不共享，最终有效配置应写回对应 YAML；
-- 视觉障碍只进入局部代价地图，Navfn 全局路径不会因视觉障碍自动重规划；
-- 实车测试应逐级提速，并始终保留物理急停。
+- 必须先启动 `start_1x.sh`，再启动任意一种实车导航模式；
+- 纯实车、视觉避障和雷达避障导航不能同时运行；
+- 三种模式均使用 `/subject1/dwa_odom` 作为 DWA 速度反馈；
+- `scout_base_node` 的 `odom_pub` 应保持关闭，避免与 1X 发布的 `odom → base_link` 冲突；
+- 纯实车、视觉和雷达模式应分别使用各自的 DWA 和 local costmap 配置；
+- Web 仿真参数、视觉实车参数和雷达实车参数相互独立；
+- 在线调参只修改当前 ROS 参数，不会自动写回 YAML；
+- 视觉障碍和雷达障碍都只进入局部代价地图；
+- Navfn 全局路径不会因为局部视觉或雷达障碍自动重新生成绕障全局路径；
+- 雷达避障启动前必须确认 MID-360、FAST-LIO 和高程图持续正常发布；
+- `/elevation_mapping/elevation_map_raw` 停止发布后，雷达障碍将无法继续更新；
+- FAST-LIO 和 1X 使用不同的里程计链路，雷达点云坐标树必须与导航使用的 `base_link` 正确连接；
+- 不应同时发布多套冲突的 `odom → base_link`；
+- 雷达网络连接、CAN 总线和 1X 串口应分别单独检查；
+- 高程图检测效果受雷达安装角度、地面拟合、点云密度、阈值和车体振动影响；
+- 负障碍检测应先在低速、空旷且有安全保护的环境中测试；
+- 首次运行雷达避障时，建议先使用 `--no-base` 完成静态链路检查；
+- 实车测试应逐级提高速度，并始终保留物理急停。
 
 ---
 

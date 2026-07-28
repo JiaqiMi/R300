@@ -25,3 +25,7 @@ services:
   resume_waypoints: /subject1/resume_waypoints
   cancel_waypoints: /subject1/cancel_waypoints
   skip_waypoint: /subject1/skip_waypoint
+web_lidar_display:
+  points_json: /r300_web/lidar_points_json
+  elevation_json: /r300_web/elevation_json
+  transport: rosbridge_websocket_9090

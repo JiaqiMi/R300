@@ -1,0 +1,76 @@
+<launch>
+  <!--
+    共享 1X 航点导航核心 + 雷达高程图避障。
+
+    结构与 subject1_waypoint_vision_nav.launch 一致：
+      - 公共导航核心：subject1_waypoint_nav.launch
+      - 雷达专用 DWA：subject1_dwa_lidar.yaml
+      - 雷达专用 local costmap：subject1_local_costmap_lidar.yaml
+      - 雷达适配器：subject1_lidar_avoidance.launch
+
+    本 launch 不启动 1X，也不启动 MID-360 / FAST-LIO / 高程图。
+  -->
+  <arg name="can_port" default="can0"/>
+  <arg name="waypoint_file"
+       default="$(find r300_1x_navigation)/config/subject1_waypoints.yaml"/>
+
+  <arg name="lidar_config_file"
+       default="$(find r300_1x_navigation)/config/subject1_lidar_obstacles.yaml"/>
+  <arg name="elevation_topic" default="/elevation_mapping/elevation_map_raw"/>
+  <arg name="obstacle_scan_topic" default="/r300_lidar/obstacle_scan"/>
+  <arg name="debug_cloud_topic" default="/r300_lidar/obstacle_points"/>
+  <arg name="lio_map_frame" default="odom"/>
+  <arg name="lio_body_frame" default="body"/>
+
+  <arg name="launch_base" default="true"/>
+  <arg name="launch_rviz" default="false"/>
+  <arg name="auto_start" default="false"/>
+  <arg name="max_goal_distance_from_origin_m" default="5000.0"/>
+
+  <arg name="dwa_odom_topic" default="/subject1/dwa_odom"/>
+  <arg name="dwa_forward_deadband_mps" default="0.02"/>
+  <arg name="dwa_yaw_rate_deadband_radps" default="0.015"/>
+  <arg name="dwa_forward_filter_tau_s" default="0.10"/>
+  <arg name="dwa_yaw_rate_filter_tau_s" default="0.15"/>
+  <arg name="dwa_max_yaw_rate_radps" default="0.70"/>
+
+  <include file="$(find r300_1x_navigation)/launch/subject1_waypoint_nav.launch">
+    <arg name="can_port" value="$(arg can_port)"/>
+    <arg name="localization_odom_topic" value="/one_x/odom"/>
+    <arg name="origin_topic" value="/one_x/origin"/>
+    <arg name="waypoint_file" value="$(arg waypoint_file)"/>
+    <arg name="launch_base" value="$(arg launch_base)"/>
+    <arg name="launch_lidar" value="false"/>
+    <arg name="launch_rviz" value="$(arg launch_rviz)"/>
+    <arg name="auto_start" value="$(arg auto_start)"/>
+    <arg name="max_goal_distance_from_origin_m"
+         value="$(arg max_goal_distance_from_origin_m)"/>
+
+    <arg name="dwa_config_file"
+         value="$(find r300_1x_navigation)/config/subject1_dwa_lidar.yaml"/>
+    <arg name="local_costmap_config_file"
+         value="$(find r300_1x_navigation)/config/subject1_local_costmap_lidar.yaml"/>
+
+    <arg name="use_dwa_odom_adapter" value="true"/>
+    <arg name="dwa_odom_topic" value="$(arg dwa_odom_topic)"/>
+    <arg name="dwa_forward_deadband_mps"
+         value="$(arg dwa_forward_deadband_mps)"/>
+    <arg name="dwa_yaw_rate_deadband_radps"
+         value="$(arg dwa_yaw_rate_deadband_radps)"/>
+    <arg name="dwa_forward_filter_tau_s"
+         value="$(arg dwa_forward_filter_tau_s)"/>
+    <arg name="dwa_yaw_rate_filter_tau_s"
+         value="$(arg dwa_yaw_rate_filter_tau_s)"/>
+    <arg name="dwa_max_yaw_rate_radps"
+         value="$(arg dwa_max_yaw_rate_radps)"/>
+  </include>
+
+  <include file="$(find r300_1x_navigation)/launch/subject1_lidar_avoidance.launch">
+    <arg name="config_file" value="$(arg lidar_config_file)"/>
+    <arg name="elevation_topic" value="$(arg elevation_topic)"/>
+    <arg name="scan_topic" value="$(arg obstacle_scan_topic)"/>
+    <arg name="debug_cloud_topic" value="$(arg debug_cloud_topic)"/>
+    <arg name="lio_map_frame" value="$(arg lio_map_frame)"/>
+    <arg name="lio_body_frame" value="$(arg lio_body_frame)"/>
+  </include>
+</launch>

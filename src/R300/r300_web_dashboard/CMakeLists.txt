@@ -10,6 +10,15 @@ catkin_install_python(PROGRAMS
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
+
+install(PROGRAMS
+  scripts/web_start_lidar_nav.sh
+  scripts/web_stop_lidar_nav.sh
+  scripts/web_start_lidar_elevation.sh
+  scripts/web_start_lidar_display.sh
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 install(DIRECTORY launch www config
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )

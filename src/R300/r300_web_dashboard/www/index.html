@@ -34,6 +34,7 @@
         <button class="soft" onclick="stopProcess('camera')">停止相机/视觉</button>
         <span id="cameraProcState" class="proc-state">相机节点：未运行</span>
       </div>
+      <pre id="cameraNodeLog" class="subsystem-log">相机 / 视觉启动日志...</pre>
     </section>
 
     <section class="card hero-card map-card">
@@ -54,11 +55,17 @@
         <button class="kiwi" onclick="startProcess('costmap')">②B 启动视觉避障 / 代价地图</button>
         <button class="soft" onclick="stopProcess('costmap')">停止视觉避障 / 代价地图</button>
         <span id="costmapProcState" class="proc-state">视觉避障 / 代价地图：未运行</span>
+
+        <button class="kiwi" onclick="startProcess('lidar_nav')">②C 启动雷达避障 / 代价地图</button>
+        <button class="soft" onclick="stopProcess('lidar_nav')">停止雷达避障 / 代价地图</button>
+        <span id="lidarNavProcState" class="proc-state">雷达避障 / 代价地图：未运行</span>
       </div>
-      <div class="mode-note">②A 纯实车导航与 ②B 视觉避障导航二选一，不能同时启动；纯实车导航就绪后，在下方“航点控制”点击“开始航点”。</div>
+      <div class="mode-note">②A 纯实车、②B 视觉避障、②C 雷达避障三选一；雷达避障前须先启动下方“雷达感知 / 高程计算”并等待高程图出现。导航就绪后，在下方“航点控制”点击“开始航点”。</div>
+      <pre id="navNodeLog" class="subsystem-log nav-log">1X / 导航 / 代价地图启动日志...</pre>
       <div class="toolbar">
         <label><input id="showCostRobot" type="checkbox" checked> 车体箭头</label>
         <label><input id="showCostVision" type="checkbox" checked> 视觉障碍</label>
+        <label><input id="showCostLidar" type="checkbox" checked> 雷达障碍</label>
         <label><input id="showCostLaser" type="checkbox" checked> /scan</label>
         <label><input id="showGlobal" type="checkbox" checked> 全局路径</label>
         <label><input id="showLocal" type="checkbox" checked> 局部路径</label>
@@ -73,10 +80,16 @@
       </div>
       <canvas id="cloudCanvas" width="760" height="520"></canvas>
       <div class="node-actions lidar-actions">
-        <button class="kiwi" onclick="startProcess('lidar')">启动雷达 / 点云 / 高程</button>
-        <button class="soft" onclick="stopProcess('lidar')">停止雷达 / 点云 / 高程</button>
+        <button class="kiwi" onclick="startProcess('lidar')">启动雷达感知 / 高程计算</button>
+        <button class="soft" onclick="stopProcess('lidar')">停止雷达感知</button>
         <span id="lidarProcState" class="proc-state">雷达感知：未运行</span>
+
+        <button class="kiwi" onclick="startProcess('lidar_display')">显示点云 / 高程</button>
+        <button class="soft" onclick="stopProcess('lidar_display')">关闭点云 / 高程显示</button>
+        <span id="lidarDisplayProcState" class="proc-state">点云 / 高程传输：未运行</span>
       </div>
+      <div class="mode-note lidar-display-note">雷达感知与浏览器显示已拆分：不点击“显示点云 / 高程”时，FAST-LIO、高程计算和雷达避障仍可正常运行，但不会通过 rosbridge 9090 持续发送大体量显示 JSON。</div>
+      <pre id="lidarNodeLog" class="subsystem-log lidar-log">雷达感知 / 点云高程显示日志...</pre>
       <div class="toolbar lidar-toolbar">
         <span>鼠标拖拽旋转，滚轮缩放，双击复位</span>
         <button onclick="resetCloudView()">复位视角</button>
@@ -95,8 +108,9 @@
       </div>
       <div class="toolbar">
         <label><input id="showElevationGrid" type="checkbox" checked> 网格</label>
-        <label><input id="showElevationRobot" type="checkbox" checked> 车体中心</label>
-        <span id="lidarProcStateMirror" class="proc-state">与左侧点云共同启动</span>
+        <label><input id="showElevationRobot" type="checkbox" checked> 车辆图标</label>
+        <span id="lidarProcStateMirror" class="proc-state">雷达感知：未运行</span>
+        <span id="lidarDisplayProcStateMirror" class="proc-state">显示传输：未运行</span>
         <button onclick="resetCanvasView('elevationCanvas')">复位视图</button>
       </div>
     </section>
@@ -170,7 +184,6 @@
         <button class="danger" onclick="callService('cancel')">取消任务</button>
       </div>
       <pre id="serviceLog">服务调用日志...</pre>
-      <pre id="nodeLog">节点启动日志...</pre>
     </section>
 
     <section class="card detection-card">
@@ -217,7 +230,7 @@
 
   <footer>
     <span>操作：滚轮缩放，鼠标拖拽平移，双击画布复位。</span>
-    <span>1X 独立启动；纯实车导航与视觉避障导航二选一；保留点云、高程和目标回传。</span>
+    <span>猕猴桃主题 v8：1X 独立启动；纯实车、视觉避障、雷达避障三模式互斥；保留点云、高程和目标回传。</span>
   </footer>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

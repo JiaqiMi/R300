@@ -1,4 +1,4 @@
-/* R300 Web 上位机 v6 kiwi：导航/代价地图分步启动 + 目标回传 + MID-360点云/高程图。
+/* R300 Web 上位机 v23：刷新重连、分区日志、雷达显示按需传输。
  * 设计原则：浏览器直接通过 rosbridge JSON 协议订阅 ROS1 话题；
  * 视频由已有 web_video_server 提供；不直接发布 /cmd_vel。
  */
@@ -6,14 +6,25 @@
 let cfg = null;
 let ws = null;
 let reconnectTimer = null;
+let wsGeneration = 0;
+const subscribedTopics = new Set();
+let lidarDisplayEnabled = false;
+let videoRetryTimer = null;
+let videoRecoveryToken = 0;
+let latestProcesses = {};
+let lastNavigationRebindMs = 0;
+let navigationRecoveryTimers = [];
 let lastCostmap = null;
 let costmapCanvasCache = null;
 let costmapCacheKey = "";
+let costmapRevision = 0;
 let globalPlan = null;
 let localPlan = null;
 let scanData = null;
 let visionScanData = null;
 let activeVisionScanData = null;
+let lidarScanData = null;
+let activeLidarScanData = null;
 let lidarCloudData = null;
 let elevationData = null;
 let robotPose = null;  // {x, y, yaw, stampMs}
@@ -47,6 +58,9 @@ const viewState = {
   elevationCanvas: {scale: 1, tx: 0, ty: 0, dragging: false, lastX: 0, lastY: 0}
 };
 const cloudView = {yaw: -0.70, pitch: 0.62, zoom: 1.0, dragging: false, lastX: 0, lastY: 0};
+// 固定米制显示范围，避免每帧点云边界变化导致画面自动忽大忽小。
+// 只影响浏览器绘图，不改变 PointCloud2、FAST-LIO 或任何 ROS 坐标系。
+const CLOUD_DISPLAY_HALF_RANGE_M = 8.0;
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n=2) => (Number.isFinite(v) ? Number(v).toFixed(n) : "--");
@@ -79,34 +93,149 @@ async function loadConfig() {
   const host = location.hostname || "127.0.0.1";
   if (cfg.rosbridge.host === "auto") cfg.rosbridge.host = host;
   if (cfg.video.host === "auto") cfg.video.host = host;
-  setVideoUrl();
 }
 
-function setVideoUrl() {
+function videoStreamUrl() {
   const v = cfg.video;
-  const url = `http://${v.host}:${v.port}/stream?topic=${v.topic}&type=mjpeg&quality=${v.quality}&width=${v.width}&height=${v.height}`;
-  $("video").src = url;
-  $("videoTopic").textContent = v.topic;
+  return `http://${v.host}:${v.port}/stream?topic=${v.topic}&type=mjpeg&quality=${v.quality}&width=${v.width}&height=${v.height}`;
+}
+
+function setVideoUrl(force=false) {
+  if (!cfg || !cfg.video || !$("video")) return;
+  const base = videoStreamUrl();
+  const url = force ? `${base}&_reconnect=${Date.now()}` : base;
+  if (force || $("video").src !== url) $("video").src = url;
+  $("videoTopic").textContent = `${cfg.video.topic}（HTTP ${cfg.video.port}）`;
+}
+
+function scheduleVideoReconnect(delay=1800) {
+  if (videoRetryTimer) return;
+  videoRetryTimer = setTimeout(() => {
+    videoRetryTimer = null;
+    if (document.visibilityState === "visible") setVideoUrl(true);
+  }, delay);
+}
+
+function setupVideoReconnect() {
+  const img = $("video");
+  if (!img) return;
+  img.addEventListener("error", () => scheduleVideoReconnect());
+  img.addEventListener("load", () => {
+    if (videoRetryTimer) clearTimeout(videoRetryTimer);
+    videoRetryTimer = null;
+  });
+}
+
+// 相机节点通常在点击按钮后数秒才建立 8080 MJPEG 服务。页面最初加载时如果
+// 8080 尚未监听，浏览器不会因为后端后来启动而自动重新请求原 URL。这里仅重载
+// <img> 地址，不启动/停止任何 ROS 节点，也不改变原相机启动脚本。
+function recoverVideoStream(maxAttempts=30, intervalMs=1000) {
+  const token = ++videoRecoveryToken;
+  let attempt = 0;
+
+  const retry = () => {
+    if (token !== videoRecoveryToken) return;
+    const img = $("video");
+    if (!img) return;
+
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      if (videoRetryTimer) clearTimeout(videoRetryTimer);
+      videoRetryTimer = null;
+      return;
+    }
+
+    setVideoUrl(true);
+    attempt += 1;
+    if (attempt < maxAttempts) setTimeout(retry, intervalMs);
+  };
+  retry();
+}
+
+function renewSubscription(topic, type, throttle) {
+  if (!topic || !ws || ws.readyState !== WebSocket.OPEN) return;
+  unsub(topic);
+  setTimeout(() => sub(topic, type, throttle), 80);
+}
+
+// move_base、costmap 和障碍话题是在点击导航按钮后才出现。部分 rosbridge 版本
+// 对“订阅时尚不存在的动态话题”恢复不稳定；刷新页面之所以能恢复，是刷新触发了
+// 一次完整重新订阅。这里在不刷新页面、不重启节点的前提下主动重绑这些订阅。
+function renewNavigationSubscriptions() {
+  if (!cfg || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const t = cfg.topics;
+  renewSubscription(t.odom, "nav_msgs/Odometry", 80);
+  renewSubscription(t.cmd_vel, "geometry_msgs/Twist", 100);
+  renewSubscription(t.global_plan, "nav_msgs/Path", 350);
+  renewSubscription(t.local_plan, "nav_msgs/Path", 150);
+  renewSubscription(t.current_goal, "geometry_msgs/PoseStamped", 500);
+  renewSubscription(t.costmap, "nav_msgs/OccupancyGrid", 800);
+  renewSubscription(t.scan, "sensor_msgs/LaserScan", 180);
+  renewSubscription(t.vision_scan, "sensor_msgs/LaserScan", 180);
+  renewSubscription(t.active_vision_scan, "sensor_msgs/LaserScan", 180);
+  if (t.lidar_scan) renewSubscription(t.lidar_scan, "sensor_msgs/LaserScan", 180);
+  if (t.active_lidar_scan) renewSubscription(t.active_lidar_scan, "sensor_msgs/LaserScan", 180);
+  lastNavigationRebindMs = Date.now();
+}
+
+function scheduleNavigationRecovery() {
+  navigationRecoveryTimers.forEach(clearTimeout);
+  navigationRecoveryTimers = [0, 900, 2500, 6000].map(delay =>
+    setTimeout(renewNavigationSubscriptions, delay)
+  );
+}
+
+function anyNavigationRunning() {
+  return Boolean(
+    (latestProcesses.real_nav || {}).running ||
+    (latestProcesses.costmap || {}).running ||
+    (latestProcesses.lidar_nav || {}).running
+  );
+}
+
+function scheduleRosReconnect(delay=1500) {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectRosbridge();
+  }, delay);
 }
 
 function connectRosbridge() {
+  if (!cfg) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
   const url = `ws://${cfg.rosbridge.host}:${cfg.rosbridge.port}`;
-  ws = new WebSocket(url);
-  ws.onopen = () => {
-    $("rosStatus").textContent = "ROSBridge 已连接";
+  const socket = new WebSocket(url);
+  const generation = ++wsGeneration;
+  ws = socket;
+
+  socket.onopen = () => {
+    if (ws !== socket || generation !== wsGeneration) return;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    subscribedTopics.clear();
+    $("rosStatus").textContent = `ROSBridge 已连接 :${cfg.rosbridge.port}`;
     $("rosStatus").className = "badge good";
     logLast("已连接 " + url);
     subscribeAll();
+    if (lidarDisplayEnabled) subscribeLidarDisplayTopics();
   };
-  ws.onclose = () => {
+  socket.onclose = () => {
+    if (ws !== socket || generation !== wsGeneration) return;
+    ws = null;
+    subscribedTopics.clear();
     $("rosStatus").textContent = "ROSBridge 断开，重连中";
     $("rosStatus").className = "badge bad";
-    if (!reconnectTimer) {
-      reconnectTimer = setTimeout(() => { reconnectTimer = null; connectRosbridge(); }, 1500);
-    }
+    scheduleRosReconnect();
   };
-  ws.onerror = () => { $("rosStatus").textContent = "ROSBridge 错误"; $("rosStatus").className = "badge bad"; };
-  ws.onmessage = (ev) => {
+  socket.onerror = () => {
+    if (ws !== socket) return;
+    $("rosStatus").textContent = "ROSBridge 错误，准备重连";
+    $("rosStatus").className = "badge bad";
+    try { socket.close(); } catch (e) { /* ignore */ }
+  };
+  socket.onmessage = (ev) => {
+    if (ws !== socket) return;
     try {
       const msg = JSON.parse(ev.data);
       if (msg.op === "publish") handleTopic(msg.topic, msg.msg);
@@ -115,14 +244,65 @@ function connectRosbridge() {
   };
 }
 
+function ensureRosbridgeConnected() {
+  if (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING)) {
+    scheduleRosReconnect(0);
+  }
+}
+
 function send(obj) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify(obj));
   return true;
 }
 function sub(topic, type, throttle=200) {
-  if (!topic) return;
-  send({op: "subscribe", topic: topic, type: type, throttle_rate: throttle});
+  if (!topic || subscribedTopics.has(topic)) return;
+  if (send({op: "subscribe", id: `sub:${topic}`, topic: topic, type: type, throttle_rate: throttle, queue_length: 1})) {
+    subscribedTopics.add(topic);
+  }
+}
+
+function unsub(topic) {
+  if (!topic || !subscribedTopics.has(topic)) return;
+  send({op: "unsubscribe", id: `sub:${topic}`, topic: topic});
+  subscribedTopics.delete(topic);
+}
+
+function subscribeLidarDisplayTopics() {
+  if (!lidarDisplayEnabled || !cfg) return;
+  const t = cfg.topics;
+  if (t.lidar_points_json) sub(t.lidar_points_json, "std_msgs/String", 900);
+  if (t.elevation_json) sub(t.elevation_json, "std_msgs/String", 900);
+}
+
+function unsubscribeLidarDisplayTopics() {
+  if (!cfg) return;
+  const t = cfg.topics;
+  if (t.lidar_points_json) unsub(t.lidar_points_json);
+  if (t.elevation_json) unsub(t.elevation_json);
+}
+
+function setLidarDisplayEnabled(enabled, clearData=false) {
+  const next = Boolean(enabled);
+  if (lidarDisplayEnabled === next && !clearData) {
+    if (next) subscribeLidarDisplayTopics();
+    return;
+  }
+  lidarDisplayEnabled = next;
+  if (next) {
+    subscribeLidarDisplayTopics();
+  } else {
+    unsubscribeLidarDisplayTopics();
+    if (clearData) {
+      lidarCloudData = null;
+      elevationData = null;
+      if ($("cloudInfo")) $("cloudInfo").textContent = "显示传输已关闭；雷达感知可继续运行";
+      if ($("elevationInfo")) $("elevationInfo").textContent = "显示传输已关闭；高程计算可继续运行";
+      if ($("elevationRange")) $("elevationRange").textContent = "--";
+      drawPointCloud();
+      drawElevationMap();
+    }
+  }
 }
 
 function subscribeAll() {
@@ -139,8 +319,12 @@ function subscribeAll() {
   sub(t.scan, "sensor_msgs/LaserScan", 180);
   sub(t.vision_scan, "sensor_msgs/LaserScan", 180);
   sub(t.active_vision_scan, "sensor_msgs/LaserScan", 180);
-  if (t.lidar_points_json) sub(t.lidar_points_json, "std_msgs/String", 300);
-  if (t.elevation_json) sub(t.elevation_json, "std_msgs/String", 700);
+  if (t.lidar_scan) sub(t.lidar_scan, "sensor_msgs/LaserScan", 180);
+  if (t.active_lidar_scan) sub(t.active_lidar_scan, "sensor_msgs/LaserScan", 180);
+  // 订阅本身不会启动适配器；适配器未运行时没有任何大数据传输。
+  // 这样页面刷新后，只要后台适配器仍在运行，点云/高程可立即恢复。
+  if (t.lidar_points_json) sub(t.lidar_points_json, "std_msgs/String", 900);
+  if (t.elevation_json) sub(t.elevation_json, "std_msgs/String", 900);
   sub(t.detections, "r300_vision_msgs/DetectedObjectArray", 500);
   sub(t.target_point, "geometry_msgs/PointStamped", 500);
   sub(t.dynamic_state, "std_msgs/String", 250);
@@ -160,12 +344,14 @@ function handleTopic(topic, msg) {
   else if (topic === t.current_goal) updateGoal(msg);
   else if (topic === t.global_plan) { globalPlan = msg; drawCostmap(); updatePlanStats(); }
   else if (topic === t.local_plan) { localPlan = msg; drawCostmap(); updatePlanStats(); }
-  else if (topic === t.costmap) { lastCostmap = msg; costmapCanvasCache = null; drawCostmap(); updatePlanStats(); }
+  else if (topic === t.costmap) { lastCostmap = msg; costmapRevision += 1; costmapCanvasCache = null; drawCostmap(); updatePlanStats(); }
   else if (topic === t.scan) { scanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.vision_scan) { visionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.active_vision_scan) { activeVisionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
-  else if (topic === t.lidar_points_json) updateLidarCloud(msg);
-  else if (topic === t.elevation_json) updateElevationMap(msg);
+  else if (topic === t.lidar_scan) { lidarScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
+  else if (topic === t.active_lidar_scan) { activeLidarScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
+  else if (topic === t.lidar_points_json) { lidarDisplayEnabled = true; updateLidarCloud(msg); }
+  else if (topic === t.elevation_json) { lidarDisplayEnabled = true; updateElevationMap(msg); }
   else if (topic === t.detections) updateDetections(msg);
   else if (topic === t.target_point) updateTargetPoint(msg);
   else if (topic === t.dynamic_state) $("dynState").textContent = msg.data;
@@ -809,7 +995,9 @@ function drawPointCloud() {
   const arr = d.points;
   const unit = Number(d.scale) || 0.001;
   const b = Array.isArray(d.bounds) ? d.bounds : [-5,5,-5,5,-1,1];
-  const horizontal = Math.max(4, Math.abs(b[0]||0), Math.abs(b[1]||0), Math.abs(b[2]||0), Math.abs(b[3]||0));
+  // 不再按每一帧 bounds 自动适配缩放。MID-360 非重复扫描和抽样点数变化
+  // 会让 bounds 轻微变化，旧逻辑因此产生跳大跳小。这里固定为 ±8 m。
+  const horizontal = CLOUD_DISPLAY_HALF_RANGE_M;
   const scale = Math.min(c.width * 0.42 / horizontal, c.height * 0.48 / horizontal) * cloudView.zoom;
   const zMin = Number.isFinite(Number(b[4])) ? Number(b[4]) : -1;
   const zMax = Number.isFinite(Number(b[5])) ? Number(b[5]) : 1;
@@ -891,11 +1079,23 @@ function drawElevationMap() {
   if (drawH>availH) { drawH=availH; drawW=drawH*aspect; }
   const x0=(c.width-drawW)/2, y0=(c.height-drawH)/2;
 
+  // 车头朝上视图（146d0d0 修复，勿删）：高程图网格是 odom 轴对齐的（不随车旋转），
+  // 适配器经 FAST-LIO 树 TF 提供 robot_yaw 后，把整幅图绕图心旋转即可让"上=车头"。
+  // 画面映射：上=odom +x、左=odom +y ⇒ canvas rotate(+yaw) 恰好把车头(odom 方位角 yaw)转回正上方。
+  // 注意 JSON null：typeof null === "object"，不能用 Number() 判断（Number(null)===0）。
+  const headingUp = (typeof d.robot_yaw === "number") && Number.isFinite(d.robot_yaw);
+  const yaw = headingUp ? d.robot_yaw : 0;
+  const cx=x0+drawW/2, cy=y0+drawH/2, clipR=Math.min(drawW,drawH)/2;
+
   ctx.save();
   applyView(ctx,"elevationCanvas");
   ctx.imageSmoothingEnabled=false;
+  if (headingUp) {
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx,cy,clipR,0,Math.PI*2); ctx.clip(); // 圆形视窗：旋转时四角不越出面板
+    ctx.translate(cx,cy); ctx.rotate(yaw); ctx.translate(-cx,-cy);
+  }
   ctx.drawImage(off,x0,y0,drawW,drawH);
-  ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5; ctx.strokeRect(x0,y0,drawW,drawH);
 
   if ($("showElevationGrid") && $("showElevationGrid").checked) {
     ctx.strokeStyle="rgba(255,255,255,.22)"; ctx.lineWidth=1;
@@ -907,14 +1107,37 @@ function drawElevationMap() {
       [y0+drawH/2-m*sy,y0+drawH/2+m*sy].forEach(y=>{ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x0+drawW,y);ctx.stroke();});
     }
   }
+  if (headingUp) {
+    ctx.restore(); // 结束旋转与圆形裁剪
+    ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(cx,cy,clipR,0,Math.PI*2); ctx.stroke();
+    // odom +x 方位角标（随车转动，供与 rviz/航向对照）：
+    // 未旋转画面中 odom+x 指向"上"(0,-1)，rotate(yaw) 后变为 (sin yaw, -cos yaw)。
+    const rr=clipR-12;
+    ctx.fillStyle="#9fd0ff"; ctx.font="11px Consolas";
+    ctx.fillText("x+", cx + rr*Math.sin(yaw) - 6, cy - rr*Math.cos(yaw) + 4);
+  } else {
+    ctx.strokeStyle="rgba(215,245,73,.65)"; ctx.lineWidth=1.5; ctx.strokeRect(x0,y0,drawW,drawH);
+  }
   if ($("showElevationRobot") && $("showElevationRobot").checked) {
-    drawRobotArrow(ctx,x0+drawW/2,y0+drawH/2,-Math.PI/2,20,"#2563eb","#dbeafe");
+    if (headingUp) {
+      drawRobotArrow(ctx,cx,cy,-Math.PI/2,20,"#2563eb","#dbeafe"); // 车头朝上视图：箭头即车头
+    } else {
+      // 朝向未知（TF 未就绪）：只画位置点，避免固定箭头误导方向
+      ctx.beginPath(); ctx.arc(cx,cy,6,0,Math.PI*2);
+      ctx.fillStyle="#2563eb"; ctx.fill();
+      ctx.lineWidth=2; ctx.strokeStyle="#dbeafe"; ctx.stroke();
+    }
   }
   ctx.restore();
 
   ctx.fillStyle="#eaffc0"; ctx.font="13px Microsoft YaHei";
-  ctx.fillText("前方 x+",c.width/2-28,18);
-  ctx.fillText("左 y+",8,c.height/2);
+  if (headingUp) {
+    ctx.fillText("车头朝上",c.width/2-28,18);
+    ctx.fillText(`yaw ${(yaw*180/Math.PI).toFixed(1)}°`,8,c.height/2);
+  } else {
+    ctx.fillText("odom x+ 朝上（车辆朝向待 TF）",c.width/2-96,18);
+  }
   ctx.fillStyle="#d7f549"; ctx.font="12px Consolas";
   ctx.fillText(`${fmt(lengthX,1)}m × ${fmt(lengthY,1)}m  center=(${fmt(d.center_x,1)}, ${fmt(d.center_y,1)})`,18,c.height-10);
   drawHint(ctx,"elevationCanvas");
@@ -965,18 +1188,22 @@ function mapWorldToPixel(x, y, map, canvas) {
 }
 
 function buildCostmapImage(map, canvas) {
-  const key = `${map.header.seq || 0}:${map.info.width}:${map.info.height}:${map.info.resolution}:${map.data.length}:${Date.now()}`;
-  const off = document.createElement("canvas");
-  off.width = canvas.width; off.height = canvas.height;
-  const octx = off.getContext("2d");
-  const img = octx.createImageData(canvas.width, canvas.height);
   const info = map.info;
-  for (let py = 0; py < canvas.height; py++) {
-    for (let px = 0; px < canvas.width; px++) {
-      const mx = Math.floor(px / canvas.width * info.width);
-      const my = Math.floor((canvas.height - 1 - py) / canvas.height * info.height);
-      const val = map.data[my * info.width + mx];
-      const idx = (py * canvas.width + px) * 4;
+  const key = `${costmapRevision}:${info.width}:${info.height}:${info.resolution}:${map.data.length}`;
+  if (costmapCanvasCache && costmapCacheKey === key) return costmapCanvasCache;
+
+  // 直接按 costmap 原始网格生成图像，而不是每次重算 760×520 个画布像素。
+  // 该缓存仅在收到新 OccupancyGrid 时更新，odom/path/scan 重绘时直接复用。
+  const off = document.createElement("canvas");
+  off.width = info.width;
+  off.height = info.height;
+  const octx = off.getContext("2d");
+  const img = octx.createImageData(info.width, info.height);
+  for (let py = 0; py < info.height; py++) {
+    const my = info.height - 1 - py;
+    for (let px = 0; px < info.width; px++) {
+      const val = map.data[my * info.width + px];
+      const idx = (py * info.width + px) * 4;
       let r=239, g=244, b=250;
       if (val < 0) { r=185; g=193; b=204; }
       else if (val === 0) { r=245; g=247; b=250; }
@@ -1014,7 +1241,8 @@ function drawCostmap() {
 
   ctx.save();
   applyView(ctx, "costmapCanvas");
-  ctx.drawImage(off, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, 0, 0, c.width, c.height);
 
   if ($("showGlobal").checked) drawPathOnCostmap(ctx, globalPlan, map, c, "#22c55e", 3);
   if ($("showLocal").checked) drawPathOnCostmap(ctx, localPlan, map, c, "#38bdf8", 5);
@@ -1022,6 +1250,10 @@ function drawCostmap() {
   if ($("showCostVision").checked) {
     drawScanOnCostmap(ctx, visionScanData, map, c, "rgba(249,115,22,.90)", 3.4);
     drawScanOnCostmap(ctx, activeVisionScanData, map, c, "rgba(168,85,247,.95)", 3.8);
+  }
+  if ($("showCostLidar") && $("showCostLidar").checked) {
+    drawScanOnCostmap(ctx, lidarScanData, map, c, "rgba(255,82,82,.94)", 3.4);
+    drawScanOnCostmap(ctx, activeLidarScanData, map, c, "rgba(255,224,87,.98)", 3.8);
   }
   if ($("showCostRobot").checked) drawRobotArrowOnCostmap(ctx, map, c);
   ctx.restore();
@@ -1085,14 +1317,16 @@ function drawRobotArrow(ctx, x, y, canvasYaw, size, fill, stroke) {
 }
 
 function drawScan() {
-  // v11：保留雷达/视觉障碍统计，不绘制雷达大图，减轻浏览器压力。
+  // 保留轻量统计模式；雷达/视觉虚拟 LaserScan 主要叠加到 costmap 画布。
   const rawN = scanData && scanData.ranges ? scanData.ranges.length : 0;
   const rawFinite = countFiniteScan(scanData);
   const visionFinite = countFiniteScan(visionScanData);
-  const activeFinite = countFiniteScan(activeVisionScanData);
+  const visionActiveFinite = countFiniteScan(activeVisionScanData);
+  const lidarFinite = countFiniteScan(lidarScanData);
+  const lidarActiveFinite = countFiniteScan(activeLidarScanData);
 
   let nearest = Infinity;
-  [scanData, visionScanData, activeVisionScanData].forEach(scan => {
+  [scanData, visionScanData, activeVisionScanData, lidarScanData, activeLidarScanData].forEach(scan => {
     if (!scan || !scan.ranges) return;
     for (const r of scan.ranges) {
       if (Number.isFinite(r) && r >= scan.range_min && r <= scan.range_max && r < nearest) nearest = r;
@@ -1102,8 +1336,8 @@ function drawScan() {
 
   if ($("scanInfo")) {
     $("scanInfo").textContent = rawN
-      ? `/scan beams=${rawN}, finite=${rawFinite}, vision=${visionFinite}, active=${activeFinite}, nearest=${nearestText}`
-      : `等待 /scan，vision=${visionFinite}, active=${activeFinite}, nearest=${nearestText}`;
+      ? `/scan finite=${rawFinite}；视觉=${visionFinite}/${visionActiveFinite}；雷达=${lidarFinite}/${lidarActiveFinite}；nearest=${nearestText}`
+      : `等待 /scan；视觉=${visionFinite}/${visionActiveFinite}；雷达=${lidarFinite}/${lidarActiveFinite}；nearest=${nearestText}`;
   }
 }
 
@@ -1140,8 +1374,9 @@ function updatePlanStats() {
   $("globalStat").textContent = `${gN} 点, ${fmt(pathLength(globalPlan))} m`;
   $("localStat").textContent = `${lN} 点, ${fmt(pathLength(localPlan))} m`;
   if (lastCostmap) $("mapStat").textContent = `${lastCostmap.info.width}×${lastCostmap.info.height}, age=${fmt(ageSec(cfg.topics.costmap),1)}s`;
-  const obs = countFiniteScan(visionScanData) + countFiniteScan(activeVisionScanData);
-  $("obsStat").textContent = `视觉=${obs}, scan=${countFiniteScan(scanData)}`;
+  const visionObs = countFiniteScan(visionScanData) + countFiniteScan(activeVisionScanData);
+  const lidarObs = countFiniteScan(lidarScanData) + countFiniteScan(activeLidarScanData);
+  $("obsStat").textContent = `视觉=${visionObs}, 雷达=${lidarObs}, scan=${countFiniteScan(scanData)}`;
   $("dataAge").textContent = `odom ${fmt(ageSec(cfg.topics.odom),1)}s / map ${fmt(ageSec(cfg.topics.costmap),1)}s`;
 }
 
@@ -1157,53 +1392,100 @@ function handleServiceResponse(m) {
   $("serviceLog").textContent = (line + "\n" + $("serviceLog").textContent).split("\n").slice(0, 120).join("\n");
 }
 
-async function postApi(path) {
+async function postApi(path, logGroup="nav") {
   try {
     const res = await fetch(path, {method: "POST", cache: "no-store"});
     const data = await res.json();
-    renderProcessStatus(data.processes, data.message || "");
+    renderProcessStatus(data.processes, data.message || "", logGroup);
     return data;
   } catch (e) {
-    appendNodeLog(`${nowTime()} API 调用失败：${e}`);
+    appendSubsystemLog(logGroup, `${nowTime()} API 调用失败：${e}`);
     return null;
   }
 }
 
 async function startProcess(name) {
-  if (name === "camera") await postApi("/api/start_camera");
-  else if (name === "ins") await postApi("/api/start_ins");
-  else if (name === "real_nav") await postApi("/api/start_real_nav");
-  else if (name === "costmap") await postApi("/api/start_costmap");
-  else if (name === "lidar") await postApi("/api/start_lidar");
+  if (name === "camera") {
+    const data = await postApi("/api/start_camera", "camera");
+    if (data && (data.ok || ((data.processes || {}).camera || {}).running)) {
+      recoverVideoStream();
+    }
+  }
+  else if (name === "ins") await postApi("/api/start_ins", "nav");
+  else if (name === "real_nav") {
+    const data = await postApi("/api/start_real_nav", "nav");
+    if (data && (data.ok || ((data.processes || {}).real_nav || {}).running)) scheduleNavigationRecovery();
+  }
+  else if (name === "costmap") {
+    const data = await postApi("/api/start_costmap", "nav");
+    if (data && (data.ok || ((data.processes || {}).costmap || {}).running)) scheduleNavigationRecovery();
+  }
+  else if (name === "lidar_nav") {
+    const data = await postApi("/api/start_lidar_nav", "nav");
+    if (data && (data.ok || ((data.processes || {}).lidar_nav || {}).running)) scheduleNavigationRecovery();
+  }
+  else if (name === "lidar") await postApi("/api/start_lidar", "lidar");
+  else if (name === "lidar_display") {
+    const data = await postApi("/api/start_lidar_display", "lidar");
+    if (data && data.ok) setLidarDisplayEnabled(true);
+  }
 }
 
 async function stopProcess(name) {
-  if (name === "camera") await postApi("/api/stop_camera");
-  else if (name === "ins") await postApi("/api/stop_ins");
-  else if (name === "real_nav") await postApi("/api/stop_real_nav");
-  else if (name === "costmap") await postApi("/api/stop_costmap");
-  else if (name === "lidar") await postApi("/api/stop_lidar");
+  if (name === "camera") await postApi("/api/stop_camera", "camera");
+  else if (name === "ins") await postApi("/api/stop_ins", "nav");
+  else if (name === "real_nav") await postApi("/api/stop_real_nav", "nav");
+  else if (name === "costmap") await postApi("/api/stop_costmap", "nav");
+  else if (name === "lidar_nav") await postApi("/api/stop_lidar_nav", "nav");
+  else if (name === "lidar") await postApi("/api/stop_lidar", "lidar");
+  else if (name === "lidar_display") {
+    const data = await postApi("/api/stop_lidar_display", "lidar");
+    if (data && (data.ok || !data.processes || !(data.processes.lidar_display || {}).running)) {
+      setLidarDisplayEnabled(false, true);
+    }
+  }
 }
 
 async function refreshProcessStatus() {
   try {
     const res = await fetch("/api/process_status?ts=" + Date.now(), {cache: "no-store"});
     const data = await res.json();
-    renderProcessStatus(data.processes, "");
+    renderProcessStatus(data.processes, "", "");
   } catch (e) {
     // 页面刚打开时服务可能正在启动，安静失败即可。
   }
 }
 
-function renderProcessStatus(processes, message) {
+function stripAnsi(text) {
+  return String(text || "").replace(/\x1B\[[0-?]*[ -\/]*[@-~]/g, "");
+}
+
+function renderLogBox(id, sections, message="") {
+  const el = $(id);
+  if (!el) return;
+  const lines = [];
+  if (message) lines.push(`${nowTime()} ${stripAnsi(message)}`);
+  sections.forEach(section => {
+    lines.push(`[${section.title}]`);
+    (section.logs || []).forEach(line => lines.push(stripAnsi(line)));
+  });
+  el.textContent = lines.join("\n") || "暂无日志";
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderProcessStatus(processes, message, messageGroup="") {
   if (!processes) return;
+  latestProcesses = processes;
   const cam = processes.camera || {};
   const ins = processes.ins || {};
   const realNav = processes.real_nav || {};
   const costmap = processes.costmap || {};
+  const lidarNav = processes.lidar_nav || {};
   const lidar = processes.lidar || {};
+  const lidarDisplay = processes.lidar_display || {};
+
   if ($("cameraProcState")) {
-    $("cameraProcState").textContent = cam.running ? `相机节点：运行中 pid=${cam.pid}` : "相机节点：未运行";
+    $("cameraProcState").textContent = cam.running ? `相机节点：运行中${cam.pid ? ` pid=${cam.pid}` : "（ROS节点检测）"}` : "相机节点：未运行";
   }
   if ($("insProcState")) {
     $("insProcState").textContent = ins.running ? `1X 惯导：运行中 pid=${ins.pid}` : "1X 惯导：未运行";
@@ -1214,31 +1496,49 @@ function renderProcessStatus(processes, message) {
   if ($("costmapProcState")) {
     $("costmapProcState").textContent = costmap.running ? `视觉避障 / 代价地图：运行中 pid=${costmap.pid}` : "视觉避障 / 代价地图：未运行";
   }
-  const lidarText = lidar.running ? `雷达感知：运行中 pid=${lidar.pid}` : "雷达感知：未运行";
+  if ($("lidarNavProcState")) {
+    $("lidarNavProcState").textContent = lidarNav.running ? `雷达避障 / 代价地图：运行中 pid=${lidarNav.pid}` : "雷达避障 / 代价地图：未运行";
+  }
+
+  const lidarText = lidar.running ? `雷达感知：运行中${lidar.pid ? ` pid=${lidar.pid}` : "（ROS节点检测）"}` : "雷达感知：未运行";
+  const displayText = lidarDisplay.running ? `点云 / 高程传输：运行中${lidarDisplay.pid ? ` pid=${lidarDisplay.pid}` : "（ROS节点检测）"}（rosbridge 9090）` : "点云 / 高程传输：未运行";
   if ($("lidarProcState")) $("lidarProcState").textContent = lidarText;
   if ($("lidarProcStateMirror")) $("lidarProcStateMirror").textContent = lidarText;
-  const lines = [];
-  if (message) lines.push(`${nowTime()} ${message}`);
-  lines.push("[camera]");
-  (cam.logs || []).slice(-30).forEach(x => lines.push(x));
-  lines.push("[1X-INS]");
-  (ins.logs || []).slice(-50).forEach(x => lines.push(x));
-  lines.push("[pure-real-navigation]");
-  (realNav.logs || []).slice(-70).forEach(x => lines.push(x));
-  lines.push("[vision-navigation-costmap]");
-  (costmap.logs || []).slice(-70).forEach(x => lines.push(x));
-  lines.push("[lidar-elevation]");
-  (lidar.logs || []).slice(-80).forEach(x => lines.push(x));
-  if ($("nodeLog")) $("nodeLog").textContent = lines.join("\n") || "节点启动日志...";
+  if ($("lidarDisplayProcState")) $("lidarDisplayProcState").textContent = displayText;
+  if ($("lidarDisplayProcStateMirror")) $("lidarDisplayProcStateMirror").textContent = displayText;
+
+  // 只在确认适配器运行时启用；不能因 Web 包装进程状态缺失而自动退订。
+  // 显式点击“关闭点云/高程显示”仍会正常退订并清空画布。
+  if (lidarDisplay.running) setLidarDisplayEnabled(true);
+
+  renderLogBox("cameraNodeLog", [
+    {title: "camera-vision", logs: cam.logs || []}
+  ], messageGroup === "camera" ? message : "");
+
+  renderLogBox("navNodeLog", [
+    {title: "1X-INS", logs: ins.logs || []},
+    {title: "pure-real-navigation", logs: realNav.logs || []},
+    {title: "vision-navigation-costmap", logs: costmap.logs || []},
+    {title: "lidar-navigation-costmap", logs: lidarNav.logs || []}
+  ], messageGroup === "nav" ? message : "");
+
+  renderLogBox("lidarNodeLog", [
+    {title: "lidar-sensing-elevation", logs: lidar.logs || []},
+    {title: "lidar-web-display", logs: lidarDisplay.logs || []}
+  ], messageGroup === "lidar" ? message : "");
 }
 
-function appendNodeLog(line) {
-  if (!$('nodeLog')) return;
-  $('nodeLog').textContent = line + "\n" + $('nodeLog').textContent;
+function appendSubsystemLog(group, line) {
+  const id = group === "camera" ? "cameraNodeLog" : (group === "lidar" ? "lidarNodeLog" : "navNodeLog");
+  const el = $(id);
+  if (!el) return;
+  el.textContent = stripAnsi(line) + "\n" + el.textContent;
 }
 
 async function main() {
   await loadConfig();
+  setupVideoReconnect();
+  setVideoUrl(true);
   initSatelliteMap();
   setupInteractiveCanvas("costmapCanvas", drawCostmap);
   setupInteractiveCanvas("scanCanvas", drawScan);
@@ -1247,10 +1547,33 @@ async function main() {
   connectRosbridge();
   drawCostmap(); drawScan(); drawPointCloud(); drawElevationMap();
   setInterval(() => { updatePlanStats(); drawScan(); updateInsTimer(); }, 500);
-  setInterval(() => { drawCostmap(); drawPointCloud(); drawElevationMap(); }, 1000);
+  setInterval(() => { drawCostmap(); }, 1200);
+  setInterval(ensureRosbridgeConnected, 2500);
+  // 动态节点启动后无需刷新页面：视频主动重载，导航话题在长期无数据时主动重绑。
+  setInterval(() => {
+    const camRunning = Boolean((latestProcesses.camera || {}).running);
+    const video = $("video");
+    if (camRunning && video && video.naturalWidth === 0 && !videoRetryTimer) {
+      recoverVideoStream(8, 1200);
+    }
+
+    if (anyNavigationRunning() && cfg && ageSec(cfg.topics.costmap) > 5.0 &&
+        Date.now() - lastNavigationRebindMs > 5000) {
+      renewNavigationSubscriptions();
+    }
+  }, 2500);
   refreshTargetRecordStatus();
   refreshProcessStatus();
-  setInterval(refreshProcessStatus, 2000);
+  setInterval(refreshProcessStatus, 2500);
+
+  window.addEventListener("online", () => { ensureRosbridgeConnected(); setVideoUrl(true); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      ensureRosbridgeConnected();
+      if ($("video") && !$("video").naturalWidth) setVideoUrl(true);
+      refreshProcessStatus();
+    }
+  });
 }
 
 main().catch(e => { console.error(e); $("rosStatus").textContent = "配置加载失败"; $("rosStatus").className = "badge bad"; });

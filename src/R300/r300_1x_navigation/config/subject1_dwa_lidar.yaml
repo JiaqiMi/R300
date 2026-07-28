@@ -1,15 +1,19 @@
+# 雷达高程图避障版 DWA（由 subject1_dwa_vision.yaml 派生，仅改最高速度）：
+# 高程图链路端到端延迟约 1.0~1.8s（含卡尔曼平滑），负障碍再加 0.6s 去抖；
+# 2.5m/s 下反应+制动距离会超过坑的可探测距离，故先压到 1.5m/s。
+# 后续加 /cloud_registered_body 快反层验证后可逐步回调。
 DWAPlannerROS:
   odom_topic: /subject1/dwa_odom
 
   # ---------------- 速度限制 ----------------
   # 仅作为开阔区域最高速度。
-  max_vel_x: 2.50
+  max_vel_x: 1.50
   min_vel_x: 0.00
 
   max_vel_y: 0.00
   min_vel_y: 0.00
 
-  max_vel_trans: 2.50
+  max_vel_trans: 1.50
   min_vel_trans: 0.05
 
   # 只有实车可以稳定达到时才使用0.45。
@@ -18,10 +22,10 @@ DWAPlannerROS:
 
   # ---------------- 真实动力学 ----------------
   # 保持与实车可靠制动能力一致。
-  acc_lim_x: 6.00
+  acc_lim_x: 1.00
   acc_lim_y: 0.00
-  acc_lim_trans: 6.00
-  acc_lim_theta: 6.00
+  acc_lim_trans: 1.00
+  acc_lim_theta: 1.00
 
   # ---------------- 到点条件 ----------------
   xy_goal_tolerance: 1.50
@@ -31,9 +35,12 @@ DWAPlannerROS:
   trans_stopped_vel: 0.16
   theta_stopped_vel: 0.08
 
+  # trans_stopped_vel: 1.5
+  # theta_stopped_vel: 0.25
+
   # ---------------- 轨迹预测 ----------------
   # 不再单纯通过超长预测距离承担制动安全。
-  sim_time: 2.00
+  sim_time: 2.50
   sim_granularity: 0.03
   angular_sim_granularity: 0.03
 
@@ -46,7 +53,7 @@ DWAPlannerROS:
   # 允许更明显地离开穿过障碍的全局直线路径。
   path_distance_bias: 24.0
   goal_distance_bias: 18.0
-  occdist_scale: 0.15
+  occdist_scale: 0.25
 
   # 保留少量前视引导，但避免0.30造成过度回正。
   forward_point_distance: 0.30
