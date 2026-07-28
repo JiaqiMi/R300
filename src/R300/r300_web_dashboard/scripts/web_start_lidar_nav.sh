@@ -14,6 +14,14 @@ LOG_DIR="$HOME/.ros/r300_web_dashboard"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/web_start_lidar_nav.log"
 
+# R300_LIDAR_LOG_ROTATE_V1
+# 当前日志超过5 MiB时滚动一次；仅保留当前文件和 .1，避免无限增长。
+if [[ -f "$LOG_FILE" ]]; then
+  LOG_SIZE="$(stat -c '%s' "$LOG_FILE" 2>/dev/null || echo 0)"
+  if [[ "$LOG_SIZE" =~ ^[0-9]+$ ]] && (( LOG_SIZE > 5 * 1024 * 1024 )); then
+    mv -f "$LOG_FILE" "${LOG_FILE}.1"
+  fi
+fi
 WS="${R300_WS:-$HOME/r300_ws}"
 SUDO_PASS="${R300_SUDO_PASS:-1234}"
 SIGN_GUIDANCE_ENABLED="${SIGN_GUIDANCE_ENABLED:-true}"
@@ -77,4 +85,4 @@ trap cleanup EXIT INT TERM
 
   echo "说明：不会自动执行航点；就绪后在网页点击‘开始航点’。"
   exec "$NAV_SCRIPT" "${NAV_ARGS[@]}"
-} 2>&1 | tee -a "$LOG_FILE"
+} 2>&1 | tee -p -a "$LOG_FILE"

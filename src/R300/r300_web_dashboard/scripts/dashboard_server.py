@@ -46,6 +46,18 @@ LOGS = {
     "lidar_display": deque(maxlen=220),
     "target_recorder": deque(maxlen=260),
 }
+
+# R300_LIDAR_LOG_TAIL_FALLBACK_V1
+# Web 内存中仍只保留固定条数；当雷达导航 stdout 管道丢失时，
+# 从磁盘日志尾部恢复显示，不参与任何导航或节点启动逻辑。
+LOG_LAST_UPDATE = {}
+LIDAR_NAV_LOG_FILE = os.path.expanduser(
+    "~/.ros/r300_web_dashboard/web_start_lidar_nav.log"
+)
+LIDAR_NAV_LOG_STALE_S = 3.0
+LIDAR_NAV_LOG_TAIL_LINES = 300
+LIDAR_NAV_LOG_TAIL_BYTES = 512 * 1024
+
 TARGET_RECORD_LOCK = threading.RLock()
 TARGET_RECORD_ROOT = os.path.expanduser(os.environ.get("R300_TARGET_RECORD_DIR", "~/r300_target_records"))
 
@@ -70,6 +82,29 @@ def _append_log(name, line):
         LOGS.setdefault(name, deque(maxlen=200)).append(
             time.strftime("%H:%M:%S ") + line.rstrip()
         )
+        LOG_LAST_UPDATE[name] = time.time()
+
+
+def _tail_log_file(path, max_lines=300, max_bytes=512 * 1024):
+    # 只读取日志文件末尾，避免大日志文件整体读入内存。
+    if not path or not os.path.isfile(path):
+        return []
+
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            start = max(0, size - max_bytes)
+            handle.seek(start, os.SEEK_SET)
+            raw = handle.read()
+
+        lines = raw.decode("utf-8", "replace").splitlines()
+        # 从文件中间开始时，第一行可能是不完整行。
+        if start > 0 and lines:
+            lines = lines[1:]
+        return lines[-max_lines:]
+    except Exception:
+        return []
 
 
 def _reader_thread(name, proc):
@@ -401,13 +436,34 @@ def _process_status():
             proc = PROCS.get(name)
             tracked_running = bool(_is_running(proc))
             runtime_running = bool(runtime.get(name, False))
+            memory_logs = list(LOGS.get(name, []))
+            logs = memory_logs
+            log_source = "memory"
+
+            # 雷达导航 ROS 节点仍在运行，但 Web 的启动包装进程/stdout
+            # 已丢失或超过阈值没有新日志时，读取磁盘文件最后若干行。
+            # 这只影响网页日志显示，不启动、不停止任何 ROS 节点。
+            if name == "lidar_nav" and runtime_running:
+                last_update = LOG_LAST_UPDATE.get(name, 0.0)
+                memory_stale = (time.time() - last_update) > LIDAR_NAV_LOG_STALE_S
+                if (not tracked_running) or (not memory_logs) or memory_stale:
+                    disk_logs = _tail_log_file(
+                        LIDAR_NAV_LOG_FILE,
+                        max_lines=LIDAR_NAV_LOG_TAIL_LINES,
+                        max_bytes=LIDAR_NAV_LOG_TAIL_BYTES,
+                    )
+                    if disk_logs:
+                        logs = disk_logs
+                        log_source = "file"
+
             result[name] = {
                 "running": tracked_running or runtime_running,
                 "tracked_running": tracked_running,
                 "runtime_detected": runtime_running,
                 "pid": proc.pid if tracked_running else None,
                 "returncode": None if proc is None else proc.poll(),
-                "logs": list(LOGS.get(name, [])),
+                "logs": logs,
+                "log_source": log_source,
             }
 
         # 指示牌引导节点由雷达导航 launch 按开关条件启动，不是独立 Web 子进程。
