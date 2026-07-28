@@ -1,0 +1,47 @@
+# 雷达避障导航中的单个左/右道路指示牌临时目标参数。
+# 本节点不发布 cmd_vel；它暂停 GPS 航点、发送一个 base_link 下的临时
+# move_base 目标，成功后恢复原 GPS 航点。
+
+
+# 视觉检测输入。
+detections_topic: /r300_vision/detections
+left_classes:
+  - chevro_left
+  - chevron_left
+right_classes:
+  - chevron_right
+  - chevro_right
+
+# 连续多帧确认，避免单帧误识别直接改变路线。
+min_confidence: 0.75
+confirm_frames: 3
+confirm_max_gap_s: 0.60
+max_detection_age_s: 0.80
+min_bbox_width_px: 30
+min_bbox_height_px: 20
+
+# 深度有效时始终使用距离门限；require_valid_depth=true 时，无深度目标不触发。
+require_valid_depth: false
+min_trigger_distance_m: 0.80
+max_trigger_distance_m: 8.00
+
+# 临时目标使用极坐标定义，参考系为触发时的 base_link：
+# 左转 = +turn_angle_deg，右转 = -turn_angle_deg。
+# 默认 4m@60° 对应 x≈2.0m、|y|≈3.46m。
+turn_goal_distance_m: 4.00
+turn_angle_deg: 90.0
+goal_frame: base_link
+local_goal_timeout_s: 25.0
+pause_settle_s: 0.20
+service_timeout_s: 5.0
+action_server_timeout_s: 8.0
+
+# 科目一当前只有一个左/右指示牌，因此默认一次决策后锁定。
+single_use: true
+trigger_only_when_waypoints_running: true
+
+# 现有接口，通常无需修改。
+move_base_action: /move_base
+pause_service: /subject1/pause_waypoints
+resume_service: /subject1/resume_waypoints
+waypoint_status_topic: /subject1/waypoint_status

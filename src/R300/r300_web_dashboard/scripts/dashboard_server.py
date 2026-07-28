@@ -138,6 +138,7 @@ def _runtime_flags(nodes=None):
         "real_nav": False,
         "costmap": "/move_base" in nodes and "/vision_obstacle_layer_node" in nodes,
         "lidar_nav": "/move_base" in nodes and "/lidar_obstacle_scan_node" in nodes,
+        "sign_guidance": "/direction_sign_local_goal" in nodes,
         "lidar": bool(nodes & lidar_sensor_nodes),
         "lidar_display": "/r300_lidar_web_adapter" in nodes,
     }
@@ -353,6 +354,17 @@ def _process_status():
                 "returncode": None if proc is None else proc.poll(),
                 "logs": list(LOGS.get(name, [])),
             }
+
+        # 指示牌引导节点由雷达导航 launch 按开关条件启动，不是独立 Web 子进程。
+        # 单独返回运行状态，页面刷新后也能准确显示本次雷达导航是否启用路牌功能。
+        result["sign_guidance"] = {
+            "running": bool(runtime.get("sign_guidance", False)),
+            "tracked_running": False,
+            "runtime_detected": bool(runtime.get("sign_guidance", False)),
+            "pid": None,
+            "returncode": None,
+            "logs": [],
+        }
     return result
 
 
@@ -436,6 +448,25 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/start_lidar_nav":
+            try:
+                body = self._read_json_body()
+            except Exception as exc:
+                self._send_json(
+                    {"ok": False, "message": "雷达导航启动参数无效：%s" % exc,
+                     "processes": _process_status()},
+                    code=400,
+                )
+                return
+
+            sign_guidance = body.get("sign_guidance", True)
+            if not isinstance(sign_guidance, bool):
+                self._send_json(
+                    {"ok": False, "message": "sign_guidance 必须为 true 或 false",
+                     "processes": _process_status()},
+                    code=400,
+                )
+                return
+
             with PROC_LOCK:
                 real_running = _is_running(PROCS.get("real_nav"))
                 visual_running = _is_running(PROCS.get("costmap"))
@@ -443,9 +474,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 ok, msg = False, "纯实车导航正在运行，请先停止后再启动雷达避障导航。"
             elif visual_running:
                 ok, msg = False, "视觉避障导航/代价地图正在运行，请先停止后再启动雷达避障导航。"
+            elif sign_guidance and not _runtime_running("camera"):
+                ok, msg = False, (
+                    "已勾选视觉指示牌临时转向，但相机/YOLO未运行。"
+                    "请先点击“启动相机/视觉”，或取消勾选后启动纯雷达避障。"
+                )
             else:
-                cmd = "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_lidar_nav.sh"
+                mode = "true" if sign_guidance else "false"
+                cmd = (
+                    "SIGN_GUIDANCE_ENABLED=%s "
+                    "bash ~/r300_ws/src/R300/r300_web_dashboard/scripts/web_start_lidar_nav.sh"
+                    % mode
+                )
                 ok, msg = _start_process("lidar_nav", cmd, needs_password=True)
+                if ok:
+                    msg += "；视觉指示牌临时转向=%s" % ("开启" if sign_guidance else "关闭")
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/start_lidar":

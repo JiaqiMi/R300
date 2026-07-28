@@ -22,6 +22,17 @@
   <arg name="lio_map_frame" default="odom"/>
   <arg name="lio_body_frame" default="body"/>
 
+  <!--
+    摄像头道路指示牌只负责临时改变局部目标：
+      暂停当前 GPS 航点 -> 发送左前/右前临时 move_base 目标
+      -> 到达后恢复当前未完成的 GPS 航点。
+    不改变雷达障碍层、DWA 或底盘控制链。
+  -->
+  <arg name="sign_guidance_enabled" default="true"/>
+  <arg name="detections_topic" default="/r300_vision/detections"/>
+  <arg name="sign_config_file"
+       default="$(find r300_1x_navigation)/config/subject1_direction_sign.yaml"/>
+
   <arg name="launch_base" default="true"/>
   <arg name="launch_rviz" default="false"/>
   <arg name="auto_start" default="false"/>
@@ -73,4 +84,21 @@
     <arg name="lio_map_frame" value="$(arg lio_map_frame)"/>
     <arg name="lio_body_frame" value="$(arg lio_body_frame)"/>
   </include>
+
+  <group if="$(arg sign_guidance_enabled)">
+    <node pkg="r300_1x_navigation"
+          type="direction_sign_local_goal.py"
+          name="direction_sign_local_goal"
+          output="screen"
+          required="true">
+      <!-- Flat YAML keys are loaded into this node's private namespace. -->
+      <rosparam command="load" file="$(arg sign_config_file)"/>
+      <param name="enabled" value="true"/>
+      <param name="detections_topic" value="$(arg detections_topic)"/>
+      <param name="move_base_action" value="/move_base"/>
+      <param name="pause_service" value="/subject1/pause_waypoints"/>
+      <param name="resume_service" value="/subject1/resume_waypoints"/>
+      <param name="waypoint_status_topic" value="/subject1/waypoint_status"/>
+    </node>
+  </group>
 </launch>

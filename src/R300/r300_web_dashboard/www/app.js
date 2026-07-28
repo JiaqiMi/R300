@@ -1,4 +1,4 @@
-/* R300 Web 上位机 v23：刷新重连、分区日志、雷达显示按需传输。
+/* R300 Web 上位机 v26：雷达导航可选视觉指示牌临时转向。
  * 设计原则：浏览器直接通过 rosbridge JSON 协议订阅 ROS1 话题；
  * 视频由已有 web_video_server 提供；不直接发布 /cmd_vel。
  */
@@ -25,6 +25,9 @@ let visionScanData = null;
 let activeVisionScanData = null;
 let lidarScanData = null;
 let activeLidarScanData = null;
+let directionSignState = "未启用 / 等待节点";
+let directionSignSelected = "NONE";
+let directionSignGoal = null;
 let lidarCloudData = null;
 let elevationData = null;
 let robotPose = null;  // {x, y, yaw, stampMs}
@@ -174,6 +177,9 @@ function renewNavigationSubscriptions() {
   renewSubscription(t.active_vision_scan, "sensor_msgs/LaserScan", 180);
   if (t.lidar_scan) renewSubscription(t.lidar_scan, "sensor_msgs/LaserScan", 180);
   if (t.active_lidar_scan) renewSubscription(t.active_lidar_scan, "sensor_msgs/LaserScan", 180);
+  if (t.direction_sign_state) renewSubscription(t.direction_sign_state, "std_msgs/String", 150);
+  if (t.direction_sign_selected) renewSubscription(t.direction_sign_selected, "std_msgs/String", 150);
+  if (t.direction_sign_goal) renewSubscription(t.direction_sign_goal, "geometry_msgs/PoseStamped", 250);
   lastNavigationRebindMs = Date.now();
 }
 
@@ -321,6 +327,9 @@ function subscribeAll() {
   sub(t.active_vision_scan, "sensor_msgs/LaserScan", 180);
   if (t.lidar_scan) sub(t.lidar_scan, "sensor_msgs/LaserScan", 180);
   if (t.active_lidar_scan) sub(t.active_lidar_scan, "sensor_msgs/LaserScan", 180);
+  if (t.direction_sign_state) sub(t.direction_sign_state, "std_msgs/String", 150);
+  if (t.direction_sign_selected) sub(t.direction_sign_selected, "std_msgs/String", 150);
+  if (t.direction_sign_goal) sub(t.direction_sign_goal, "geometry_msgs/PoseStamped", 250);
   // 订阅本身不会启动适配器；适配器未运行时没有任何大数据传输。
   // 这样页面刷新后，只要后台适配器仍在运行，点云/高程可立即恢复。
   if (t.lidar_points_json) sub(t.lidar_points_json, "std_msgs/String", 900);
@@ -350,6 +359,9 @@ function handleTopic(topic, msg) {
   else if (topic === t.active_vision_scan) { activeVisionScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.lidar_scan) { lidarScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
   else if (topic === t.active_lidar_scan) { activeLidarScanData = msg; drawScan(); drawCostmap(); updatePlanStats(); }
+  else if (topic === t.direction_sign_state) updateDirectionSignState(msg);
+  else if (topic === t.direction_sign_selected) updateDirectionSignSelected(msg);
+  else if (topic === t.direction_sign_goal) updateDirectionSignGoal(msg);
   else if (topic === t.lidar_points_json) { lidarDisplayEnabled = true; updateLidarCloud(msg); }
   else if (topic === t.elevation_json) { lidarDisplayEnabled = true; updateElevationMap(msg); }
   else if (topic === t.detections) updateDetections(msg);
@@ -358,6 +370,75 @@ function handleTopic(topic, msg) {
   else if (topic === t.speed_limit) updateSafety("limit", msg.data);
   else if (topic === t.emergency_stop) updateSafety("estop", msg.data);
   else if (topic === t.ins_status) updateInsStatus(msg);
+}
+
+function renderDirectionSignStatus() {
+  if ($("directionSignState")) $("directionSignState").textContent = directionSignState || "--";
+  if ($("directionSignSelected")) $("directionSignSelected").textContent = directionSignSelected || "NONE";
+  if ($("directionSignGoal")) {
+    if (directionSignGoal && directionSignGoal.pose && directionSignGoal.pose.position) {
+      const p = directionSignGoal.pose.position;
+      const frame = (directionSignGoal.header && directionSignGoal.header.frame_id) || "--";
+      $("directionSignGoal").textContent = `frame=${frame}, x=${fmt(Number(p.x), 2)} m, y=${fmt(Number(p.y), 2)} m`;
+    } else {
+      $("directionSignGoal").textContent = "--";
+    }
+  }
+}
+
+function updateDirectionSignState(msg) {
+  const raw = String((msg && msg.data) || "--");
+  const fields = {};
+  raw.split(/\s+/).forEach(token => {
+    const idx = token.indexOf("=");
+    if (idx > 0) fields[token.slice(0, idx)] = token.slice(idx + 1);
+  });
+
+  const names = {
+    WAITING: "等待识别",
+    CONFIRMING: "多帧确认中",
+    PAUSING_WAYPOINTS: "正在暂停GPS航点",
+    EXECUTING_LOCAL_TURN: "正在执行临时转向",
+    COMPLETED: "临时转向已完成",
+    ERROR: "临时转向失败",
+    DISABLED: "未启用"
+  };
+  const state = fields.state || raw;
+  const details = [];
+  if (fields.candidate && fields.candidate !== "NONE") details.push(`候选=${fields.candidate}`);
+  if (fields.count && !fields.count.startsWith("0/")) details.push(`确认=${fields.count}`);
+  if (fields.waypoint_state) details.push(`航点=${fields.waypoint_state}`);
+  if (fields.error && fields.error !== "NONE") details.push(`错误=${fields.error.replaceAll("_", " ")}`);
+  directionSignState = `${names[state] || state}${details.length ? `（${details.join("，")}）` : ""}`;
+
+  if (fields.selected && fields.selected !== "NONE") {
+    directionSignSelected = fields.selected;
+  }
+  renderDirectionSignStatus();
+}
+
+function updateDirectionSignSelected(msg) {
+  directionSignSelected = String((msg && msg.data) || "NONE");
+  renderDirectionSignStatus();
+}
+
+function updateDirectionSignGoal(msg) {
+  directionSignGoal = msg || null;
+  renderDirectionSignStatus();
+}
+
+function setupSignGuidanceToggle() {
+  const toggle = $("lidarSignGuidance");
+  if (!toggle) return;
+  const saved = localStorage.getItem("r300_lidar_sign_guidance");
+  if (saved === "true" || saved === "false") toggle.checked = saved === "true";
+  toggle.addEventListener("change", () => {
+    localStorage.setItem("r300_lidar_sign_guidance", String(toggle.checked));
+    const mode = toggle.checked ? "开启：启动雷达导航前需先运行相机/YOLO" : "关闭：本次为纯雷达避障，不依赖摄像头";
+    if ($("signGuidanceProcState") && !((latestProcesses.lidar_nav || {}).running)) {
+      $("signGuidanceProcState").textContent = `路牌引导：${mode}`;
+    }
+  });
 }
 
 function logLast(text) {
@@ -1392,9 +1473,14 @@ function handleServiceResponse(m) {
   $("serviceLog").textContent = (line + "\n" + $("serviceLog").textContent).split("\n").slice(0, 120).join("\n");
 }
 
-async function postApi(path, logGroup="nav") {
+async function postApi(path, logGroup="nav", body=null) {
   try {
-    const res = await fetch(path, {method: "POST", cache: "no-store"});
+    const options = {method: "POST", cache: "no-store"};
+    if (body !== null) {
+      options.headers = {"Content-Type": "application/json"};
+      options.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, options);
     const data = await res.json();
     renderProcessStatus(data.processes, data.message || "", logGroup);
     return data;
@@ -1421,7 +1507,15 @@ async function startProcess(name) {
     if (data && (data.ok || ((data.processes || {}).costmap || {}).running)) scheduleNavigationRecovery();
   }
   else if (name === "lidar_nav") {
-    const data = await postApi("/api/start_lidar_nav", "nav");
+    const signGuidance = Boolean($("lidarSignGuidance") && $("lidarSignGuidance").checked);
+    const cameraRunning = Boolean((latestProcesses.camera || {}).running);
+    if (signGuidance && !cameraRunning) {
+      appendSubsystemLog(
+        "nav",
+        `${nowTime()} 路牌引导已勾选，正在由后端再次确认相机/YOLO运行状态。`
+      );
+    }
+    const data = await postApi("/api/start_lidar_nav", "nav", {sign_guidance: signGuidance});
     if (data && (data.ok || ((data.processes || {}).lidar_nav || {}).running)) scheduleNavigationRecovery();
   }
   else if (name === "lidar") await postApi("/api/start_lidar", "lidar");
@@ -1481,6 +1575,7 @@ function renderProcessStatus(processes, message, messageGroup="") {
   const realNav = processes.real_nav || {};
   const costmap = processes.costmap || {};
   const lidarNav = processes.lidar_nav || {};
+  const signGuidance = processes.sign_guidance || {};
   const lidar = processes.lidar || {};
   const lidarDisplay = processes.lidar_display || {};
 
@@ -1497,7 +1592,29 @@ function renderProcessStatus(processes, message, messageGroup="") {
     $("costmapProcState").textContent = costmap.running ? `视觉避障 / 代价地图：运行中 pid=${costmap.pid}` : "视觉避障 / 代价地图：未运行";
   }
   if ($("lidarNavProcState")) {
-    $("lidarNavProcState").textContent = lidarNav.running ? `雷达避障 / 代价地图：运行中 pid=${lidarNav.pid}` : "雷达避障 / 代价地图：未运行";
+    $("lidarNavProcState").textContent = lidarNav.running ? `雷达避障 / 代价地图：运行中${lidarNav.pid ? ` pid=${lidarNav.pid}` : "（ROS节点检测）"}` : "雷达避障 / 代价地图：未运行";
+  }
+
+  const signToggle = $("lidarSignGuidance");
+  if (signToggle) {
+    signToggle.disabled = Boolean(lidarNav.running);
+    if (lidarNav.running) signToggle.checked = Boolean(signGuidance.running);
+  }
+  if ($("signGuidanceProcState")) {
+    if (lidarNav.running && signGuidance.running) {
+      $("signGuidanceProcState").textContent = "路牌引导：已启用";
+    } else if (lidarNav.running) {
+      $("signGuidanceProcState").textContent = "路牌引导：已关闭（纯雷达）";
+      directionSignState = "DISABLED";
+      directionSignSelected = "NONE";
+      directionSignGoal = null;
+      renderDirectionSignStatus();
+    } else {
+      const requested = Boolean(signToggle && signToggle.checked);
+      $("signGuidanceProcState").textContent = requested
+        ? "路牌引导：待启动（需要相机/YOLO）"
+        : "路牌引导：待启动（纯雷达）";
+    }
   }
 
   const lidarText = lidar.running ? `雷达感知：运行中${lidar.pid ? ` pid=${lidar.pid}` : "（ROS节点检测）"}` : "雷达感知：未运行";
@@ -1537,6 +1654,8 @@ function appendSubsystemLog(group, line) {
 
 async function main() {
   await loadConfig();
+  setupSignGuidanceToggle();
+  renderDirectionSignStatus();
   setupVideoReconnect();
   setVideoUrl(true);
   initSatelliteMap();

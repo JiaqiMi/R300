@@ -2,6 +2,11 @@
 # Web 按钮包装层：只负责日志、sudo 缓存和调用导航包的一键脚本。
 # 雷达导航检查、原点设置、CAN、roslaunch 与全链路自检均位于：
 #   r300_1x_navigation/scripts/one_key/start_r300_lidar_nav.sh
+#
+# SIGN_GUIDANCE_ENABLED=true：
+#   需要相机/YOLO，启动视觉指示牌临时转向。
+# SIGN_GUIDANCE_ENABLED=false：
+#   不依赖相机/YOLO，保持纯雷达避障导航。
 
 set -Eeuo pipefail
 
@@ -11,7 +16,16 @@ LOG_FILE="$LOG_DIR/web_start_lidar_nav.log"
 
 WS="${R300_WS:-$HOME/r300_ws}"
 SUDO_PASS="${R300_SUDO_PASS:-1234}"
+SIGN_GUIDANCE_ENABLED="${SIGN_GUIDANCE_ENABLED:-true}"
 KEEPALIVE_PID=""
+
+case "$SIGN_GUIDANCE_ENABLED" in
+  true|false) ;;
+  *)
+    echo "SIGN_GUIDANCE_ENABLED 只能是 true 或 false：$SIGN_GUIDANCE_ENABLED" >&2
+    exit 2
+    ;;
+esac
 
 cleanup() {
   if [[ -n "$KEEPALIVE_PID" ]] && kill -0 "$KEEPALIVE_PID" 2>/dev/null; then
@@ -24,6 +38,7 @@ trap cleanup EXIT INT TERM
   echo "============================================================"
   echo "[$(date '+%F %T')] web_start_lidar_nav.sh"
   echo "说明：Web 仅调用 r300_1x_navigation 的正式雷达导航脚本。"
+  echo "视觉指示牌临时转向：$SIGN_GUIDANCE_ENABLED"
 
   source /opt/ros/noetic/setup.bash
   source "$WS/devel/setup.bash"
@@ -50,7 +65,16 @@ trap cleanup EXIT INT TERM
   KEEPALIVE_PID=$!
 
   export R300_NONINTERACTIVE_SUDO=true
-  echo "启动：start_r300_lidar_nav.sh --no-rviz"
+  if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+    echo "启动：start_r300_lidar_nav.sh --no-rviz --sign-guidance"
+    echo "要求：相机、YOLO 与 /r300_vision/detections 已运行。"
+    NAV_ARGS=(--no-rviz --sign-guidance)
+  else
+    echo "启动：start_r300_lidar_nav.sh --no-rviz --no-sign-guidance"
+    echo "说明：本次不依赖相机/YOLO，保持纯雷达避障。"
+    NAV_ARGS=(--no-rviz --no-sign-guidance)
+  fi
+
   echo "说明：不会自动执行航点；就绪后在网页点击‘开始航点’。"
-  exec "$NAV_SCRIPT" --no-rviz
+  exec "$NAV_SCRIPT" "${NAV_ARGS[@]}"
 } 2>&1 | tee -a "$LOG_FILE"

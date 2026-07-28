@@ -739,3 +739,25 @@ footer { display: flex; justify-content: space-between; gap: 10px; padding: 10px
   .lidar-actions { grid-template-columns: 1fr !important; }
   .subsystem-log { max-height: 240px; }
 }
+
+
+/* v26：雷达导航视觉指示牌临时转向开关 */
+.feature-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid rgba(56, 189, 248, .28);
+  border-radius: 9px;
+  background: rgba(56, 189, 248, .08);
+  color: #d9f4ff;
+  font-size: 12px;
+  user-select: none;
+}
+.feature-toggle input { accent-color: #91e928; }
+.feature-toggle:has(input:disabled) {
+  opacity: .65;
+  cursor: not-allowed;
+}
+.compact-button { min-width: 112px !important; }
