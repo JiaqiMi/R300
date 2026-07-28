@@ -59,8 +59,19 @@
         <button class="kiwi" onclick="startProcess('lidar_nav')">②C 启动雷达避障 / 代价地图</button>
         <button class="soft" onclick="stopProcess('lidar_nav')">停止雷达避障 / 代价地图</button>
         <span id="lidarNavProcState" class="proc-state">雷达避障 / 代价地图：未运行</span>
+
+        <label class="feature-toggle">
+          <input id="lidarSignGuidance" type="checkbox" checked>
+          启用视觉指示牌临时转向
+        </label>
+        <button class="soft compact-button" onclick="callService('reset_sign_guidance')">重置路牌决策</button>
+        <span id="signGuidanceProcState" class="proc-state">路牌引导：待启动</span>
       </div>
-      <div class="mode-note">②A 纯实车、②B 视觉避障、②C 雷达避障三选一；雷达避障前须先启动下方“雷达感知 / 高程计算”并等待高程图出现。导航就绪后，在下方“航点控制”点击“开始航点”。</div>
+      <div class="mode-note">
+        ②A 纯实车、②B 视觉避障、②C 雷达避障三选一。雷达避障前须先启动下方“雷达感知 / 高程计算”并等待高程图出现。
+        勾选“视觉指示牌临时转向”时，还必须先启动相机/YOLO；取消勾选后可在没有摄像头的情况下运行纯雷达避障。
+        导航就绪后，在下方“航点控制”点击“开始航点”。
+      </div>
       <pre id="navNodeLog" class="subsystem-log nav-log">1X / 导航 / 代价地图启动日志...</pre>
       <div class="toolbar">
         <label><input id="showCostRobot" type="checkbox" checked> 车体箭头</label>
@@ -138,6 +149,10 @@
       <div class="kv"><span>当前目标</span><b id="goal">--</b></div>
       <div class="kv"><span>动态状态</span><b id="dynState">--</b></div>
       <div class="kv"><span>限速 / 急停</span><b id="safety">--</b></div>
+      <div class="mini-title">视觉指示牌临时转向</div>
+      <div class="kv"><span>引导状态</span><b id="directionSignState">未启用 / 等待节点</b></div>
+      <div class="kv"><span>已选方向</span><b id="directionSignSelected">NONE</b></div>
+      <div class="kv"><span>临时目标</span><b id="directionSignGoal">--</b></div>
       <div class="mini-title">路径与地图指标</div>
       <div class="kv"><span>全局路径</span><b id="globalStat">--</b></div>
       <div class="kv"><span>DWA 局部路径</span><b id="localStat">--</b></div>
@@ -230,7 +245,7 @@
 
   <footer>
     <span>操作：滚轮缩放，鼠标拖拽平移，双击画布复位。</span>
-    <span>猕猴桃主题 v8：1X 独立启动；纯实车、视觉避障、雷达避障三模式互斥；保留点云、高程和目标回传。</span>
+    <span>猕猴桃主题 v9：雷达导航可选视觉指示牌临时转向；无相机时可关闭该开关运行纯雷达避障。</span>
   </footer>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

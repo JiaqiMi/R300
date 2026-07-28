@@ -44,14 +44,18 @@
     "speed_limit": "/subject1/dynamic/speed_limit_mps",
     "emergency_stop": "/subject1/dynamic/emergency_stop",
     "lidar_points_json": "/r300_web/lidar_points_json",
-    "elevation_json": "/r300_web/elevation_json"
+    "elevation_json": "/r300_web/elevation_json",
+    "direction_sign_state": "/subject1/direction_sign/state",
+    "direction_sign_selected": "/subject1/direction_sign/selected_direction",
+    "direction_sign_goal": "/subject1/direction_sign/local_goal"
   },
   "services": {
     "start": "/subject1/start_waypoints",
     "pause": "/subject1/pause_waypoints",
     "resume": "/subject1/resume_waypoints",
     "cancel": "/subject1/cancel_waypoints",
-    "skip": "/subject1/skip_waypoint"
+    "skip": "/subject1/skip_waypoint",
+    "reset_sign_guidance": "/subject1/direction_sign/reset"
   },
   "target_geolocation": {
     "enabled": true,
