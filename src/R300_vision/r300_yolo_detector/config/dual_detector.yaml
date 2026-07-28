@@ -3,8 +3,8 @@
 # ============================================================
 # model1：完整12类模型，但仅发布 vehicle/smoke/trench/person/左右转
 # model2：六类专用模型，负责 tire/barrel/puddle/rockfall/park/sandbag
-model1_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/c11_260711.pt
-model2_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model0722.pt
+model1_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model_c6_260727.pt
+model2_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model_c7_260727.pt
 
 # ============================================================
 # 输入/输出话题：保持原话题不变，下游模块无需修改
@@ -25,7 +25,7 @@ imgsz: 640
 max_det: 100
 
 # 两个模型顺序处理同一帧，先从4Hz开始，稳定后再逐步提高。
-infer_hz: 4.0
+infer_hz: 2.0
 
 model1_conf_threshold: 0.20
 model1_iou_threshold: 0.45
@@ -33,6 +33,20 @@ model1_iou_threshold: 0.45
 # 模型2 predict 的基础阈值；最终还会执行下面的类别独立阈值。
 model2_conf_threshold: 0.15
 model2_iou_threshold: 0.45
+
+    # 0: 2,   # vehicle
+    # 1: 3,   # smoke
+    # 2: 4,   # trench
+    # 3: 6,   # person
+    # 4: 8,   # park
+    # 5: 12,  # crater
+model1_class_conf_thresholds:
+  vehicle: 0.25
+  smoke: 0.25
+  trench: 0.25
+  person: 0.25
+  park: 0.20
+  crater: 0.25
 
 # 模型2六类最终置信度阈值，可按验证结果分别调整。
 model2_class_conf_thresholds:

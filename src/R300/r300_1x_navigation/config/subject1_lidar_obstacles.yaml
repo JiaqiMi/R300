@@ -21,8 +21,8 @@ ext_y: 0.0
 ext_yaw_deg: 0.0
 
 # ---- 地形判定（v3 语义）----
-drop_thresh: 0.15               # 负障碍：低于局部地面 15cm（坑/沟沿）
-pos_thresh: 0.15                 # 正障碍：高于局部地面 15cm
+drop_thresh: 0.4               # 负障碍：低于局部地面 15cm（坑/沟沿）
+pos_thresh: 0.2                 # 正障碍：高于局部地面 15cm
 max_height: 4.5                  # 高于此值视为天花板/横梁，不算障碍
 slope_thresh_deg: 30.0           # 几何陡坡上限（24cm 基线中心差分）
 min_range: 0.60                  # 车体半对角 0.57m，避免把自车格当障碍
@@ -31,7 +31,7 @@ ground_ring_min: 0.60            # 局部地面环带（中位数=地面基准�
 ground_ring_max: 1.60
 ground_ring_min_cells: 30
 sensor_height_above_ground: 0.48 # 环带不足时的几何地面退路（2026-07-27 实测）
-neg_confirm: 3                   # 负障碍连续 3 帧确认（高程图 10Hz 下 0.3s）
+neg_confirm: 2                   # 负障碍连续 3 帧确认（高程图 10Hz 下 0.3s）
 pos_confirm: 2
 
 # ---- 虚拟扫描布局（对齐 vision_obstacle_layer_node 输出契约）----
@@ -55,10 +55,10 @@ speed_limit_apply_to_dwa: false  # 执行开关: 写 /move_base/DWAPlannerROS �
 speed_limit_v_max: 2.5           # 放开上限(2026-07-28 1.5→2.5)。开阔地自动跑满, 坑区/未验证地面自动降;
                                  # 限速接管后 dwa yaml 的 max_vel(1.5) 只是初值兼保底——
                                  # 关掉本功能即回落 1.5。GR3D/10Hz/水坑三关验收仍需在实车完成
-speed_limit_v_min: 0.3           # 下限: 保证起步能建图、感知失效时的爬行速度
-speed_limit_brake_acc: 1.0       # 制动加速度, 与 subject1_dwa_lidar 的 acc_lim_x 一致
+speed_limit_v_min: 0.1           # 下限: 保证起步能建图、感知失效时的爬行速度
+speed_limit_brake_acc: 6.0       # 制动加速度, 与 subject1_dwa_lidar 的 acc_lim_x 一致
 speed_limit_react_time: 0.5      # 指令生效延迟预算 s（DWA 8Hz + 底盘响应）
-speed_limit_margin: 0.75         # 停车余量 = 车头 0.45 + 缓冲 0.3
+speed_limit_margin: 1.45         # 停车余量 = 车头 0.45 + 缓冲 0.3
 corridor_half_width: 0.45        # 走廊半宽 = footprint 半宽 0.35 + 0.10
 corridor_start: 0.7              # 验证起点(距 base_link, ≥高程图 min_range 0.6)
 corridor_bin: 0.25               # 走廊纵向切片长度

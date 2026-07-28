@@ -136,6 +136,16 @@ class DualYoloDepthNode:
             rospy.get_param("~model2_iou_threshold", 0.45)
         )
 
+
+        # 模型2支持按类别设置最终置信度阈值。
+        raw_model1_thresholds = rospy.get_param(
+            "~model1class_conf_thresholds",
+            {},
+        )
+        self.model1_class_conf_thresholds: Dict[str, float] = {
+            str(class_name): float(threshold)
+            for class_name, threshold in raw_model1_thresholds.items()
+        }
         # 模型2支持按类别设置最终置信度阈值。
         raw_model2_thresholds = rospy.get_param(
             "~model2_class_conf_thresholds",
@@ -684,7 +694,7 @@ class DualYoloDepthNode:
             )
 
         return candidates
-
+    
     def parse_model2_result(self, result) -> List[CandidateDetection]:
         """解析模型2，恢复到12类全局编号并应用类别独立阈值。"""
         candidates: List[CandidateDetection] = []
@@ -724,6 +734,60 @@ class DualYoloDepthNode:
             candidates.append(
                 CandidateDetection(
                     source_model="M2",
+                    local_class_id=local_id,
+                    global_class_id=global_id,
+                    class_name=class_name,
+                    confidence=confidence,
+                    xyxy=(
+                        float(xyxy[0]),
+                        float(xyxy[1]),
+                        float(xyxy[2]),
+                        float(xyxy[3]),
+                    ),
+                )
+            )
+
+        return candidates
+
+    def parse_model1_result_v2(self, result) -> List[CandidateDetection]:
+        """解析模型1，恢复到12类全局编号并应用类别独立阈值。"""
+        candidates: List[CandidateDetection] = []
+        boxes = result.boxes
+        if boxes is None:
+            return candidates
+
+        xyxy_array = boxes.xyxy.detach().cpu().numpy()
+        class_array = boxes.cls.detach().cpu().numpy()
+        confidence_array = boxes.conf.detach().cpu().numpy()
+
+        for xyxy, class_value, confidence_value in zip(
+            xyxy_array,
+            class_array,
+            confidence_array,
+        ):
+            local_id = int(class_value)
+            if local_id not in MODEL1_LOCAL_TO_GLOBAL:
+                rospy.logwarn_throttle(
+                    5.0,
+                    "Model1 returned unknown local class id=%d",
+                    local_id,
+                )
+                continue
+
+            global_id = MODEL1_LOCAL_TO_GLOBAL[local_id]
+            class_name = GLOBAL_CLASS_ID_TO_NAME[global_id]
+            confidence = float(confidence_value)
+            class_threshold = self.model1_class_conf_thresholds.get(
+                class_name,
+                self.model1_conf_threshold,
+            )
+
+            if confidence < class_threshold:
+                continue
+
+            candidates.append(
+                CandidateDetection(
+                    source_model="M1",
                     local_class_id=local_id,
                     global_class_id=global_id,
                     class_name=class_name,
@@ -915,7 +979,7 @@ class DualYoloDepthNode:
                 iou=self.model1_iou_threshold,
                 imgsz=self.imgsz,
                 device=self.device,
-                classes=sorted(MODEL1_ALLOWED_GLOBAL_IDS),
+                # classes=sorted(MODEL1_ALLOWED_GLOBAL_IDS),
                 max_det=self.max_det,
                 verbose=False,
             )
@@ -941,7 +1005,7 @@ class DualYoloDepthNode:
             rospy.logerr("Dual YOLO inference failed: %r", exc)
             return
 
-        model1_candidates = self.parse_model1_result(
+        model1_candidates = self.parse_model1_result_v2(
             model1_results[0]
         )
         model2_candidates = self.parse_model2_result(

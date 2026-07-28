@@ -7,13 +7,13 @@ DWAPlannerROS:
 
   # ---------------- 速度限制 ----------------
   # 仅作为开阔区域最高速度。
-  max_vel_x: 1.50
+  max_vel_x: 2.00
   min_vel_x: 0.00
 
   max_vel_y: 0.00
   min_vel_y: 0.00
 
-  max_vel_trans: 1.50
+  max_vel_trans: 2.00
   min_vel_trans: 0.05
 
   # 只有实车可以稳定达到时才使用0.45。
@@ -22,41 +22,41 @@ DWAPlannerROS:
 
   # ---------------- 真实动力学 ----------------
   # 保持与实车可靠制动能力一致。
-  acc_lim_x: 1.00
+  acc_lim_x: 2.00
   acc_lim_y: 0.00
-  acc_lim_trans: 1.00
-  acc_lim_theta: 1.00
+  acc_lim_trans: 2.00
+  acc_lim_theta: 2.00
 
   # ---------------- 到点条件 ----------------
   xy_goal_tolerance: 1.50
   yaw_goal_tolerance: 3.14
 
 
-  trans_stopped_vel: 0.16
-  theta_stopped_vel: 0.08
+  trans_stopped_vel: 0.25
+  theta_stopped_vel: 0.12
 
   # trans_stopped_vel: 1.5
   # theta_stopped_vel: 0.25
 
   # ---------------- 轨迹预测 ----------------
   # 不再单纯通过超长预测距离承担制动安全。
-  sim_time: 2.50
+  sim_time: 2.20
   sim_granularity: 0.03
   angular_sim_granularity: 0.03
 
   # 适合8～10Hz，降低计算负担。
   vx_samples: 12
   vy_samples: 1
-  vth_samples: 51
+  vth_samples: 41
 
   # ---------------- 轨迹评分 ----------------
   # 允许更明显地离开穿过障碍的全局直线路径。
-  path_distance_bias: 24.0
+  path_distance_bias: 30.0
   goal_distance_bias: 18.0
   occdist_scale: 0.25
 
   # 保留少量前视引导，但避免0.30造成过度回正。
-  forward_point_distance: 0.30
+  forward_point_distance: 0.15
 
   # 可以保留，但不能依靠它代替距离限速。
   stop_time_buffer: 0.80
@@ -66,11 +66,11 @@ DWAPlannerROS:
   max_scaling_factor: 0.20
 
   # 选定一侧后，不要太快解除振荡方向约束。
-  oscillation_reset_dist: 0.35
-  oscillation_reset_angle: 0.50
+  oscillation_reset_dist: 0.6
+  oscillation_reset_angle: 0.8
 
+  twirling_scale: 1.00
   prune_plan: false
-  twirling_scale: 0.0
 
   publish_traj_pc: false
   publish_cost_grid_pc: false
