@@ -129,6 +129,27 @@ roslaunch r300_1x_navigation subject1_waypoint_vision_nav.launch
 `/r300_lidar/obstacle_points`（base_link 系调试点云）与实物方位/距离一致；
 local costmap 中障碍出现且 3s TTL 过期正常；正前 3m 纸箱→DWA 绕行。
 
+## 7.5 地面确认限速（第三招，2026-07-28 加入）
+
+坑的探测距离是几何定死的（d≈3.2×坑宽，0.48m 安装高度下窄沟远处不可见），
+所以负障碍安全的正解不是"更早看见坑"，而是**不要开得比验证过的地面更快**：
+适配节点把车前走廊（半宽 0.45m）按 0.25m 切片，逐片要求"±15cm 内的有效
+地面格达标且无负障碍/陡坡/正障碍"，得到连续验证距离 D（数据空洞同样截断），
+按完整制动方程 `v = -a·t_r + √((a·t_r)²+2a·(D-0.75))` 动态压 DWA 的
+max_vel_x/max_vel_trans（dynamic_reconfigure）。效果：前方 7m 验证平地跑满
+上限；3m 处出现空洞自动降到 ~1.7m/s；扫清后自动恢复；感知断流/TF 失效自动
+压到 0.3m/s 爬行。
+
+开关（subject1_lidar_obstacles.yaml）：
+- `enable_ground_speed_limit` 总开关（false=功能整体关闭，节点退回纯 scan 适配器）；
+- `speed_limit_apply_to_dwa` 执行开关（false=只发布 /r300_lidar/ground_speed_limit
+  观测值，不动 DWA——实车首跑建议先观测）；
+- `speed_limit_v_max` 放开上限——**验收后提速到 2.5 改这里**，dwa yaml 的
+  max_vel 在限速接管后只是初值。
+
+观测话题：`/r300_lidar/ground_speed_limit`（Float32，当前限速值）；节点日志
+每 5s 打印 `验证地面 D=x.xx m → 限速 x.xx m/s`。
+
 ## 8. 待办
 
 1. 外参精化（§4 方法，当前 ext_x=0.40 为估计值）；

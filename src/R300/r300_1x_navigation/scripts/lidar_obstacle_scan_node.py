@@ -27,7 +27,18 @@
   2) 三通道：正障碍(h>pos)/负障碍(h<-drop, 坑沿虚拟墙)/几何陡坡(>30°)；
   3) 世界格 N 帧去抖（负3帧/正2帧）；
   4) 移除了 v3 的 /move_base/clear_costmaps 调用——VisionSnapshotLayer
-     的每障碍 TTL(3s) 自动过期，无需主动清图。
+     的每障碍 TTL 自动过期，无需主动清图。
+
+第三招·地面确认限速（enable_ground_speed_limit 开关）：
+  坑的探测距离是几何定死的(d≈3.2×坑宽)，"更早看见坑"无解，正解是
+  "不要开得比验证过的地面更快"：把车前走廊按纵向切片，统计每片内
+  |h|≤阈值 的有效地面格，得到连续验证地面距离 D（负障碍/陡坡/正障碍/
+  无数据空洞都会截断 D），再按完整制动方程
+      v = -a·t_r + sqrt((a·t_r)² + 2a·max(0, D - 余量))
+  经 dynamic_reconfigure 动态压 DWA 的 max_vel_x/max_vel_trans。
+  前方 7m 验证平地→放开跑；3m 处出现空洞→自动降速；扫清后自动恢复。
+  speed_limit_apply_to_dwa=false 时只发布 /r300_lidar/ground_speed_limit
+  观测值、不干预 DWA（实车首跑建议先观测一圈再打开执行）。
 """
 
 import math
@@ -38,7 +49,12 @@ import tf2_ros
 from grid_map_msgs.msg import GridMap
 from sensor_msgs.msg import LaserScan, PointCloud2, PointField
 import sensor_msgs.point_cloud2 as pcl2
-from std_msgs.msg import Header
+from std_msgs.msg import Float32, Header
+
+try:
+    from dynamic_reconfigure.client import Client as DRClient
+except ImportError:  # dynamic_reconfigure 缺失时限速降级为纯观测
+    DRClient = None
 
 CLOUD_FIELDS = [
     PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
@@ -86,15 +102,33 @@ class LidarObstacleScan:
         self.range_max = float(rospy.get_param('~scan_range_max_m', 10.5))
         self.safety_margin = float(rospy.get_param('~range_safety_margin_m', 0.15))
         self.input_timeout = float(rospy.get_param('~input_timeout_s', 2.0))
+        # ---- 第三招：地面确认限速 ----
+        self.enable_speed_limit = bool(rospy.get_param('~enable_ground_speed_limit', True))
+        self.sl_apply = bool(rospy.get_param('~speed_limit_apply_to_dwa', True))
+        self.sl_v_max = float(rospy.get_param('~speed_limit_v_max', 1.5))
+        self.sl_v_min = float(rospy.get_param('~speed_limit_v_min', 0.3))
+        self.sl_acc = max(0.1, float(rospy.get_param('~speed_limit_brake_acc', 1.0)))
+        self.sl_react = float(rospy.get_param('~speed_limit_react_time', 0.5))
+        self.sl_margin = float(rospy.get_param('~speed_limit_margin', 0.75))
+        self.cor_half_w = float(rospy.get_param('~corridor_half_width', 0.45))
+        self.cor_start = float(rospy.get_param('~corridor_start', 0.7))
+        self.cor_bin = max(0.1, float(rospy.get_param('~corridor_bin', 0.25)))
+        self.cor_frac = float(rospy.get_param('~corridor_min_ground_frac', 0.3))
+        self.cor_min_cells = int(rospy.get_param('~corridor_min_ground_cells', 8))
 
         self._neg_hist = {}
         self._pos_hist = {}
         self._last_msg_time = rospy.Time(0)
+        self._dr_client = None
+        self._dr_retry_after = 0.0
+        self._last_sent_v = None
+        self._last_hb = 0.0
         self.buf = tf2_ros.Buffer()
         tf2_ros.TransformListener(self.buf)
 
         self.pub_scan = rospy.Publisher(self.scan_topic, LaserScan, queue_size=1)
         self.pub_cloud = rospy.Publisher(self.debug_cloud_topic, PointCloud2, queue_size=1)
+        self.pub_vlimit = rospy.Publisher('/r300_lidar/ground_speed_limit', Float32, queue_size=1)
         rospy.Subscriber(self.elevation_topic, GridMap, self.cb, queue_size=1,
                          buff_size=64 * 1024 * 1024)
         rospy.Timer(rospy.Duration(1.0), self._watchdog)
@@ -109,6 +143,47 @@ class LidarObstacleScan:
         if age > self.input_timeout:
             rospy.logwarn_throttle(
                 5.0, 'lidar_obstacle_scan: 高程图输入超时 %.1fs，已停发 scan（下游 TTL 会在 3s 内清空障碍）', age)
+            self._fail_safe_slow('高程图断流')
+
+    def _fail_safe_slow(self, reason):
+        """感知不可信时把限速压到下限（地面无法验证 = 不允许快跑）。"""
+        if not self.enable_speed_limit:
+            return
+        self.pub_vlimit.publish(Float32(data=self.sl_v_min))
+        self._send_dwa_limit(self.sl_v_min, force=True)
+        rospy.logwarn_throttle(5.0, 'lidar_obstacle_scan: %s，限速压至 %.1fm/s', reason, self.sl_v_min)
+
+    def _send_dwa_limit(self, v, force=False):
+        """经 dynamic_reconfigure 写 DWA 的 max_vel_x/max_vel_trans。
+        量化 0.05m/s 去抖 + 2s 心跳重发；move_base 未就绪时静默退避重试，
+        speed_limit_apply_to_dwa=false 时本函数不生效（纯观测模式）。"""
+        if not (self.sl_apply and self.enable_speed_limit) or DRClient is None:
+            return
+        now = rospy.get_time()
+        vq = round(v / 0.05) * 0.05
+        if (not force and self._last_sent_v is not None
+                and abs(vq - self._last_sent_v) < 0.049
+                and now - self._last_hb < 2.0):
+            return
+        if self._dr_client is None:
+            if now < self._dr_retry_after:
+                return
+            try:
+                self._dr_client = DRClient('/move_base/DWAPlannerROS', timeout=0.5)
+                rospy.loginfo('lidar_obstacle_scan: 已连接 DWA dynamic_reconfigure，限速接管 max_vel_x/max_vel_trans')
+            except Exception:
+                self._dr_retry_after = now + 5.0
+                rospy.logwarn_throttle(
+                    30.0, 'lidar_obstacle_scan: DWA dynamic_reconfigure 未就绪（move_base 未启动?），限速暂为纯观测')
+                return
+        try:
+            self._dr_client.update_configuration({'max_vel_x': vq, 'max_vel_trans': vq})
+            self._last_sent_v = vq
+            self._last_hb = now
+        except Exception as exc:
+            self._dr_client = None
+            self._dr_retry_after = now + 5.0
+            rospy.logwarn_throttle(10.0, 'lidar_obstacle_scan: 下发限速失败(%s)，重连中', exc)
 
     @staticmethod
     def _layer_matrix(msg, name):
@@ -142,6 +217,7 @@ class LidarObstacleScan:
         except tf2_ros.TransformException as exc:
             rospy.logwarn_throttle(5.0, 'lidar_obstacle_scan: TF %s->%s 不可用: %s',
                                    self.lio_map_frame, self.lio_body_frame, exc)
+            self._fail_safe_slow('FAST-LIO TF 不可用')
             return
         q = t.transform.rotation
         yaw_body = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -246,6 +322,39 @@ class LidarObstacleScan:
         scan.ranges = ranges.tolist()
         scan.intensities = []
         self.pub_scan.publish(scan)
+
+        # ---- 第三招：地面确认限速（不要开得比验证过的地面更快）----
+        # 车前走廊按纵向切片，逐片要求"有效地面格达标且无障碍"，得到连续验证
+        # 距离 D；负障碍/陡坡/正障碍/无数据空洞任何一种都会截断 D。
+        if self.enable_speed_limit:
+            csl, ssl = math.cos(-heading), math.sin(-heading)
+            fxa = csl * (X - bx) - ssl * (Y - by)
+            fya = ssl * (X - bx) + csl * (Y - by)
+            in_cor = (np.abs(fya) <= self.cor_half_w) & \
+                     (fxa >= self.cor_start) & (fxa <= self.max_range)
+            n_bins = max(1, int((self.max_range - self.cor_start) / self.cor_bin))
+            bidx = np.clip(((fxa - self.cor_start) / self.cor_bin).astype(np.int32),
+                           0, n_bins - 1)
+            ground_ok = fin & (h > -self.drop) & (h < self.pos)  # ±阈值内=已验证地面
+            bad = neg_mask | pos_mask                            # 已去抖的障碍
+            cnt_all = np.bincount(bidx[in_cor], minlength=n_bins)
+            cnt_gnd = np.bincount(bidx[in_cor & ground_ok], minlength=n_bins)
+            cnt_bad = np.bincount(bidx[in_cor & bad], minlength=n_bins)
+            D = self.cor_start
+            for i in range(n_bins):
+                need = max(self.cor_min_cells, self.cor_frac * cnt_all[i])
+                if cnt_bad[i] > 0 or cnt_gnd[i] < need:
+                    break
+                D = self.cor_start + (i + 1) * self.cor_bin
+            # 完整制动方程: v·t_r + v²/(2a) ≤ D - 余量  →  解 v
+            usable = max(0.0, D - self.sl_margin)
+            at = self.sl_acc * self.sl_react
+            v = -at + math.sqrt(at * at + 2.0 * self.sl_acc * usable)
+            v = max(self.sl_v_min, min(self.sl_v_max, v))
+            self.pub_vlimit.publish(Float32(data=v))
+            self._send_dwa_limit(v)
+            rospy.loginfo_throttle(
+                5.0, 'lidar_obstacle_scan: 验证地面 D=%.2fm → 限速 %.2fm/s', D, v)
 
         if self.publish_debug_cloud:
             c, s = math.cos(-heading), math.sin(-heading)

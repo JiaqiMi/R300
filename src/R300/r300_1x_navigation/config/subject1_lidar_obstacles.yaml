@@ -40,4 +40,23 @@ scan_angle_increment_deg: 0.5
 scan_range_min_m: 0.20
 scan_range_max_m: 10.5
 range_safety_margin_m: 0.15      # 束距离前移安全余量（视觉链为 0.2）
-input_timeout_s: 2.0             # 高程图断流告警阈值（断流即停发, 下游 TTL 3s 清空）
+input_timeout_s: 2.0             # 高程图断流告警阈值（断流即停发, 下游 TTL 清空 + 限速压至下限）
+
+# ---- 第三招：地面确认限速（不要开得比验证过的地面更快）----
+# 原理: 坑的探测距离几何定死(d≈3.2×坑宽), 与其"更早看见坑"不如"只在验证过的
+# 地面上放开速度"。前方走廊切片统计有效地面 → 连续验证距离 D →
+# v = -a·t_r + sqrt((a·t_r)²+2a·(D-余量)), 经 dynamic_reconfigure 压 DWA。
+enable_ground_speed_limit: true  # 总开关: 计算 D 并发布 /r300_lidar/ground_speed_limit
+speed_limit_apply_to_dwa: true   # 执行开关: 写 /move_base/DWAPlannerROS 的 max_vel_x/max_vel_trans
+                                 # false=纯观测(只发话题不干预), 实车首跑可先观测一圈再打开
+speed_limit_v_max: 1.5           # 放开上限。★验收通过后提速改这里(1.5→2.5), 不再改 dwa yaml——
+                                 # 限速接管后 dwa yaml 的 max_vel 只是初值
+speed_limit_v_min: 0.3           # 下限: 保证起步能建图、感知失效时的爬行速度
+speed_limit_brake_acc: 1.0       # 制动加速度, 与 subject1_dwa_lidar 的 acc_lim_x 一致
+speed_limit_react_time: 0.5      # 指令生效延迟预算 s（DWA 8Hz + 底盘响应）
+speed_limit_margin: 0.75         # 停车余量 = 车头 0.45 + 缓冲 0.3
+corridor_half_width: 0.45        # 走廊半宽 = footprint 半宽 0.35 + 0.10
+corridor_start: 0.7              # 验证起点(距 base_link, ≥高程图 min_range 0.6)
+corridor_bin: 0.25               # 走廊纵向切片长度
+corridor_min_ground_frac: 0.3    # 切片内有效地面格比例门槛(容忍远处回波稀疏)
+corridor_min_ground_cells: 8     # 切片内有效地面格最少数
