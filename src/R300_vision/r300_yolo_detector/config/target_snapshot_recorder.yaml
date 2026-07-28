@@ -2,17 +2,26 @@
 image_topic: /r300_vision/annotated_image
 detections_topic: /r300_vision/detections
 
-# 暂定导航接口，后续按实际话题和消息类型修改
-gps_topic: /vehicle/gps/fix
-heading_topic: /vehicle/heading_deg
+# 导航接口（与 one_x / dashboard 一致）
+gps_topic: /one_x/fix
+heading_topic: /one_x/heading_deg
 
 # 本地保存目录
+# candidate_records/  人工二次筛选候选库
+# submit_results/     自动全局 Top10 提交库
 output_dir: /home/explorer/r300_target_records
 
-# 每类最多保留3个不同目标
-top_k: 3
+# 同一目标（同类 + 距离 < min_target_distance_m）最多保留帧数
+candidate_max_per_target: 20
 
-# 有效经纬度目标之间最小间隔
+# 候选库全局数量上限（不区分类别）
+# 超出后按 confidence低 → 面积小 → 时间旧 删除最差记录
+candidate_max_total: 500
+
+# 自动提交结果全局数量上限（不区分类别）
+submit_max: 10
+
+# 有效经纬度目标之间最小间隔（用于判定同一目标）
 min_target_distance_m: 5.0
 
 # 记录节点最低置信度，也可按类别覆盖
@@ -27,11 +36,9 @@ class_conf_thresholds: {}
 jpeg_quality: 95
 
 # GPS无效时仍保存，经纬度写为0。
-# 由于不能验证5 m间隔，每类最多只保留一条无效GPS记录。
+# 由于不能验证5 m间隔，同类无效GPS记录视为同一目标簇，
+# 受 candidate_max_per_target 限制。
 save_when_gps_invalid: true
-
-# 有效GPS记录优先于无效GPS记录
-prefer_valid_gps: true
 
 # 只有深度和相机三维位置有效时才参与保存
 require_depth_valid: true

@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -25,9 +26,39 @@ from r300_vision_msgs.msg import DetectedObjectArray
 
 
 class TargetSnapshotRecorder:
-    """每类保留置信度最高且地理位置互异的目标快照。"""
+    """保存候选障碍物库，并维护全局 Top10 提交结果。"""
 
     EARTH_RADIUS_M = 6378137.0
+    SUMMARY_FIELDS = [
+        "rank",
+        "class_id",
+        "class_name",
+        "confidence",
+        "bbox_area",
+        "gps_valid",
+        "heading_valid",
+        "vehicle_latitude",
+        "vehicle_longitude",
+        "heading_deg",
+        "target_latitude",
+        "target_longitude",
+        "north_offset_m",
+        "east_offset_m",
+        "camera_x_m",
+        "camera_y_m",
+        "camera_z_m",
+        "body_x_m",
+        "body_y_m",
+        "body_z_m",
+        "depth_m",
+        "bbox",
+        "image_file",
+        "metadata_file",
+        "record_id",
+        "stamp_sec",
+        "stamp_nsec",
+        "timestamp_ns",
+    ]
 
     def __init__(self) -> None:
         self.image_topic = str(
@@ -37,10 +68,10 @@ class TargetSnapshotRecorder:
             rospy.get_param("~detections_topic", "/r300_vision/detections")
         )
         self.gps_topic = str(
-            rospy.get_param("~gps_topic", "/vehicle/gps/fix")
+            rospy.get_param("~gps_topic", "/one_x/fix")
         )
         self.heading_topic = str(
-            rospy.get_param("~heading_topic", "/vehicle/heading_deg")
+            rospy.get_param("~heading_topic", "/one_x/heading_deg")
         )
 
         self.output_dir = Path(
@@ -52,7 +83,13 @@ class TargetSnapshotRecorder:
             )
         ).expanduser()
 
-        self.top_k = int(rospy.get_param("~top_k", 3))
+        self.candidate_max_per_target = int(
+            rospy.get_param("~candidate_max_per_target", 20)
+        )
+        self.candidate_max_total = int(
+            rospy.get_param("~candidate_max_total", 500)
+        )
+        self.submit_max = int(rospy.get_param("~submit_max", 10))
         self.min_target_distance_m = float(
             rospy.get_param("~min_target_distance_m", 5.0)
         )
@@ -65,9 +102,6 @@ class TargetSnapshotRecorder:
         self.jpeg_quality = int(rospy.get_param("~jpeg_quality", 95))
         self.save_when_gps_invalid = bool(
             rospy.get_param("~save_when_gps_invalid", True)
-        )
-        self.prefer_valid_gps = bool(
-            rospy.get_param("~prefer_valid_gps", True)
         )
         self.require_depth_valid = bool(
             rospy.get_param("~require_depth_valid", True)
@@ -108,8 +142,12 @@ class TargetSnapshotRecorder:
             raise ValueError("camera_to_body_rotation 必须包含9个数")
         if len(translation_values) != 3:
             raise ValueError("camera_in_body_translation_m 必须包含3个数")
-        if self.top_k <= 0:
-            raise ValueError("top_k 必须大于0")
+        if self.candidate_max_per_target <= 0:
+            raise ValueError("candidate_max_per_target 必须大于0")
+        if self.candidate_max_total <= 0:
+            raise ValueError("candidate_max_total 必须大于0")
+        if self.submit_max <= 0:
+            raise ValueError("submit_max 必须大于0")
         if self.min_target_distance_m <= 0.0:
             raise ValueError("min_target_distance_m 必须大于0")
 
@@ -122,9 +160,15 @@ class TargetSnapshotRecorder:
             dtype=np.float64,
         ).reshape(3)
 
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.index_path = self.output_dir / "index.json"
-        self.summary_path = self.output_dir / "summary.csv"
+        self.candidate_dir = self.output_dir / "candidate_records"
+        self.submit_dir = self.output_dir / "submit_results"
+        self.candidate_dir.mkdir(parents=True, exist_ok=True)
+        self.submit_dir.mkdir(parents=True, exist_ok=True)
+
+        self.candidate_index_path = self.candidate_dir / "index.json"
+        self.candidate_summary_path = self.candidate_dir / "summary.csv"
+        self.submit_index_path = self.submit_dir / "index.json"
+        self.submit_summary_path = self.submit_dir / "summary.csv"
 
         self.nav_lock = threading.Lock()
         self.vehicle_latitude = self.default_latitude
@@ -134,9 +178,21 @@ class TargetSnapshotRecorder:
         self.heading_valid = False
 
         self.state_lock = threading.Lock()
-        self.records_by_class: Dict[str, List[Dict[str, Any]]] = (
-            self.load_state()
+        self.candidate_records: List[Dict[str, Any]] = (
+            self.load_record_list(
+                self.candidate_index_path,
+                self.candidate_dir,
+            )
         )
+        self.submit_records: List[Dict[str, Any]] = (
+            self.load_record_list(
+                self.submit_index_path,
+                self.submit_dir,
+            )
+        )
+        self.enforce_candidate_max_total()
+        self.rebuild_submit_results()
+        self.save_all_state()
 
         self.gps_sub = rospy.Subscriber(
             self.gps_topic,
@@ -172,8 +228,11 @@ class TargetSnapshotRecorder:
         rospy.loginfo("Target snapshot recorder started")
         rospy.loginfo("Output directory: %s", str(self.output_dir))
         rospy.loginfo(
-            "TopK=%d, minimum distance=%.2f m",
-            self.top_k,
+            "candidate_max_per_target=%d, candidate_max_total=%d, "
+            "submit_max=%d, minimum distance=%.2f m",
+            self.candidate_max_per_target,
+            self.candidate_max_total,
+            self.submit_max,
             self.min_target_distance_m,
         )
         rospy.loginfo(
@@ -284,10 +343,24 @@ class TargetSnapshotRecorder:
                 body_point=body_point,
             )
 
+            bbox = [
+                int(detection.x_min),
+                int(detection.y_min),
+                int(detection.x_max),
+                int(detection.y_max),
+            ]
+            bbox_area = max(0, bbox[2] - bbox[0]) * max(
+                0,
+                bbox[3] - bbox[1],
+            )
+            stamp_sec = int(detections_msg.header.stamp.secs)
+            stamp_nsec = int(detections_msg.header.stamp.nsecs)
+
             candidate: Dict[str, Any] = {
                 "class_id": class_id,
                 "class_name": class_name,
                 "confidence": confidence,
+                "bbox_area": int(bbox_area),
                 "gps_valid": gps_valid,
                 "heading_valid": heading_valid,
                 "vehicle_latitude": vehicle_lat if gps_valid else 0.0,
@@ -304,17 +377,13 @@ class TargetSnapshotRecorder:
                 "body_y_m": float(body_point[1]),
                 "body_z_m": float(body_point[2]),
                 "depth_m": float(detection.depth_m),
-                "bbox": [
-                    int(detection.x_min),
-                    int(detection.y_min),
-                    int(detection.x_max),
-                    int(detection.y_max),
-                ],
+                "bbox": bbox,
                 "center_u": int(detection.center_u),
                 "center_v": int(detection.center_v),
                 "frame_id": str(detections_msg.header.frame_id),
-                "stamp_sec": int(detections_msg.header.stamp.secs),
-                "stamp_nsec": int(detections_msg.header.stamp.nsecs),
+                "stamp_sec": stamp_sec,
+                "stamp_nsec": stamp_nsec,
+                "timestamp_ns": stamp_sec * 1_000_000_000 + stamp_nsec,
             }
 
             self.consider_candidate(image, candidate)
@@ -386,137 +455,241 @@ class TargetSnapshotRecorder:
             min(1.0, math.sqrt(a))
         )
 
+    @staticmethod
+    def ranking_key(record: Dict[str, Any]) -> Tuple[float, float, int]:
+        """越小越优：confidence高、面积大、时间早。"""
+        return (
+            -float(record["confidence"]),
+            -float(record.get("bbox_area", 0)),
+            int(record.get("timestamp_ns", 0)),
+        )
+
+    @staticmethod
+    def eviction_key(record: Dict[str, Any]) -> Tuple[float, float, int]:
+        """越小越差、越先删除：confidence低、面积小、时间旧。"""
+        return (
+            float(record["confidence"]),
+            float(record.get("bbox_area", 0)),
+            int(record.get("timestamp_ns", 0)),
+        )
+
     def consider_candidate(
         self,
         image: np.ndarray,
         candidate: Dict[str, Any],
     ) -> None:
-        class_key = self.make_class_key(
-            candidate["class_id"],
-            candidate["class_name"],
-        )
-
         with self.state_lock:
-            records = list(
-                self.records_by_class.get(class_key, [])
-            )
-
-            same_index = self.find_same_target_index(
-                records,
-                candidate,
-            )
-            replace_index: Optional[int] = None
-
-            if same_index is not None:
-                if (
-                    candidate["confidence"]
-                    <= records[same_index]["confidence"]
-                ):
-                    return
-                replace_index = same_index
-
-            elif len(records) < self.top_k:
-                replace_index = None
-
-            else:
-                invalid_indices = [
-                    index
-                    for index, record in enumerate(records)
-                    if not record.get("gps_valid", False)
-                ]
-
-                if (
-                    self.prefer_valid_gps
-                    and candidate["gps_valid"]
-                    and invalid_indices
-                ):
-                    replace_index = min(
-                        invalid_indices,
-                        key=lambda index: records[index]["confidence"],
-                    )
-                elif (
-                    self.prefer_valid_gps
-                    and not candidate["gps_valid"]
-                    and not invalid_indices
-                ):
-                    return
-                else:
-                    lowest_index = min(
-                        range(len(records)),
-                        key=lambda index: records[index]["confidence"],
-                    )
-                    if (
-                        candidate["confidence"]
-                        <= records[lowest_index]["confidence"]
-                    ):
-                        return
-                    replace_index = lowest_index
-
-            saved_record = self.save_candidate_files(
-                image,
-                candidate,
-            )
-
-            if replace_index is None:
-                records.append(saved_record)
-            else:
-                old_record = records[replace_index]
-                self.delete_record_files(old_record)
-                records[replace_index] = saved_record
-
-            records.sort(
-                key=lambda record: float(record["confidence"]),
-                reverse=True,
-            )
-            self.records_by_class[class_key] = records[: self.top_k]
-            self.save_state()
-
-            rank = self.records_by_class[class_key].index(saved_record) + 1
+            saved = self.save_to_candidate_records(image, candidate)
+            if saved is None:
+                return
+            self.enforce_candidate_max_total()
+            self.rebuild_submit_results()
+            self.save_all_state()
             rospy.loginfo(
-                "Saved target: class=%s id=%d conf=%.3f rank=%d "
-                "lat=%.8f lon=%.8f gps=%s",
+                "Saved candidate: class=%s id=%d conf=%.3f area=%d "
+                "lat=%.8f lon=%.8f gps=%s candidates=%d submit=%d",
                 candidate["class_name"],
                 candidate["class_id"],
                 candidate["confidence"],
-                rank,
+                candidate["bbox_area"],
                 candidate["target_latitude"],
                 candidate["target_longitude"],
                 candidate["gps_valid"],
+                len(self.candidate_records),
+                len(self.submit_records),
             )
 
-    def find_same_target_index(
-        self,
-        records: List[Dict[str, Any]],
-        candidate: Dict[str, Any],
-    ) -> Optional[int]:
-        for index, record in enumerate(records):
-            record_gps_valid = bool(record.get("gps_valid", False))
-            candidate_gps_valid = bool(candidate["gps_valid"])
-
-            if record_gps_valid and candidate_gps_valid:
-                distance_m = self.haversine_distance_m(
-                    float(record["target_latitude"]),
-                    float(record["target_longitude"]),
-                    float(candidate["target_latitude"]),
-                    float(candidate["target_longitude"]),
-                )
-                if distance_m < self.min_target_distance_m:
-                    return index
-            elif not record_gps_valid and not candidate_gps_valid:
-                # GPS无效时无法验证5 m间隔；所有0,0记录视为同一目标。
-                return index
-
-        return None
-
-    def save_candidate_files(
+    def save_to_candidate_records(
         self,
         image: np.ndarray,
         candidate: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        class_name_safe = self.sanitize_name(candidate["class_name"])
-        class_dir = self.output_dir / class_name_safe
-        class_dir.mkdir(parents=True, exist_ok=True)
+    ) -> Optional[Dict[str, Any]]:
+        same_indices = self.find_same_target_indices(
+            self.candidate_records,
+            candidate,
+        )
 
+        if len(same_indices) < self.candidate_max_per_target:
+            saved_record = self.save_record_files(
+                image,
+                candidate,
+                self.candidate_dir,
+                subdir=self.sanitize_name(candidate["class_name"]),
+            )
+            self.candidate_records.append(saved_record)
+            return saved_record
+
+        worst_index = max(
+            same_indices,
+            key=lambda index: self.ranking_key(
+                self.candidate_records[index]
+            ),
+        )
+        worst_record = self.candidate_records[worst_index]
+        if self.ranking_key(candidate) >= self.ranking_key(worst_record):
+            return None
+
+        saved_record = self.save_record_files(
+            image,
+            candidate,
+            self.candidate_dir,
+            subdir=self.sanitize_name(candidate["class_name"]),
+        )
+        self.delete_record_files(worst_record, self.candidate_dir)
+        self.candidate_records[worst_index] = saved_record
+        return saved_record
+
+    def enforce_candidate_max_total(self) -> None:
+        while len(self.candidate_records) > self.candidate_max_total:
+            worst_index = min(
+                range(len(self.candidate_records)),
+                key=lambda index: self.eviction_key(
+                    self.candidate_records[index]
+                ),
+            )
+            worst_record = self.candidate_records.pop(worst_index)
+            self.delete_record_files(worst_record, self.candidate_dir)
+            rospy.loginfo(
+                "Evicted candidate by global limit: id=%s conf=%.3f "
+                "area=%s total=%d",
+                worst_record.get("record_id"),
+                float(worst_record.get("confidence", 0.0)),
+                worst_record.get("bbox_area"),
+                len(self.candidate_records),
+            )
+
+    def clear_submit_result_files(self) -> None:
+        """清理 submit_results 下旧结果图/元数据，保留 index.json 与 summary.csv。"""
+        if not self.submit_dir.exists():
+            self.submit_dir.mkdir(parents=True, exist_ok=True)
+            return
+
+        preserve_names = {
+            self.submit_index_path.name,  # index.json
+            self.submit_summary_path.name,  # summary.csv
+        }
+
+        for path in self.submit_dir.iterdir():
+            if not path.is_file():
+                continue
+            if path.name in preserve_names:
+                continue
+            if path.suffix.lower() not in {".jpg", ".jpeg", ".json"}:
+                continue
+            try:
+                path.unlink(missing_ok=True)
+            except Exception as exc:
+                rospy.logwarn(
+                    "Failed to clear submit file %s: %r",
+                    str(path),
+                    exc,
+                )
+
+    def rebuild_submit_results(self) -> None:
+        # 先清空目录，再按当前 TopN 完整重建，保证磁盘文件数 <= submit_max。
+        self.clear_submit_result_files()
+
+        desired = sorted(
+            self.candidate_records,
+            key=self.ranking_key,
+        )[: self.submit_max]
+
+        new_submit_records: List[Dict[str, Any]] = []
+        for record in desired:
+            new_submit_records.append(
+                self.copy_record_to_submit(record)
+            )
+
+        self.submit_records = new_submit_records
+
+    def copy_record_to_submit(
+        self,
+        candidate_record: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        record_id = str(candidate_record["record_id"])
+        source_image = self.candidate_dir / str(
+            candidate_record["image_file"]
+        )
+
+        image_name = f"{record_id}.jpg"
+        metadata_name = f"{record_id}.json"
+        target_image = self.submit_dir / image_name
+        target_metadata = self.submit_dir / metadata_name
+
+        if not source_image.exists():
+            raise RuntimeError(
+                f"候选图片不存在，无法生成提交结果：{source_image}"
+            )
+
+        shutil.copy2(str(source_image), str(target_image))
+
+        submit_record = dict(candidate_record)
+        submit_record["image_file"] = image_name
+        submit_record["metadata_file"] = metadata_name
+
+        with target_metadata.open("w", encoding="utf-8") as file:
+            json.dump(
+                submit_record,
+                file,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+        return submit_record
+
+    def find_same_target_indices(
+        self,
+        records: List[Dict[str, Any]],
+        candidate: Dict[str, Any],
+    ) -> List[int]:
+        indices: List[int] = []
+        for index, record in enumerate(records):
+            if self.is_same_target(record, candidate):
+                indices.append(index)
+        return indices
+
+    def is_same_target(
+        self,
+        record: Dict[str, Any],
+        candidate: Dict[str, Any],
+    ) -> bool:
+        if int(record["class_id"]) != int(candidate["class_id"]):
+            return False
+        if str(record["class_name"]) != str(candidate["class_name"]):
+            return False
+
+        record_gps_valid = bool(record.get("gps_valid", False))
+        candidate_gps_valid = bool(candidate["gps_valid"])
+
+        if record_gps_valid and candidate_gps_valid:
+            distance_m = self.haversine_distance_m(
+                float(record["target_latitude"]),
+                float(record["target_longitude"]),
+                float(candidate["target_latitude"]),
+                float(candidate["target_longitude"]),
+            )
+            return distance_m < self.min_target_distance_m
+
+        if not record_gps_valid and not candidate_gps_valid:
+            # GPS无效时无法验证地理间隔；同类无效GPS记录视为同一目标簇。
+            return True
+
+        return False
+
+    def save_record_files(
+        self,
+        image: np.ndarray,
+        candidate: Dict[str, Any],
+        base_dir: Path,
+        subdir: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if subdir:
+            record_dir = base_dir / subdir
+        else:
+            record_dir = base_dir
+        record_dir.mkdir(parents=True, exist_ok=True)
+
+        class_name_safe = self.sanitize_name(candidate["class_name"])
         timestamp = (
             f"{candidate['stamp_sec']}_"
             f"{candidate['stamp_nsec']:09d}"
@@ -526,8 +699,8 @@ class TargetSnapshotRecorder:
             f"{candidate['confidence']:.4f}_{timestamp}_{time.time_ns()}"
         )
 
-        image_path = class_dir / f"{record_id}.jpg"
-        metadata_path = class_dir / f"{record_id}.json"
+        image_path = record_dir / f"{record_id}.jpg"
+        metadata_path = record_dir / f"{record_id}.json"
 
         output_image = self.draw_candidate(image, candidate)
         write_ok = cv2.imwrite(
@@ -540,10 +713,10 @@ class TargetSnapshotRecorder:
 
         saved_record = dict(candidate)
         saved_record["image_file"] = str(
-            image_path.relative_to(self.output_dir)
+            image_path.relative_to(base_dir)
         )
         saved_record["metadata_file"] = str(
-            metadata_path.relative_to(self.output_dir)
+            metadata_path.relative_to(base_dir)
         )
         saved_record["record_id"] = record_id
 
@@ -641,12 +814,16 @@ class TargetSnapshotRecorder:
 
         return output
 
-    def delete_record_files(self, record: Dict[str, Any]) -> None:
+    def delete_record_files(
+        self,
+        record: Dict[str, Any],
+        base_dir: Path,
+    ) -> None:
         for key in ("image_file", "metadata_file"):
             relative_path = record.get(key)
             if not relative_path:
                 continue
-            path = self.output_dir / str(relative_path)
+            path = base_dir / str(relative_path)
             try:
                 path.unlink(missing_ok=True)
             except Exception as exc:
@@ -656,54 +833,96 @@ class TargetSnapshotRecorder:
                     exc,
                 )
 
-    def load_state(self) -> Dict[str, List[Dict[str, Any]]]:
-        if not self.index_path.exists():
-            return {}
+    def load_record_list(
+        self,
+        index_path: Path,
+        base_dir: Path,
+    ) -> List[Dict[str, Any]]:
+        if not index_path.exists():
+            return []
 
         try:
-            with self.index_path.open("r", encoding="utf-8") as file:
+            with index_path.open("r", encoding="utf-8") as file:
                 payload = json.load(file)
 
-            classes = payload.get("classes", {})
-            cleaned: Dict[str, List[Dict[str, Any]]] = {}
+            records = payload.get("records", [])
+            cleaned: List[Dict[str, Any]] = []
+            for record in records:
+                image_file = record.get("image_file")
+                metadata_file = record.get("metadata_file")
+                if not image_file or not metadata_file:
+                    continue
+                if not (base_dir / image_file).exists():
+                    continue
+                if not (base_dir / metadata_file).exists():
+                    continue
 
-            for class_key, records in classes.items():
-                valid_records = []
-                for record in records:
-                    image_file = record.get("image_file")
-                    metadata_file = record.get("metadata_file")
-                    if (
-                        image_file
-                        and metadata_file
-                        and (self.output_dir / image_file).exists()
-                        and (self.output_dir / metadata_file).exists()
-                    ):
-                        valid_records.append(record)
-
-                if valid_records:
-                    valid_records.sort(
-                        key=lambda item: float(item["confidence"]),
-                        reverse=True,
+                record = dict(record)
+                if "bbox_area" not in record and "bbox" in record:
+                    bbox = record["bbox"]
+                    record["bbox_area"] = max(
+                        0,
+                        int(bbox[2]) - int(bbox[0]),
+                    ) * max(
+                        0,
+                        int(bbox[3]) - int(bbox[1]),
                     )
-                    cleaned[class_key] = valid_records[: self.top_k]
+                if "timestamp_ns" not in record:
+                    record["timestamp_ns"] = (
+                        int(record.get("stamp_sec", 0)) * 1_000_000_000
+                        + int(record.get("stamp_nsec", 0))
+                    )
+                cleaned.append(record)
 
+            cleaned.sort(key=self.ranking_key)
             return cleaned
         except Exception as exc:
             rospy.logwarn(
-                "Failed to load index.json, starting empty: %r",
+                "Failed to load %s, starting empty: %r",
+                str(index_path),
                 exc,
             )
-            return {}
+            return []
 
-    def save_state(self) -> None:
+    def save_all_state(self) -> None:
+        self.save_store_state(
+            index_path=self.candidate_index_path,
+            summary_path=self.candidate_summary_path,
+            records=self.candidate_records,
+            store_name="candidate_records",
+            extra={
+                "candidate_max_per_target": self.candidate_max_per_target,
+                "candidate_max_total": self.candidate_max_total,
+                "min_target_distance_m": self.min_target_distance_m,
+            },
+        )
+        self.save_store_state(
+            index_path=self.submit_index_path,
+            summary_path=self.submit_summary_path,
+            records=self.submit_records,
+            store_name="submit_results",
+            extra={
+                "submit_max": self.submit_max,
+            },
+        )
+
+    def save_store_state(
+        self,
+        index_path: Path,
+        summary_path: Path,
+        records: List[Dict[str, Any]],
+        store_name: str,
+        extra: Dict[str, Any],
+    ) -> None:
         payload = {
-            "version": 1,
-            "top_k": self.top_k,
-            "min_target_distance_m": self.min_target_distance_m,
-            "classes": self.records_by_class,
+            "version": 2,
+            "store": store_name,
+            "count": len(records),
+            "records": records,
         }
+        payload.update(extra)
 
-        temporary_index = self.index_path.with_suffix(".json.tmp")
+        temporary_index = index_path.with_suffix(".json.tmp")
         with temporary_index.open("w", encoding="utf-8") as file:
             json.dump(
                 payload,
@@ -711,62 +930,41 @@ class TargetSnapshotRecorder:
                 ensure_ascii=False,
                 indent=2,
             )
-        os.replace(temporary_index, self.index_path)
-        self.write_summary_csv()
+        os.replace(temporary_index, index_path)
+        self.write_summary_csv(summary_path, records)
 
-    def write_summary_csv(self) -> None:
-        fields = [
-            "rank",
-            "class_id",
-            "class_name",
-            "confidence",
-            "gps_valid",
-            "heading_valid",
-            "vehicle_latitude",
-            "vehicle_longitude",
-            "heading_deg",
-            "target_latitude",
-            "target_longitude",
-            "north_offset_m",
-            "east_offset_m",
-            "camera_x_m",
-            "camera_y_m",
-            "camera_z_m",
-            "body_x_m",
-            "body_y_m",
-            "body_z_m",
-            "depth_m",
-            "image_file",
-            "metadata_file",
-            "record_id",
-            "stamp_sec",
-            "stamp_nsec",
-        ]
-
-        temporary_summary = self.summary_path.with_suffix(".csv.tmp")
+    def write_summary_csv(
+        self,
+        summary_path: Path,
+        records: List[Dict[str, Any]],
+    ) -> None:
+        temporary_summary = summary_path.with_suffix(".csv.tmp")
         with temporary_summary.open(
             "w",
             encoding="utf-8-sig",
             newline="",
         ) as file:
-            writer = csv.DictWriter(file, fieldnames=fields)
+            writer = csv.DictWriter(
+                file,
+                fieldnames=self.SUMMARY_FIELDS,
+            )
             writer.writeheader()
 
-            sorted_classes = sorted(
-                self.records_by_class.items(),
-                key=lambda item: int(item[0].split(":", 1)[0]),
-            )
+            ranked = sorted(records, key=self.ranking_key)
+            for rank, record in enumerate(ranked, start=1):
+                row = {
+                    field: record.get(field, "")
+                    for field in self.SUMMARY_FIELDS
+                }
+                row["rank"] = rank
+                if isinstance(row.get("bbox"), list):
+                    row["bbox"] = json.dumps(
+                        row["bbox"],
+                        ensure_ascii=False,
+                    )
+                writer.writerow(row)
 
-            for _, records in sorted_classes:
-                for rank, record in enumerate(records, start=1):
-                    row = {
-                        field: record.get(field, "")
-                        for field in fields
-                    }
-                    row["rank"] = rank
-                    writer.writerow(row)
-
-        os.replace(temporary_summary, self.summary_path)
+        os.replace(temporary_summary, summary_path)
 
     def get_class_threshold(
         self,
@@ -778,10 +976,6 @@ class TargetSnapshotRecorder:
             if key in self.class_conf_thresholds:
                 return float(self.class_conf_thresholds[key])
         return self.minimum_confidence
-
-    @staticmethod
-    def make_class_key(class_id: int, class_name: str) -> str:
-        return f"{class_id}:{class_name}"
 
     @staticmethod
     def sanitize_name(name: str) -> str:
