@@ -42,6 +42,7 @@ GLOBAL_CLASS_NAME_TO_ID: Dict[str, int] = {
     "chevro_left": 9,
     "chevro_right": 10,
     "sandbag": 11,
+    "crater":12
 }
 
 GLOBAL_CLASS_ID_TO_NAME: Dict[int, str] = {
@@ -60,14 +61,25 @@ MODEL1_ALLOWED_GLOBAL_IDS: Set[int] = {
     10,  # chevro_right
 }
 
+# 模型1训练时将六个类别重新映射为 0~5，需要恢复到全局编号。
+MODEL1_LOCAL_TO_GLOBAL: Dict[int, int] = {
+    0: 2,   # vehicle
+    1: 3,   # smoke
+    2: 4,   # trench
+    3: 6,   # person
+    4: 8,   # park
+    5: 12,  # crater
+}
+
 # 模型2训练时将六个类别重新映射为 0~5，需要恢复到全局编号。
 MODEL2_LOCAL_TO_GLOBAL: Dict[int, int] = {
     0: 0,   # tire
     1: 1,   # barrel
     2: 5,   # puddle
     3: 7,   # rockfall
-    4: 8,   # park
-    5: 11,  # sandbag
+    4: 9,   # chevro_left
+    5: 10,  # chevro_right
+    6: 11,  # sandbag
 }
 
 
@@ -398,23 +410,45 @@ class DualYoloDepthNode:
         return str(names[class_id])
 
     def _validate_model_class_mappings(self) -> None:
-        # 模型1按全局ID读取，检查关键类名称是否一致。
-        for class_id in sorted(MODEL1_ALLOWED_GLOBAL_IDS):
-            expected_name = GLOBAL_CLASS_ID_TO_NAME[class_id]
+        # # 模型1按全局ID读取，检查关键类名称是否一致。
+        # for class_id in sorted(MODEL1_ALLOWED_GLOBAL_IDS):
+        #     expected_name = GLOBAL_CLASS_ID_TO_NAME[class_id]
+        #     try:
+        #         actual_name = self._model_class_name(
+        #             self.model1,
+        #             class_id,
+        #         )
+        #     except (KeyError, IndexError, TypeError):
+        #         raise RuntimeError(
+        #             f"模型1缺少类别ID {class_id} ({expected_name})"
+        #         )
+
+        #     if actual_name != expected_name:
+        #         rospy.logwarn(
+        #             "Model1 class mismatch: id=%d expected=%s actual=%s",
+        #             class_id,
+        #             expected_name,
+        #             actual_name,
+        #         )
+
+        # 模型1严格按本地ID映射回全局ID。
+        for local_id, global_id in MODEL1_LOCAL_TO_GLOBAL.items():
+            expected_name = GLOBAL_CLASS_ID_TO_NAME[global_id]
             try:
                 actual_name = self._model_class_name(
                     self.model1,
-                    class_id,
+                    local_id,
                 )
             except (KeyError, IndexError, TypeError):
                 raise RuntimeError(
-                    f"模型1缺少类别ID {class_id} ({expected_name})"
+                    f"模型1缺少本地类别ID {local_id}，期望类别 {expected_name}"
                 )
 
             if actual_name != expected_name:
                 rospy.logwarn(
-                    "Model1 class mismatch: id=%d expected=%s actual=%s",
-                    class_id,
+                    "Model1 class mismatch: local_id=%d expected=%s actual=%s; "
+                    "仍按预设ID映射发布",
+                    local_id,
                     expected_name,
                     actual_name,
                 )

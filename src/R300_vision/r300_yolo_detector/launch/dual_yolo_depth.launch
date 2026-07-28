@@ -1,12 +1,12 @@
 <launch>
     <arg
         name="model1_path"
-        default="$(find r300_yolo_detector)/models/c11_260711.pt"
+        default="$(find r300_yolo_detector)/models/model_c6_260727.pt"
     />
 
     <arg
         name="model2_path"
-        default="$(find r300_yolo_detector)/models/model0722.pt"
+        default="$(find r300_yolo_detector)/models/model_c7_260727.pt"
     />
 
     <arg
