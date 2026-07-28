@@ -53,7 +53,7 @@ DWAPlannerROS:
   # 允许更明显地离开穿过障碍的全局直线路径。
   path_distance_bias: 30.0
   goal_distance_bias: 18.0
-  occdist_scale: 0.25
+  occdist_scale: 0.05
 
   # 保留少量前视引导，但避免0.30造成过度回正。
   forward_point_distance: 0.15
