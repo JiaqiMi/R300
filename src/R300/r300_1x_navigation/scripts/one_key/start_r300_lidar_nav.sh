@@ -35,6 +35,12 @@ DEBUG_CLOUD_TOPIC="${DEBUG_CLOUD_TOPIC:-/r300_lidar/obstacle_points}"
 LIO_MAP_FRAME="${LIO_MAP_FRAME:-odom}"
 LIO_BODY_FRAME="${LIO_BODY_FRAME:-body}"
 
+# 摄像头左/右道路指示牌临时目标。默认开启；需要纯雷达模式时使用
+# --no-sign-guidance 或 SIGN_GUIDANCE_ENABLED=false。
+SIGN_GUIDANCE_ENABLED="${SIGN_GUIDANCE_ENABLED:-true}"
+DETECTIONS_TOPIC="${DETECTIONS_TOPIC:-/r300_vision/detections}"
+SIGN_CONFIG_FILE="${SIGN_CONFIG_FILE:-}"
+
 LAUNCH_BASE="${LAUNCH_BASE:-true}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-true}"
 ODOM_PATH="${ODOM_PATH:-true}"
@@ -74,6 +80,10 @@ usage() {
   --waypoints PATH         指定航点 YAML
   --elevation-topic NAME   指定高程图话题
   --scan-topic NAME        指定雷达虚拟 LaserScan 话题
+  --sign-guidance          开启视觉左/右指示牌临时目标（默认）
+  --no-sign-guidance       关闭指示牌功能，保持原纯雷达导航
+  --detections-topic NAME  指定视觉检测话题
+  --sign-config PATH       指定指示牌临时目标参数 YAML
   --lio-map-frame NAME     FAST-LIO 地图坐标系，默认 odom
   --lio-body-frame NAME    FAST-LIO 车体坐标系，默认 body
   --timeout SEC            单项检查超时，默认 60 秒
@@ -83,6 +93,7 @@ usage() {
   R300_WS, CAN_PORT, CAN_BITRATE, WAYPOINT_FILE, MAX_GOAL_DIST,
   ELEVATION_TOPIC, OBSTACLE_SCAN_TOPIC,
   DEBUG_CLOUD_TOPIC, LIO_MAP_FRAME, LIO_BODY_FRAME,
+  SIGN_GUIDANCE_ENABLED, DETECTIONS_TOPIC, SIGN_CONFIG_FILE,
   READY_TIMEOUT, LIDAR_HOLD_TIME_S,
   LAUNCH_RVIZ, LAUNCH_BASE, ODOM_PATH, SETUP_CAN, AUTO_RUN
 USAGE
@@ -112,6 +123,16 @@ while [[ $# -gt 0 ]]; do
     --scan-topic)
       [[ $# -ge 2 ]] || { error "--scan-topic 后缺少话题名"; exit 2; }
       OBSTACLE_SCAN_TOPIC="$2"; shift 2 ;;
+    --sign-guidance)
+      SIGN_GUIDANCE_ENABLED="true"; shift ;;
+    --no-sign-guidance)
+      SIGN_GUIDANCE_ENABLED="false"; shift ;;
+    --detections-topic)
+      [[ $# -ge 2 ]] || { error "--detections-topic 后缺少话题名"; exit 2; }
+      DETECTIONS_TOPIC="$2"; shift 2 ;;
+    --sign-config)
+      [[ $# -ge 2 ]] || { error "--sign-config 后缺少路径"; exit 2; }
+      SIGN_CONFIG_FILE="$2"; shift 2 ;;
     --lio-map-frame)
       [[ $# -ge 2 ]] || { error "--lio-map-frame 后缺少坐标系名称"; exit 2; }
       LIO_MAP_FRAME="$2"; shift 2 ;;
@@ -129,7 +150,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 for variable_name in \
-  ELEVATION_TOPIC OBSTACLE_SCAN_TOPIC DEBUG_CLOUD_TOPIC
+  ELEVATION_TOPIC OBSTACLE_SCAN_TOPIC DEBUG_CLOUD_TOPIC DETECTIONS_TOPIC
 do
   value="${!variable_name}"
   [[ "$value" == /* ]] || printf -v "$variable_name" '/%s' "$value"
@@ -137,6 +158,11 @@ done
 
 if ! [[ "$READY_TIMEOUT" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   error "READY_TIMEOUT 必须是正数：$READY_TIMEOUT"
+  exit 2
+fi
+if [[ "$SIGN_GUIDANCE_ENABLED" != "true" &&
+      "$SIGN_GUIDANCE_ENABLED" != "false" ]]; then
+  error "SIGN_GUIDANCE_ENABLED 只能是 true 或 false：$SIGN_GUIDANCE_ENABLED"
   exit 2
 fi
 
@@ -213,6 +239,25 @@ if [[ ! -x "$LIDAR_ADAPTER_NODE" ]]; then
   chmod +x "$LIDAR_ADAPTER_NODE"
 fi
 
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+  SIGN_GUIDANCE_NODE="$PKG_PATH/scripts/direction_sign_local_goal.py"
+  [[ -f "$SIGN_GUIDANCE_NODE" ]] || {
+    error "未找到指示牌节点：$SIGN_GUIDANCE_NODE"; exit 1;
+  }
+  if [[ ! -x "$SIGN_GUIDANCE_NODE" ]]; then
+    warn "正在添加执行权限：$SIGN_GUIDANCE_NODE"
+    chmod +x "$SIGN_GUIDANCE_NODE"
+  fi
+
+  if [[ -z "$SIGN_CONFIG_FILE" ]]; then
+    SIGN_CONFIG_FILE="$PKG_PATH/config/subject1_direction_sign.yaml"
+  fi
+  [[ -f "$SIGN_CONFIG_FILE" ]] || {
+    error "指示牌参数文件不存在：$SIGN_CONFIG_FILE"; exit 1;
+  }
+  SIGN_CONFIG_FILE="$(readlink -f "$SIGN_CONFIG_FILE")"
+fi
+
 REQUIRED_PACKAGES=(
   move_base map_server navfn dwa_local_planner costmap_2d
   grid_map_msgs scout_base robot_state_publisher r300_simulation
@@ -222,6 +267,11 @@ for dependency in "${REQUIRED_PACKAGES[@]}"; do
     error "缺少 ROS 功能包：$dependency"; exit 1;
   }
 done
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+  rospack find r300_vision_msgs >/dev/null 2>&1 || {
+    error "开启指示牌功能时缺少 ROS 功能包：r300_vision_msgs"; exit 1;
+  }
+fi
 python3 - <<'PY' >/dev/null 2>&1 || {
 import numpy
 PY
@@ -273,6 +323,25 @@ if [[ "$ELEVATION_TYPE" != "grid_map_msgs/GridMap" ]]; then
   exit 1
 fi
 ok "外部高程图数据正常：$ELEVATION_TYPE"
+
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+  info "等待摄像头视觉检测：$DETECTIONS_TOPIC"
+  if ! timeout "$READY_TIMEOUT" rostopic echo -n 1 "$DETECTIONS_TOPIC" \
+      >/dev/null 2>&1; then
+    error "没有收到视觉检测结果：$DETECTIONS_TOPIC"
+    error "请先启动摄像头与 YOLO；若本次只做纯雷达导航，请加 --no-sign-guidance。"
+    exit 1
+  fi
+  DETECTIONS_TYPE="$(rostopic type "$DETECTIONS_TOPIC" 2>/dev/null || true)"
+  if [[ "$DETECTIONS_TYPE" != "r300_vision_msgs/DetectedObjectArray" ]]; then
+    error "视觉检测消息类型不正确：${DETECTIONS_TYPE:-<未知>}"
+    error "期望：r300_vision_msgs/DetectedObjectArray"
+    exit 1
+  fi
+  ok "视觉左/右指示牌输入正常：$DETECTIONS_TYPE"
+else
+  warn "视觉指示牌临时目标已关闭，本次保持原纯雷达避障逻辑。"
+fi
 
 info "检查 FAST-LIO TF：$LIO_MAP_FRAME -> $LIO_BODY_FRAME"
 LIO_TF_CHECK="$(mktemp)"
@@ -375,10 +444,15 @@ ROSLAUNCH_ARGS=(
   "debug_cloud_topic:=$DEBUG_CLOUD_TOPIC"
   "lio_map_frame:=$LIO_MAP_FRAME"
   "lio_body_frame:=$LIO_BODY_FRAME"
+  "sign_guidance_enabled:=$SIGN_GUIDANCE_ENABLED"
+  "detections_topic:=$DETECTIONS_TOPIC"
   "auto_start:=false"
   "max_goal_distance_from_origin_m:=$MAX_GOAL_DIST"
 )
 [[ -n "$WAYPOINT_FILE" ]] && ROSLAUNCH_ARGS+=("waypoint_file:=$WAYPOINT_FILE")
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+  ROSLAUNCH_ARGS+=("sign_config_file:=$SIGN_CONFIG_FILE")
+fi
 
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/r300_lidar_nav_$(date +%Y%m%d_%H%M%S).log"
@@ -390,6 +464,12 @@ info "外部高程图：$ELEVATION_TOPIC"
 info "雷达障碍扫描：$OBSTACLE_SCAN_TOPIC"
 info "雷达层调试扫描：$ACTIVE_SCAN_TOPIC"
 info "FAST-LIO TF：$LIO_MAP_FRAME -> $LIO_BODY_FRAME"
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+  info "视觉指示牌临时目标：开启（$DETECTIONS_TOPIC）"
+  info "指示牌参数：$SIGN_CONFIG_FILE"
+else
+  info "视觉指示牌临时目标：关闭"
+fi
 if [[ -n "$LIDAR_HOLD_TIME_S" ]]; then
   info "雷达快照层期望保持时间：${LIDAR_HOLD_TIME_S}s"
 else
@@ -509,6 +589,17 @@ check_topic_type "$OBSTACLE_SCAN_TOPIC" sensor_msgs/LaserScan "雷达虚拟 Lase
 wait_message /move_base/local_costmap/costmap "雷达局部代价地图"
 wait_service /subject1/start_waypoints "航点启动服务"
 
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+  wait_message /subject1/direction_sign/state "视觉指示牌临时目标状态"
+  check_topic_type /subject1/direction_sign/state std_msgs/String \
+    "视觉指示牌临时目标状态"
+  if ! rosnode list 2>/dev/null | grep -qx '/direction_sign_local_goal'; then
+    error "指示牌节点未运行：/direction_sign_local_goal"
+    exit 1
+  fi
+  ok "视觉指示牌临时目标节点已就绪"
+fi
+
 # ------------------------------ 参数一致性 -----------------------------------
 ADAPTER_ELEVATION="$(
   rosparam get /lidar_obstacle_scan_node/elevation_topic 2>/dev/null || true
@@ -627,6 +718,10 @@ info "局部地图膨胀半径：$INFLATION_RADIUS m"
 info "最大航点距离：${WAYPOINT_MAX_DIST:-unknown} m"
 info "当前航点状态："
 rostopic echo -n 1 /subject1/waypoint_status 2>/dev/null || true
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+  info "当前指示牌状态："
+  rostopic echo -n 1 /subject1/direction_sign/state 2>/dev/null || true
+fi
 
 # ------------------------------ 是否开始运动 ---------------------------------
 if [[ "$AUTO_RUN" == "true" ]]; then
@@ -645,6 +740,10 @@ echo
 echo "暂停：rosservice call /subject1/pause_waypoints \"{}\""
 echo "恢复：rosservice call /subject1/resume_waypoints \"{}\""
 echo "取消：rosservice call /subject1/cancel_waypoints \"{}\""
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+  echo "指示牌状态：rostopic echo /subject1/direction_sign/state"
+  echo "重置单次识别：rosservice call /subject1/direction_sign/reset \"{}\""
+fi
 echo "停止导航：在本终端按 Ctrl+C"
 echo "说明：停止本脚本不会停止独立 1X 和雷达高程感知栈。"
 echo
