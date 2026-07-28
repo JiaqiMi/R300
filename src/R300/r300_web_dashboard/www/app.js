@@ -34,6 +34,8 @@ let robotPose = null;  // {x, y, yaw, stampMs}
 let headingDeg = null;
 let latestGps = null;
 let latestDetections = [];
+let latestTargetFeedback = null;
+let lastTargetFeedbackMs = 0;
 let latestTargetPointMsg = null;
 let targetRecords = [];
 let targetLocalRecording = false;
@@ -335,6 +337,7 @@ function subscribeAll() {
   if (t.lidar_points_json) sub(t.lidar_points_json, "std_msgs/String", 900);
   if (t.elevation_json) sub(t.elevation_json, "std_msgs/String", 900);
   sub(t.detections, "r300_vision_msgs/DetectedObjectArray", 500);
+  if (t.target_feedback) sub(t.target_feedback, "std_msgs/String", 250);
   sub(t.target_point, "geometry_msgs/PointStamped", 500);
   sub(t.dynamic_state, "std_msgs/String", 250);
   sub(t.speed_limit, "std_msgs/Float32", 250);
@@ -365,6 +368,7 @@ function handleTopic(topic, msg) {
   else if (topic === t.lidar_points_json) { lidarDisplayEnabled = true; updateLidarCloud(msg); }
   else if (topic === t.elevation_json) { lidarDisplayEnabled = true; updateElevationMap(msg); }
   else if (topic === t.detections) updateDetections(msg);
+  else if (topic === t.target_feedback) updateTargetFeedback(msg);
   else if (topic === t.target_point) updateTargetPoint(msg);
   else if (topic === t.dynamic_state) $("dynState").textContent = msg.data;
   else if (topic === t.speed_limit) updateSafety("limit", msg.data);
@@ -647,7 +651,15 @@ function matchTargetObject(point) {
 function updateDetections(m) {
   const arr = m.objects || m.detections || m.targets || [];
   latestDetections = arr;
-  if ($('detectionCount')) $('detectionCount').textContent = `${arr.length} 个目标`;
+
+  // 统一回传节点在2秒内有数据时，Web只显示后端计算结果；原始检测
+  // 仍保留用于 /target_point 匹配。节点未运行时才回退到浏览器计算。
+  if (lastTargetFeedbackMs && Date.now() - lastTargetFeedbackMs < 2000) {
+    renderTargetPoint();
+    return;
+  }
+
+  if ($('detectionCount')) $('detectionCount').textContent = `${arr.length} 个目标（浏览器回退计算）`;
   if (!arr.length) {
     latestTargetPointMsg = null;
     if ($('detections')) $('detections').textContent = '当前无检测目标';
@@ -695,6 +707,90 @@ function updateDetections(m) {
 
   if (targetRecords.length > 10000) targetRecords = targetRecords.slice(-10000);
   if ($('detections')) $('detections').textContent = `frame=${frameId || '--'}\n` + lines.join('\n');
+  renderTargetRecordStatus();
+  if (frameRecords.length) queueTargetRecords(frameRecords);
+  renderTargetPoint();
+}
+
+function updateTargetFeedback(msg) {
+  let payload = null;
+  try {
+    payload = JSON.parse(String((msg && msg.data) || "{}"));
+  } catch (error) {
+    console.warn("目标统一回传JSON解析失败", error);
+    return;
+  }
+
+  latestTargetFeedback = payload;
+  lastTargetFeedbackMs = Date.now();
+  const targets = Array.isArray(payload.targets) ? payload.targets : [];
+  if ($('detectionCount')) $('detectionCount').textContent = `${targets.length} 个目标（后端统一回传）`;
+
+  const lines = [];
+  const frameRecords = [];
+  targets.slice(0, 32).forEach((target, index) => {
+    const classIdText = target.class_id === undefined || target.class_id === null ? "?" : String(target.class_id);
+    const cls = String(target.class_name || `class_${classIdText}`);
+    const conf = Number(target.confidence);
+    const cameraValid = [target.camera_x_m, target.camera_y_m, target.camera_z_m]
+      .map(Number).every(Number.isFinite);
+    const bodyValid = [target.body_x_m, target.body_y_m, target.body_z_m]
+      .map(Number).every(Number.isFinite);
+    const geoValid = Boolean(target.geolocation_valid) &&
+      Number.isFinite(Number(target.target_latitude)) &&
+      Number.isFinite(Number(target.target_longitude));
+
+    const cameraText = cameraValid
+      ? `相机(x右/y下/z前)=(${fmt(Number(target.camera_x_m), 2)}, ${fmt(Number(target.camera_y_m), 2)}, ${fmt(Number(target.camera_z_m), 2)}) m`
+      : '相机三维坐标无效';
+    const bodyText = bodyValid
+      ? `车体(x前/y右/z下)=(${fmt(Number(target.body_x_m), 2)}, ${fmt(Number(target.body_y_m), 2)}, ${fmt(Number(target.body_z_m), 2)}) m`
+      : '车体坐标无效';
+    const geoText = geoValid
+      ? `目标经纬度=(${fmt(Number(target.target_latitude), 8)}, ${fmt(Number(target.target_longitude), 8)})`
+      : `目标经纬度=--（${target.reason || 'GPS/航向/深度无效'}）`;
+    lines.push(`${index + 1}. ${cls} | conf=${fmt(conf, 2)} | ${cameraText} | ${bodyText} | ${geoText}`);
+
+    const rec = {
+      time: new Date().toISOString(),
+      source_topic: cfg.topics.target_feedback,
+      frame_id: payload.frame_id || '',
+      selected: false,
+      class: cls,
+      confidence: conf,
+      x: cameraValid ? Number(target.camera_x_m) : '',
+      y: cameraValid ? Number(target.camera_y_m) : '',
+      z: cameraValid ? Number(target.camera_z_m) : '',
+      vehicle_lat: Number.isFinite(Number(payload.vehicle_latitude)) ? Number(payload.vehicle_latitude) : '',
+      vehicle_lon: Number.isFinite(Number(payload.vehicle_longitude)) ? Number(payload.vehicle_longitude) : '',
+      vehicle_alt: Number.isFinite(Number(payload.vehicle_altitude)) ? Number(payload.vehicle_altitude) : '',
+      heading_deg: Number.isFinite(Number(payload.heading_deg)) ? Number(payload.heading_deg) : '',
+      forward_m: bodyValid ? Number(target.body_x_m) : '',
+      right_m: bodyValid ? Number(target.body_y_m) : '',
+      north_m: Number.isFinite(Number(target.north_offset_m)) ? Number(target.north_offset_m) : '',
+      east_m: Number.isFinite(Number(target.east_offset_m)) ? Number(target.east_offset_m) : '',
+      target_lat: geoValid ? Number(target.target_latitude) : '',
+      target_lon: geoValid ? Number(target.target_longitude) : ''
+    };
+    targetRecords.push(rec);
+    frameRecords.push(rec);
+  });
+
+  if (targetRecords.length > 10000) targetRecords = targetRecords.slice(-10000);
+  if ($('detections')) {
+    $('detections').textContent = lines.length
+      ? `统一回传=${cfg.topics.target_feedback}\nframe=${payload.frame_id || '--'}\n` + lines.join('\n')
+      : `统一回传=${cfg.topics.target_feedback}\n当前无检测目标`;
+  }
+  if ($('targetGeoStatus')) {
+    if (payload.geolocation_valid) {
+      $('targetGeoStatus').textContent = `后端统一计算正常：GPS有效、航向有效，目标=${targets.length}`;
+    } else {
+      const gps = payload.gps_valid ? 'GPS有效' : 'GPS无效/超时';
+      const heading = payload.heading_valid ? '航向有效' : '航向无效/超时';
+      $('targetGeoStatus').textContent = `统一回传已连接：${gps}，${heading}`;
+    }
+  }
   renderTargetRecordStatus();
   if (frameRecords.length) queueTargetRecords(frameRecords);
   renderTargetPoint();

@@ -37,6 +37,7 @@ class TargetSnapshotRecorder:
         "bbox_area",
         "gps_valid",
         "heading_valid",
+        "geolocation_valid",
         "vehicle_latitude",
         "vehicle_longitude",
         "heading_deg",
@@ -73,6 +74,12 @@ class TargetSnapshotRecorder:
         self.heading_topic = str(
             rospy.get_param("~heading_topic", "/one_x/heading_deg")
         )
+        self.max_gps_age_s = float(
+            rospy.get_param("~max_gps_age_s", 1.0)
+        )
+        self.max_heading_age_s = float(
+            rospy.get_param("~max_heading_age_s", 1.0)
+        )
 
         self.output_dir = Path(
             str(
@@ -101,7 +108,7 @@ class TargetSnapshotRecorder:
         )
         self.jpeg_quality = int(rospy.get_param("~jpeg_quality", 95))
         self.save_when_gps_invalid = bool(
-            rospy.get_param("~save_when_gps_invalid", True)
+            rospy.get_param("~save_when_gps_invalid", False)
         )
         self.require_depth_valid = bool(
             rospy.get_param("~require_depth_valid", True)
@@ -174,8 +181,10 @@ class TargetSnapshotRecorder:
         self.vehicle_latitude = self.default_latitude
         self.vehicle_longitude = self.default_longitude
         self.gps_valid = False
+        self.gps_received_monotonic = 0.0
         self.heading_deg = self.default_heading_deg
         self.heading_valid = False
+        self.heading_received_monotonic = 0.0
 
         self.state_lock = threading.Lock()
         self.candidate_records: List[Dict[str, Any]] = (
@@ -260,6 +269,7 @@ class TargetSnapshotRecorder:
         )
 
         with self.nav_lock:
+            self.gps_received_monotonic = time.monotonic()
             if valid:
                 self.vehicle_latitude = latitude
                 self.vehicle_longitude = longitude
@@ -272,6 +282,7 @@ class TargetSnapshotRecorder:
     def heading_callback(self, msg: Float64) -> None:
         value = float(msg.data)
         with self.nav_lock:
+            self.heading_received_monotonic = time.monotonic()
             if math.isfinite(value):
                 self.heading_deg = value % 360.0
                 self.heading_valid = True
@@ -294,12 +305,29 @@ class TargetSnapshotRecorder:
             )
             return
 
+        now_monotonic = time.monotonic()
         with self.nav_lock:
             vehicle_lat = float(self.vehicle_latitude)
             vehicle_lon = float(self.vehicle_longitude)
-            gps_valid = bool(self.gps_valid)
+            gps_age_s = (
+                now_monotonic - self.gps_received_monotonic
+                if self.gps_received_monotonic > 0.0
+                else float("inf")
+            )
+            heading_age_s = (
+                now_monotonic - self.heading_received_monotonic
+                if self.heading_received_monotonic > 0.0
+                else float("inf")
+            )
+            gps_valid = bool(
+                self.gps_valid and gps_age_s <= self.max_gps_age_s
+            )
             heading_deg = float(self.heading_deg)
-            heading_valid = bool(self.heading_valid)
+            heading_valid = bool(
+                self.heading_valid
+                and heading_age_s <= self.max_heading_age_s
+            )
+        geolocation_valid = bool(gps_valid and heading_valid)
 
         for detection in detections_msg.objects:
             confidence = float(detection.confidence)
@@ -311,7 +339,7 @@ class TargetSnapshotRecorder:
                 continue
             if self.require_depth_valid and not detection.depth_valid:
                 continue
-            if not gps_valid and not self.save_when_gps_invalid:
+            if not geolocation_valid and not self.save_when_gps_invalid:
                 continue
 
             camera_point = np.asarray(
@@ -338,7 +366,7 @@ class TargetSnapshotRecorder:
             ) = self.compute_target_geodetic(
                 vehicle_lat=vehicle_lat,
                 vehicle_lon=vehicle_lon,
-                gps_valid=gps_valid,
+                gps_valid=geolocation_valid,
                 heading_deg=heading_deg,
                 body_point=body_point,
             )
@@ -363,11 +391,12 @@ class TargetSnapshotRecorder:
                 "bbox_area": int(bbox_area),
                 "gps_valid": gps_valid,
                 "heading_valid": heading_valid,
+                "geolocation_valid": geolocation_valid,
                 "vehicle_latitude": vehicle_lat if gps_valid else 0.0,
                 "vehicle_longitude": vehicle_lon if gps_valid else 0.0,
                 "heading_deg": heading_deg,
-                "target_latitude": target_lat if gps_valid else 0.0,
-                "target_longitude": target_lon if gps_valid else 0.0,
+                "target_latitude": target_lat if geolocation_valid else 0.0,
+                "target_longitude": target_lon if geolocation_valid else 0.0,
                 "north_offset_m": north_offset_m,
                 "east_offset_m": east_offset_m,
                 "camera_x_m": float(camera_point[0]),

@@ -3,8 +3,16 @@ image_topic: /r300_vision/annotated_image
 detections_topic: /r300_vision/detections
 
 # 导航接口（与 one_x / dashboard 一致）
+# /one_x/fix: sensor_msgs/NavSatFix，当前导航兼容定位源
+# /one_x/heading_deg: std_msgs/Float64，北0°、东90°、顺时针增加
 gps_topic: /one_x/fix
 heading_topic: /one_x/heading_deg
+
+# 轻量实时回传节点使用这些参数。记录器会忽略其不认识的参数。
+feedback_topic: /r300_vision/target_feedback_json
+publish_when_geolocation_invalid: true
+max_gps_age_s: 1.0
+max_heading_age_s: 1.0
 
 # 本地保存目录
 # candidate_records/  人工二次筛选候选库
@@ -35,10 +43,9 @@ class_conf_thresholds: {}
 
 jpeg_quality: 95
 
-# GPS无效时仍保存，经纬度写为0。
-# 由于不能验证5 m间隔，同类无效GPS记录视为同一目标簇，
-# 受 candidate_max_per_target 限制。
-save_when_gps_invalid: true
+# GPS或航向无效/超时时不保存，避免提交结果出现0,0或错误方向。
+# Web实时回传仍可通过 publish_when_geolocation_invalid 显示无效原因。
+save_when_gps_invalid: false
 
 # 只有深度和相机三维位置有效时才参与保存
 require_depth_valid: true

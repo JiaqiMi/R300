@@ -254,7 +254,8 @@ if [ "${ENABLE_BAG}" = "true" ]; then
         /camera/color/camera_info \
         /r300_vision/annotated_image \
         /r300_vision/detections \
-        /r300_vision/target_point &
+        /r300_vision/target_point \
+        /r300_vision/target_feedback_json &
 
     ROSBAG_PID=$!
 

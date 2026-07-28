@@ -1,0 +1,18 @@
+<launch>
+    <arg
+        name="config_file"
+        default="$(find r300_yolo_detector)/config/target_snapshot_recorder.yaml"
+    />
+
+    <node
+        pkg="r300_yolo_detector"
+        type="target_feedback_node.py"
+        name="r300_target_feedback_node"
+        output="screen"
+        respawn="true"
+        respawn_delay="3.0"
+    >
+        <!-- 与快照记录器共用同一组导航话题和相机外参。 -->
+        <rosparam command="load" file="$(arg config_file)"/>
+    </node>
+</launch>
