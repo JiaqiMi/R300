@@ -15,12 +15,13 @@ subscribers:
     topic_name: '/cloud_registered_body'
     data_type: pointcloud
 
+# 2026-07-27 提速改造:
+#   fps 5→10（配合 map_acquire_fps 10, 全链延迟 -0.1s）;
+#   traversability 层不再发布（CNN 已由 enable_traversability:false 关闭, 避障用几何陡坡）;
+#   elevation_map_filter/min_filter 发布器删除（v3 起弃用、全仓库无消费者;
+#     min_filter 是插件, 无发布请求即不计算——省 GPU 零代码改动）。
 publishers:
   elevation_map_raw:
-    layers: ['elevation', 'traversability']
+    layers: ['elevation']
     basic_layers: ['elevation']
-    fps: 5.0
-  elevation_map_filter:
-    layers: ['min_filter']
-    basic_layers: ['min_filter']
-    fps: 3.0
+    fps: 10.0

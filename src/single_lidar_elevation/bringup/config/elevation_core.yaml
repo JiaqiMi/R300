@@ -1,9 +1,13 @@
 #### Basic parameters ########
 resolution: 0.04                                # resolution in m.
-map_length: 12.0                                # map's size in m.
+map_length: 16.0                                # map's size in m.（2026-07-27 12→16: 正障碍标记半径 5.5→7.5m 支撑 2.5m/s;
+                                                #   格数 302²→402²(GPU×1.77), 由 enable_traversability:false 对冲, 上板须 tegrastats 实测）
 sensor_noise_factor: 0.05                       # point's noise is sensor_noise_factor*z^2 (z is distance from sensor).
 mahalanobis_thresh: 2.0                         # points outside this distance is outlier.
-outlier_variance: 0.01                          # if point is outlier, add this value to the cell.
+outlier_variance: 0.05                          # if point is outlier, add this value to the cell.
+                                                # （2026-07-27 0.01→0.05: 新障碍被马氏门接纳所需命中数 ~25→~5,
+                                                #   远处格子进图快 3~5 倍; 鬼点风险由适配器 N 帧去抖+快照层聚类兜底,
+                                                #   水坑附近若出现假负障碍可退回 0.03 或 neg_confirm 3→4）
 drift_compensation_variance_inlier: 0.05        # cells under this value is used for drift compensation.
 max_drift: 0.1                                  # drift compensation happens only the drift is smaller than this value (for safety)
 drift_compensation_alpha: 0.1                   # drift compensation alpha for smoother update of drift compensation
@@ -26,7 +30,8 @@ ramped_height_range_c: 0.2
 update_variance_fps: 5.0                        # fps for updating variance.
 update_pose_fps: 10.0                           # fps for updating pose and shift the center of map.
 time_interval: 0.1                              # Time layer is updated with this interval.
-map_acquire_fps: 5.0                            # Raw map is fetched from GPU memory in this fps.
+map_acquire_fps: 10.0                           # Raw map is fetched from GPU memory in this fps.（5→10: 发布延迟 0.2→0.1s, 内部融合本就 10Hz）
+enable_traversability: false                    # R300 补丁开关: 关闭 CNN 可通行性+normal 计算(无消费者, 省 GPU 对冲 16m 扩图)
 publish_statistics_fps: 1.0                     # Publish statistics topic in this fps.
 
 max_ray_length: 10.0                            # maximum length for ray tracing.

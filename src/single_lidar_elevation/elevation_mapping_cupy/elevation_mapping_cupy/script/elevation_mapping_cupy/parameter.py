@@ -207,6 +207,7 @@ class Parameter(Serializable):
     enable_overlap_clearance: bool = True  # enable overlap clearance
     use_only_above_for_upper_bound: bool = True  # use only above for upper bound
     use_chainer: bool = True  # use chainer as a backend of traversability filter or pytorch. If false, it uses pytorch. pytorch requires ~2GB more GPU memory compared to chainer but runs faster.
+    enable_traversability: bool = True  # R300 补丁: false 时跳过 CNN 可通行性滤波与 normal 计算(本项目无消费者, 省 GPU)
     position_noise_thresh: float = 0.1  # if the position change is bigger than this value, the drift compensation happens.
     orientation_noise_thresh: float = 0.1  # if the orientation change is bigger than this value, the drift compensation happens.
 

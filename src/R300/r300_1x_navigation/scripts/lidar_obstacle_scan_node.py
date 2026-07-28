@@ -240,7 +240,7 @@ class LidarObstacleScan:
         scan.angle_max = self.angle_min + (self.n_beams - 1) * self.angle_inc
         scan.angle_increment = self.angle_inc
         scan.time_increment = 0.0
-        scan.scan_time = 0.2  # 随高程图 5Hz
+        scan.scan_time = 0.1  # 随高程图 10Hz
         scan.range_min = self.range_min
         scan.range_max = self.range_max
         scan.ranges = ranges.tolist()

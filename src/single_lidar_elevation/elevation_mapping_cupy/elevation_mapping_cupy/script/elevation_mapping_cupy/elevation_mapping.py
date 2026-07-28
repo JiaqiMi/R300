@@ -372,23 +372,27 @@ class ElevationMap:
 
             if self.param.enable_overlap_clearance:
                 self.clear_overlap_map(t)
-            # dilation before traversability_filter
-            self.traversability_input *= 0.0
-            self.dilation_filter_kernel(
-                self.elevation_map[5],
-                self.elevation_map[2] + self.elevation_map[6],
-                self.traversability_input,
-                self.traversability_mask_dummy,
-                size=(self.cell_n * self.cell_n),
-            )
-            # calculate traversability
-            traversability = self.traversability_filter(self.traversability_input)
-            self.elevation_map[3][3:-3, 3:-3] = traversability.reshape(
-                (traversability.shape[2], traversability.shape[3])
-            )
+            # dilation + CNN traversability（R300 补丁：enable_traversability=false 时跳过。
+            # 本项目避障节点用几何陡坡判定，CNN 层无消费者且实测平地误报高，
+            # 关闭可节省整图卷积的 GPU 开销，用于把 map_length 扩到 16m）
+            if self.param.enable_traversability:
+                self.traversability_input *= 0.0
+                self.dilation_filter_kernel(
+                    self.elevation_map[5],
+                    self.elevation_map[2] + self.elevation_map[6],
+                    self.traversability_input,
+                    self.traversability_mask_dummy,
+                    size=(self.cell_n * self.cell_n),
+                )
+                # calculate traversability
+                traversability = self.traversability_filter(self.traversability_input)
+                self.elevation_map[3][3:-3, 3:-3] = traversability.reshape(
+                    (traversability.shape[2], traversability.shape[3])
+                )
 
-        # calculate normal vectors
-        self.update_normal(self.traversability_input)
+        # calculate normal vectors（normal_x/y/z 层同样无消费者，随开关一并跳过）
+        if self.param.enable_traversability:
+            self.update_normal(self.traversability_input)
 
     def clear_overlap_map(self, t):
         """Clear overlapping areas around the map center.
