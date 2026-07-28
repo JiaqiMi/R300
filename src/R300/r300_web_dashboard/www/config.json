@@ -47,7 +47,8 @@
     "elevation_json": "/r300_web/elevation_json",
     "direction_sign_state": "/subject1/direction_sign/state",
     "direction_sign_selected": "/subject1/direction_sign/selected_direction",
-    "direction_sign_goal": "/subject1/direction_sign/local_goal"
+    "direction_sign_goal": "/subject1/direction_sign/local_goal",
+    "target_feedback": "/r300_vision/target_feedback_json"
   },
   "services": {
     "start": "/subject1/start_waypoints",

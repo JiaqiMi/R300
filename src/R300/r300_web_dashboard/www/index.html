@@ -210,7 +210,8 @@
         <button class="soft" onclick="clearTargetRecords()">清空浏览器记录</button>
         <span id="targetRecordInfo" class="proc-state">浏览器 0 条；本地未记录</span>
       </div>
-      <div class="kv"><span>目标经纬度计算</span><b id="targetGeoStatus">等待惯导定位、航向和三维目标</b></div>
+      <div class="kv"><span>统一实时回传</span><b>/r300_vision/target_feedback_json</b></div>
+      <div class="kv"><span>目标经纬度计算</span><b id="targetGeoStatus">等待目标回传节点、惯导定位、航向和三维目标</b></div>
       <div class="kv"><span>本地保存文件</span><b id="targetRecordFile">--</b></div>
       <pre id="detections">等待 /r300_vision/detections ...</pre>
       <pre id="targetPoint">等待 /r300_vision/target_point ...</pre>

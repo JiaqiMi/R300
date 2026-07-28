@@ -2,6 +2,7 @@
     <arg name="enable_web" default="true"/>
     <arg name="web_port" default="8080"/>
     <arg name="enable_camera" default="true"/>
+    <arg name="enable_target_feedback" default="true"/>
     <arg name="web_address" default="0.0.0.0"/>
 
     <arg
@@ -28,7 +29,12 @@
         <arg name="model2_path" value="$(arg model2_path)"/>
     </include>
 
-    <!-- 3. Web视频服务 -->
+    <!-- 3. 轻量目标坐标/经纬度实时回传（不订阅图像、不写文件） -->
+    <group if="$(arg enable_target_feedback)">
+        <include file="$(find r300_yolo_detector)/launch/target_feedback.launch"/>
+    </group>
+
+    <!-- 4. Web视频服务 -->
     <group if="$(arg enable_web)">
         <node
             pkg="web_video_server"
