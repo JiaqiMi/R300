@@ -220,10 +220,12 @@ class LidarObstacleScan:
                           '车尾1.3m走廊已验证干净 → 倒车0.4m')
             self._last_unstick = now
             tw = Twist()
-            # 2026-07-30 -0.15→-0.25: 实测底盘死区≈0.2m/s, -0.15 属"指令在发轮子不转",
-            # 唯一自救路径空转。16 拍×0.1s×0.25=0.4m(固件坡道下实际约 0.2~0.35m)。
+            # 2026-07-30 -0.15→-0.25(死区0.2上方); 同日改闭环: 开环16拍在固件坡道下
+            # 实际只倒 0.25~0.35m, 真车 footprint+标记侵入时可能没退出致命区——
+            # 改按 _pose_hist 实测位移倒足 0.4m, 硬上限 3s(30拍), 全程仍在已验证
+            # 的车尾走廊(1.3m)内。
             tw.linear.x = -0.25
-            for _ in range(16):
+            for _ in range(30):
                 if rospy.is_shutdown():
                     break
                 if self._mb_active:
@@ -233,6 +235,10 @@ class LidarObstacleScan:
                     break
                 self.pub_cmd.publish(tw)
                 rospy.sleep(0.1)
+                if self._pose_hist:
+                    p = self._pose_hist[-1]
+                    if math.hypot(p[1] - start[1], p[2] - start[2]) >= 0.40:
+                        break  # 实测位移已足 0.4m, 闭环停
             self.pub_cmd.publish(Twist())
             rospy.sleep(0.3)  # 等 cb 线程刷入倒车后的位姿
             # 位移复核(仅用于告警, 不重试): 终点位姿必须比倒车开始时刻新才可信

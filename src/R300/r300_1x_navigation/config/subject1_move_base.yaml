@@ -8,8 +8,12 @@ planner_frequency: 1.0   # 2026-07-29 0→1.0。诚实修正(对抗性审查): �
                          # 路径绕障。rviz 里绿线"绕弯"是重规划起点跟随车移动的视觉伪象。
                          # 真绕障需给全局 costmap 加障碍层+膨胀(待决策)。
 
-planner_patience: 8.0
-controller_patience: 8.0
+# 2026-07-30 8→4(脱困救援周期太长): 车卡死后要干等 patience 走完才 ABORT,
+# 脱困反射才有触发资格——8s 是救援周期(16~25s)里最大的死等项。patience 只计
+# "连续无有效规划/控制"的时间, 正常慢速机动一直有有效指令, 4s 不会误伤;
+# 与子目标钳制的进展门(moved≥0.5m 才重发)无冲突。
+planner_patience: 4.0
+controller_patience: 4.0
 
 conservative_reset_dist: 3.0
 
