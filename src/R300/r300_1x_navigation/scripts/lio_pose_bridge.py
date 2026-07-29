@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""室内测试模式：用 FAST-LIO 位姿桥接出 odom->base_link 与 DWA 里程计。
+
+背景（2026-07-29 实测）：1X 组合惯导室内无 GPS 时 odom 冻结，导航闭环
+无法测试。本桥用 FAST-LIO 的 odom->body 复合固定安装外参，发布：
+  1) TF odom->base_link（50Hz）
+  2) nav_msgs/Odometry 到 ~odom_topic（默认 /subject1/dwa_odom，
+     twist 用位姿差分+一阶低通，室内低速测试足够）
+
+使用红线：
+- 本模式下【不要】给 1X 设原点（否则它也发 odom->base_link，双父帧冲突）；
+  建议室内测试直接不启 1X。
+- 本模式下全系统单树（都在 FAST-LIO 的 odom 语义里），rviz 中高程图与
+  代价地图天然对齐；GPS 航点(waypoint_executor)在本模式下无意义，只用 rviz 点目标。
+- 外参约定与 lidar_obstacle_scan_node 完全一致（ext_x/ext_y/ext_yaw_deg，
+  launch 里复用 subject1_lidar_obstacles.yaml 加载）。
+"""
+import math
+
+import rospy
+import tf2_ros
+from geometry_msgs.msg import TransformStamped
+from nav_msgs.msg import Odometry
+
+rospy.init_node('lio_pose_bridge')
+ext_x = float(rospy.get_param('~ext_x', 0.40))
+ext_y = float(rospy.get_param('~ext_y', 0.0))
+ext_yaw = math.radians(float(rospy.get_param('~ext_yaw_deg', 0.0)))
+sensor_h = float(rospy.get_param('~sensor_height_above_ground', 0.48))
+lio_map = rospy.get_param('~lio_map_frame', 'odom')
+lio_body = rospy.get_param('~lio_body_frame', 'body')
+out_frame = rospy.get_param('~output_base_frame', 'base_link')
+odom_topic = rospy.get_param('~odom_topic', '/subject1/dwa_odom')
+rate_hz = float(rospy.get_param('~rate', 50.0))
+
+buf = tf2_ros.Buffer()
+tf2_ros.TransformListener(buf)
+br = tf2_ros.TransformBroadcaster()
+pub = rospy.Publisher(odom_topic, Odometry, queue_size=10)
+state = {'t': None, 'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'v': 0.0, 'w': 0.0}
+ALPHA = 0.35  # twist 一阶低通
+
+
+def tick(_):
+    try:
+        tr = buf.lookup_transform(lio_map, lio_body, rospy.Time(0),
+                                  rospy.Duration(0.05)).transform
+    except tf2_ros.TransformException:
+        rospy.logwarn_throttle(5.0, 'lio_pose_bridge: FAST-LIO TF(%s->%s) 不可用，桥暂停',
+                               lio_map, lio_body)
+        return
+    q = tr.rotation
+    yaw_body = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+    yaw = yaw_body - ext_yaw
+    c, s = math.cos(yaw), math.sin(yaw)
+    x = tr.translation.x - (c * ext_x - s * ext_y)
+    y = tr.translation.y - (s * ext_x + c * ext_y)
+    z = tr.translation.z - sensor_h
+
+    now = rospy.Time.now()
+    t = now.to_sec()
+    if state['t'] is not None and t > state['t']:
+        dt = t - state['t']
+        dyaw = (yaw - state['yaw'] + math.pi) % (2 * math.pi) - math.pi
+        vx = ((x - state['x']) * c + (y - state['y']) * s) / dt
+        w = dyaw / dt
+        state['v'] += ALPHA * (vx - state['v'])
+        state['w'] += ALPHA * (w - state['w'])
+    state.update(t=t, x=x, y=y, yaw=yaw)
+
+    tfm = TransformStamped()
+    tfm.header.stamp = now
+    tfm.header.frame_id = lio_map
+    tfm.child_frame_id = out_frame
+    tfm.transform.translation.x = x
+    tfm.transform.translation.y = y
+    tfm.transform.translation.z = z
+    tfm.transform.rotation.z = math.sin(yaw / 2)
+    tfm.transform.rotation.w = math.cos(yaw / 2)
+    br.sendTransform(tfm)
+
+    od = Odometry()
+    od.header.stamp = now
+    od.header.frame_id = lio_map
+    od.child_frame_id = out_frame
+    od.pose.pose.position.x = x
+    od.pose.pose.position.y = y
+    od.pose.pose.position.z = z
+    od.pose.pose.orientation = tfm.transform.rotation
+    od.twist.twist.linear.x = state['v']
+    od.twist.twist.angular.z = state['w']
+    pub.publish(od)
+
+
+rospy.loginfo('lio_pose_bridge(室内测试模式): %s->%s @%.0fHz, odom_topic=%s, '
+              'ext=(%.2f, %.2f, %.1f°) —— 1X 请勿设原点!',
+              lio_map, out_frame, rate_hz, odom_topic, ext_x, ext_y, math.degrees(ext_yaw))
+rospy.Timer(rospy.Duration(1.0 / rate_hz), tick)
+rospy.spin()

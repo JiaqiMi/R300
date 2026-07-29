@@ -14,6 +14,15 @@
   <arg name="waypoint_file"
        default="$(find r300_1x_navigation)/config/subject1_waypoints.yaml"/>
 
+  <!-- 2026-07-29 防复发改进:
+       indoor_test_mode: 室内测试模式——1X 无 GPS 时 odom 冻结(实测: 车转圈软件位姿不动),
+         true 时用 lio_pose_bridge 以 FAST-LIO 位姿发布 odom->base_link 与 dwa_odom,
+         室内即可闭环测试(勿给 1X 设原点! GPS 航点无效, 只用 rviz 点目标);
+       require_1x_alignment: 1X 对准门检——odom 位姿逐字节冻结时拒绝进入导航并醒目报错,
+         杜绝"静默假定位"(室外正常流程不受影响, 3 秒通过)。 -->
+  <arg name="indoor_test_mode" default="false"/>
+  <arg name="require_1x_alignment" default="true"/>
+
   <arg name="lidar_config_file"
        default="$(find r300_1x_navigation)/config/subject1_lidar_obstacles.yaml"/>
   <arg name="elevation_topic" default="/elevation_mapping/elevation_map_raw"/>
@@ -62,7 +71,7 @@
     <arg name="local_costmap_config_file"
          value="$(find r300_1x_navigation)/config/subject1_local_costmap_lidar.yaml"/>
 
-    <arg name="use_dwa_odom_adapter" value="true"/>
+    <arg name="use_dwa_odom_adapter" value="$(eval not arg('indoor_test_mode'))"/>
     <arg name="dwa_odom_topic" value="$(arg dwa_odom_topic)"/>
     <arg name="dwa_forward_deadband_mps"
          value="$(arg dwa_forward_deadband_mps)"/>
@@ -99,6 +108,24 @@
       <param name="pause_service" value="/subject1/pause_waypoints"/>
       <param name="resume_service" value="/subject1/resume_waypoints"/>
       <param name="waypoint_status_topic" value="/subject1/waypoint_status"/>
+    </node>
+  </group>
+
+  <!-- 1X 对准门检(仅室外/正常模式): 位姿冻结 => exit(1) => required 拉倒整个 launch -->
+  <group unless="$(arg indoor_test_mode)">
+    <node if="$(arg require_1x_alignment)"
+          pkg="r300_1x_navigation" type="one_x_alignment_gate.py"
+          name="one_x_alignment_gate" output="screen" required="true"/>
+  </group>
+
+  <!-- 室内测试模式: FAST-LIO 位姿桥(外参复用 subject1_lidar_obstacles.yaml) -->
+  <group if="$(arg indoor_test_mode)">
+    <node pkg="r300_1x_navigation" type="lio_pose_bridge.py"
+          name="lio_pose_bridge" output="screen" required="true">
+      <rosparam command="load" file="$(arg lidar_config_file)"/>
+      <param name="odom_topic" value="$(arg dwa_odom_topic)"/>
+      <param name="lio_map_frame" value="$(arg lio_map_frame)"/>
+      <param name="lio_body_frame" value="$(arg lio_body_frame)"/>
     </node>
   </group>
 </launch>
