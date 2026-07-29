@@ -85,6 +85,10 @@
          value="$(arg dwa_max_yaw_rate_radps)"/>
   </include>
 
+  <!-- 2026-07-29: 雷达避障模式开启全局重规划(原0=只规划一次直线, 遇障后DWA被拽着撞线;
+       mevius2 同款栈一直是 1.0)。声明于此覆盖 subject1_move_base.yaml 的 0 -->
+  <param name="/move_base/planner_frequency" value="1.0"/>
+
   <include file="$(find r300_1x_navigation)/launch/subject1_lidar_avoidance.launch">
     <arg name="config_file" value="$(arg lidar_config_file)"/>
     <arg name="elevation_topic" value="$(arg elevation_topic)"/>
@@ -131,7 +135,7 @@
     <!-- 室内档参数覆盖(2026-07-29 审查P1-5/P0-3): 持久化, 不再依赖易失的 dynparam。
          窄环境膨胀收窄+衰减加快; 车速压到0.8(全链延迟0.8~1.5s下新障碍4m必撞账,
          室内空间小必须留裕)。声明在 include 之后, roslaunch 后声明覆盖先加载的 yaml。 -->
-    <param name="/move_base/local_costmap/inflation_layer/inflation_radius" value="0.35"/> <!-- 2026-07-29 操作员决策: 取下限=内切半径0.35, 换通过性; 再低会漏细障碍, 到底了 -->
+    <param name="/move_base/local_costmap/inflation_layer/inflation_radius" value="0.45"/> <!-- 2026-07-29定稿: 通道由内切0.35(=车半宽)决定, 膨胀0.45不堵道只加预警梯度, 防"贴边停车->冻结" -->
     <param name="/move_base/local_costmap/inflation_layer/cost_scaling_factor" value="3.0"/>
     <param name="/lidar_obstacle_scan_node/speed_limit_v_max" value="0.8"/>
     <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.15"/>
