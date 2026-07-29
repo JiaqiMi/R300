@@ -93,7 +93,7 @@
 
   <!-- 2026-07-29: 雷达避障模式开启全局重规划(原0=只规划一次直线, 遇障后DWA被拽着撞线;
        mevius2 同款栈一直是 1.0)。声明于此覆盖 subject1_move_base.yaml 的 0 -->
-  <param name="/move_base/planner_frequency" value="1.0"/>
+  <param name="/move_base/planner_frequency" value="2.0"/> <!-- 2026-07-30 1→2: 2m/s"来不及规划"账——绿线改道延迟从~1.5s砍到~0.7s(少冲1.6m); 滚动窗navfn毫秒级, 便宜 -->
 
   <include file="$(find r300_1x_navigation)/launch/subject1_lidar_avoidance.launch">
     <arg name="config_file" value="$(arg lidar_config_file)"/>
@@ -212,8 +212,8 @@
     <param name="/move_base/global_costmap/height" value="40.0"/>
     <param name="/move_base/global_costmap/resolution" value="0.1"/>
     <param name="/move_base/global_costmap/global_frame" value="odom"/>
-    <param name="/move_base/global_costmap/update_frequency" value="2.0"/>
-    <param name="/move_base/global_costmap/publish_frequency" value="1.0"/>
+    <param name="/move_base/global_costmap/update_frequency" value="5.0"/> <!-- 2026-07-30 2→5: 标记进全局图延迟 0.5→0.2s, 配合 planner 2Hz 绿线改道更快 -->
+    <param name="/move_base/global_costmap/publish_frequency" value="2.0"/>
     <param name="/move_base/global_costmap/always_send_full_costmap" value="true"/>
     <param name="/move_base/global_costmap/lidar_snapshot_layer/enabled" value="true"/>
     <param name="/move_base/global_costmap/lidar_snapshot_layer/topic" value="/r300_lidar/obstacle_scan"/>
