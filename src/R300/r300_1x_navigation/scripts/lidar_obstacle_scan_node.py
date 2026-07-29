@@ -207,6 +207,11 @@ class LidarObstacleScan:
             for _ in range(16):
                 if rospy.is_shutdown():
                     break
+                if self._mb_active:
+                    # 审查P1: 倒车中途出现新 ACTIVE 目标(executor 重试/跳过后发出),
+                    # 立即让位停车, 避免与 DWA 前进指令在 cmd_vel_raw 上 10Hz/5Hz 交替争抢
+                    rospy.logwarn('lidar_obstacle_scan: 【自动脱困】倒车中检测到新导航目标, 提前让位停车')
+                    break
                 self.pub_cmd.publish(tw)
                 rospy.sleep(0.1)
             self.pub_cmd.publish(Twist())

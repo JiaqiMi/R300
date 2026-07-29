@@ -25,12 +25,13 @@ import rospy
 import tf.transformations as tft
 
 from actionlib_msgs.msg import GoalStatus
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point, PoseStamped
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from sensor_msgs.msg import NavSatFix
 from std_msgs.msg import String
 from std_srvs.srv import Trigger, TriggerResponse
+from visualization_msgs.msg import Marker, MarkerArray
 
 
 WGS84_A = 6378137.0
@@ -175,6 +176,39 @@ class WaypointExecutor(object):
             },
         }
 
+        # —— 子目标钳制器(2026-07-30, 室外滚动全局窗配套, 对标 Nav2 GPS 教程+carrot 语义) ——
+        # 室外全局代价地图为 40m 滚动窗(launch 室外档), navfn 对窗外目标必报
+        # "目标在图外"失败。真航点距车 > clamp_radius 时, 发"车→航点"连线上
+        # clamp_radius 处的窗内子目标(胡萝卜), 控制环滚动前移; 真航点入窗即切真目标。
+        self.clamp_enabled = bool(rospy.get_param("~goal_clamp_enabled", True))
+        self.clamp_radius_m = float(rospy.get_param(
+            "~goal_clamp_radius_m", 18.0))   # 必须 < 全局滚动窗半宽(20m), 留 TF/漂移余量
+        self.clamp_resend_dist_m = float(rospy.get_param(
+            "~goal_clamp_resend_dist_m", 5.0))   # 车每前进 5m 重新钳制一次
+        self.clamp_resend_period_s = float(rospy.get_param(
+            "~goal_clamp_resend_period_s", 4.0))  # 兜底周期(需配合下面的进展门)
+        # 审查P0: 周期重发必须带"有进展"门——卡死时若无条件每 4s 重发, 每个新目标
+        # 都会重置 move_base 的 8s patience → 永不 ABORTED → 失败策略与自动脱困
+        # 反射双双饿死 = 无限静默停摆。无进展时不重发, 让 patience 正常走完。
+        self.clamp_resend_min_progress_m = float(rospy.get_param(
+            "~clamp_resend_min_progress_m", 0.5))
+        # 目标点障碍投影(carrot 语义): 目标格在致命/内切区时沿连线向车回退到最近可行格
+        self.goal_project_enabled = bool(rospy.get_param(
+            "~goal_project_enabled", True))
+        self.goal_project_max_m = float(rospy.get_param(
+            "~goal_project_max_pullback_m", 3.0))
+        self.goal_project_cost_thresh = int(rospy.get_param(
+            "~goal_project_cost_thresh", 99))  # OccupancyGrid 值: 99=内切 100=致命; 软膨胀(1~98)可作目标
+        # 失败策略(对齐 Nav2 WaypointFollower stop_on_failure=false 语义):
+        #   retry_then_skip = 重试 retry_limit 次(延迟 retry_delay 给自动脱困倒车留窗) → 跳下一航点
+        #   stop            = 原行为, 全任务 FAILED 停摆
+        self.on_failure = rospy.get_param("~on_failure", "retry_then_skip")
+        self.failure_retry_limit = int(rospy.get_param("~failure_retry_limit", 1))
+        self.failure_retry_delay_s = float(rospy.get_param(
+            "~failure_retry_delay_s", 8.0))  # 脱困反射: 静止判定~1.2s+倒车1.6s+复核, 8s 够整个反射走完
+        self.skip_fuse_limit = int(rospy.get_param(
+            "~consecutive_skip_fuse", 3))    # 连续跳过≥N 判系统性故障转 FAILED(如 TF 断/被围死)
+
         self.origin = None
         self.latest_odom = None
         self.state = self.RUNNING if self.auto_start else self.IDLE
@@ -193,6 +227,17 @@ class WaypointExecutor(object):
         self.goal_generation = 0
         self.active_goal_generation = None
 
+        # 钳制器/失败策略运行态
+        self.goal_is_clamped = False      # 当前活动目标是否为子目标(而非真航点)
+        self.last_sent_target = None      # 最近发出的目标位置(rviz 胡萝卜标记用)
+        self.clamp_sent_pos = None        # 发出子目标时的车位置(前移判据)
+        self.clamp_sent_time = 0.0
+        self.fail_count = 0               # 当前真航点累计失败次数
+        self.retry_after = 0.0            # 失败重试的最早时刻(给脱困倒车留窗)
+        self.consecutive_skips = 0        # 连续跳过熔断(审查P2: 防系统性故障被 COMPLETED 掩盖)
+        self.skipped_indices = set()      # 已跳过航点(rviz 红色标记)
+        self.latest_costmap = None        # 全局代价地图(目标投影用)
+
         self.waypoints = self.load_waypoints()
 
         self.client = actionlib.SimpleActionClient(
@@ -203,7 +248,15 @@ class WaypointExecutor(object):
         self.current_pose_pub = rospy.Publisher(
             "/subject1/current_waypoint_pose", PoseStamped,
             queue_size=5, latch=True)
+        # 航点可视化(rviz MarkerArray): 绿=已到 蓝=当前 灰=待走 红=跳过,
+        # 橙球=当前子目标(胡萝卜), 深绿折线=路线
+        self.marker_pub = rospy.Publisher(
+            "/subject1/waypoint_markers", MarkerArray, queue_size=1, latch=True)
 
+        # 全局代价地图(室外档 always_send_full_costmap=true, 1Hz 全幅), 目标投影用
+        rospy.Subscriber(
+            "/move_base/global_costmap/costmap", OccupancyGrid,
+            self.costmap_cb, queue_size=1)
         rospy.Subscriber(
             self.origin_topic, NavSatFix, self.origin_cb, queue_size=1)
         rospy.Subscriber(
@@ -298,6 +351,48 @@ class WaypointExecutor(object):
         with self.lock:
             self.latest_odom = msg
 
+    def costmap_cb(self, msg):
+        # 单引用原子替换, 读方拿到的永远是完整一幅
+        self.latest_costmap = msg
+
+    def costmap_cost_at(self, x, y):
+        """查全局代价地图格值(OccupancyGrid: -1 未知, 0~100)。图外/无图返回 None。
+        坐标系说明: goal_frame(map) 与代价地图 frame(odom) 由静态恒等 TF 绑定,
+        坐标数值可直接互用(subject1_map_to_odom)。"""
+        g = self.latest_costmap
+        if g is None:
+            return None
+        res = g.info.resolution
+        mx = int(math.floor((x - g.info.origin.position.x) / res))
+        my = int(math.floor((y - g.info.origin.position.y) / res))
+        if not (0 <= mx < g.info.width and 0 <= my < g.info.height):
+            return None
+        return g.data[my * g.info.width + mx]
+
+    def project_goal_off_obstacle(self, tx, ty, rx, ry):
+        """目标格落在致命/内切区时, 沿"目标→车"连线回退搜索最近可行格(carrot 语义,
+        上限 goal_project_max_m)。返回 None = 无需调整或搜索失败(失败留给
+        xy_goal_tolerance 1.5 + latch + 失败策略兜底)。"""
+        c = self.costmap_cost_at(tx, ty)
+        if c is None or c < self.goal_project_cost_thresh:
+            return None
+        d = math.hypot(tx - rx, ty - ry)
+        if d < 1e-6:
+            return None
+        ux, uy = (rx - tx) / d, (ry - ty) / d
+        # 审查P2: 回退量封顶于"车-目标"距离减容差带——否则近距时投影点会越过车体
+        # 落到车后(贴障原地调头), 或落进 1.5m 容差圈被 latch 即刻误判"到达"
+        max_pull = min(self.goal_project_max_m, d - 1.7)
+        if max_pull <= 0.0:
+            return None
+        step = 0.1
+        for i in range(1, int(max_pull / step) + 1):
+            px, py = tx + ux * step * i, ty + uy * step * i
+            c = self.costmap_cost_at(px, py)
+            if c is not None and 0 <= c < self.goal_project_cost_thresh:
+                return (px, py)
+        return None
+
     def invalidate_active_goal(self):
         self.goal_active = False
         self.active_goal_generation = None
@@ -310,8 +405,13 @@ class WaypointExecutor(object):
             if self.state in [self.COMPLETED, self.FAILED]:
                 self.current_index = 0
                 self.last_error = ""
+                self.skipped_indices.clear()
 
             self.invalidate_active_goal()
+            self.fail_count = 0
+            self.retry_after = 0.0
+            self.consecutive_skips = 0
+            self.goal_is_clamped = False
             self.state = self.RUNNING
             self.last_command = "START"
             self.last_transition = "STARTED"
@@ -326,6 +426,11 @@ class WaypointExecutor(object):
             self.state = self.IDLE
             self.current_index = 0
             self.last_error = ""
+            self.skipped_indices.clear()
+            self.goal_is_clamped = False
+            self.fail_count = 0
+            self.retry_after = 0.0
+            self.consecutive_skips = 0
             self.last_command = "CANCEL"
             self.last_transition = "CANCELLED"
             self.publish_status()
@@ -339,6 +444,7 @@ class WaypointExecutor(object):
 
             self.invalidate_active_goal()
             self.client.cancel_all_goals()
+            self.goal_is_clamped = False
             self.state = self.PAUSED
             self.last_command = "PAUSE"
             self.last_transition = "PAUSED"
@@ -367,6 +473,9 @@ class WaypointExecutor(object):
             self.invalidate_active_goal()
             self.client.cancel_all_goals()
             self.current_index += 1
+            self.fail_count = 0
+            self.retry_after = 0.0
+            self.goal_is_clamped = False
             self.state = self.RUNNING
             self.last_command = "SKIP"
             self.last_transition = "SKIPPED_TO_NEXT"
@@ -551,13 +660,34 @@ class WaypointExecutor(object):
             return
 
         target_yaw, _, distance = geometry
+
+        # —— 子目标钳制: 真航点在滚动全局窗外时发连线上的窗内子目标(胡萝卜) ——
+        rx = self.latest_odom.pose.pose.position.x
+        ry = self.latest_odom.pose.pose.position.y
+        tx, ty = wp["east"], wp["north"]
+        clamped = False
+        if self.clamp_enabled and distance > self.clamp_radius_m:
+            s = self.clamp_radius_m / distance
+            tx = rx + (wp["east"] - rx) * s
+            ty = ry + (wp["north"] - ry) * s
+            clamped = True
+
+        # —— 目标点障碍投影: 目标格在致命/内切区时沿连线向车回退到最近可行格 ——
+        if self.goal_project_enabled:
+            adj = self.project_goal_off_obstacle(tx, ty, rx, ry)
+            if adj is not None:
+                rospy.logwarn(
+                    "航点 %s 目标点落在致命/内切区, 沿线回退 %.2fm 投影到可行格",
+                    wp["name"], math.hypot(tx - adj[0], ty - adj[1]))
+                tx, ty = adj
+
         q = yaw_to_quat(target_yaw)
 
         goal = MoveBaseGoal()
         goal.target_pose.header.stamp = rospy.Time.now()
         goal.target_pose.header.frame_id = self.goal_frame
-        goal.target_pose.pose.position.x = wp["east"]
-        goal.target_pose.pose.position.y = wp["north"]
+        goal.target_pose.pose.position.x = tx
+        goal.target_pose.pose.position.y = ty
         goal.target_pose.pose.position.z = 0.0
         goal.target_pose.pose.orientation.x = q[0]
         goal.target_pose.pose.orientation.y = q[1]
@@ -570,7 +700,11 @@ class WaypointExecutor(object):
         generation = self.goal_generation
         self.active_goal_generation = generation
         self.goal_active = True
-        self.last_transition = "GOAL_SENT"
+        self.goal_is_clamped = clamped
+        self.last_sent_target = (tx, ty)
+        self.clamp_sent_pos = (rx, ry)
+        self.clamp_sent_time = rospy.get_time()
+        self.last_transition = "SUBGOAL_SENT" if clamped else "GOAL_SENT"
 
         self.client.send_goal(
             goal,
@@ -578,10 +712,11 @@ class WaypointExecutor(object):
                 self.done_cb(status, result, seq))
 
         rospy.logwarn(
-            "直接交给 move_base：航点 %d/%d [%s] east=%.3f north=%.3f "
-            "distance=%.3f target_yaw=%.1fdeg",
+            "%s交给 move_base：航点 %d/%d [%s] 目标(%.3f, %.3f) "
+            "真航点距离=%.3f target_yaw=%.1fdeg",
+            ("子目标(钳制%.0fm)" % self.clamp_radius_m) if clamped else "直接",
             self.current_index + 1, len(self.waypoints), wp["name"],
-            wp["east"], wp["north"], distance, math.degrees(target_yaw))
+            tx, ty, distance, math.degrees(target_yaw))
         self.publish_status()
 
     def control_timer_cb(self, event):
@@ -601,6 +736,23 @@ class WaypointExecutor(object):
                 rospy.logwarn("全部航点已完成")
                 self.publish_status()
                 return
+
+            # —— 子目标滚动前移: 车前进≥阈值或超时 → 重新钳制(复用"发新目标抢占
+            # 旧目标"的直通机制); 真航点入窗后 send_current_goal 自动切回真目标 ——
+            if (self.goal_active and self.goal_is_clamped
+                    and self.latest_odom is not None
+                    and self.clamp_sent_pos is not None):
+                rx = self.latest_odom.pose.pose.position.x
+                ry = self.latest_odom.pose.pose.position.y
+                moved = math.hypot(rx - self.clamp_sent_pos[0],
+                                   ry - self.clamp_sent_pos[1])
+                elapsed = rospy.get_time() - self.clamp_sent_time
+                if (moved >= self.clamp_resend_dist_m or
+                        (elapsed >= self.clamp_resend_period_s
+                         and moved >= self.clamp_resend_min_progress_m)):
+                    self.invalidate_active_goal()
+                    self.send_current_goal()
+                    return
 
             # Intermediate waypoints use a route-angle-aware handover profile.
             # Straight points may switch early at high speed; sharper points use
@@ -642,6 +794,8 @@ class WaypointExecutor(object):
                             # new one without a cancel-only interval.
                             self.invalidate_active_goal()
                             self.current_index += 1
+                            self.fail_count = 0   # 审查P1: 失败计数按航点复位, 不跨航点泄漏
+                            self.retry_after = 0.0
                             self.last_command = "AUTO_PASS"
                             self.last_transition = "PASSED_THROUGH"
 
@@ -678,6 +832,9 @@ class WaypointExecutor(object):
                                 speed_mps, switch_speed_mps)
 
             if not self.goal_active:
+                # 失败重试延迟窗: 给自动脱困反射(静止判定+倒车0.4m)留完整时间
+                if rospy.get_time() < self.retry_after:
+                    return
                 self.send_current_goal()
 
     def done_cb(self, status, result, generation):
@@ -696,14 +853,85 @@ class WaypointExecutor(object):
                 if self.current_index < len(self.waypoints) else "unknown")
 
             if status == GoalStatus.SUCCEEDED:
+                if self.goal_is_clamped:
+                    # 子目标到达 ≠ 真航点到达: 索引不前进, 控制环 50ms 内重新钳制续跑
+                    # (不在 action 回调线程里直接 send_goal, 避免重入)
+                    self.goal_is_clamped = False
+                    rospy.loginfo(
+                        "子目标到达, 将重新钳制续向真航点 %d/%d [%s]",
+                        self.current_index + 1, len(self.waypoints), wp_name)
+                    return
                 rospy.logwarn("到达航点 %d/%d [%s]", self.current_index + 1,
                               len(self.waypoints), wp_name)
                 self.current_index += 1
+                self.fail_count = 0
+                self.consecutive_skips = 0
                 self.last_transition = "WAYPOINT_REACHED"
                 if self.current_index >= len(self.waypoints):
                     self.state = self.COMPLETED
                     self.last_transition = "COMPLETED"
-                    rospy.logwarn("全部航点完成")
+                    rospy.logwarn("全部航点完成(其中跳过 %d 个)",
+                                  len(self.skipped_indices))
+                self.publish_status()
+                return
+
+            if status == GoalStatus.PREEMPTED:
+                # 有效 generation 下的 PREEMPTED = 外部客户端抢占(如 rviz 手发目标;
+                # 本节点自己的抢占已被 generation 守卫过滤)。不计失败, 自动暂停任务
+                # 把控制权交给操作员(审查P2), 恢复: rosservice call /subject1/resume_waypoints
+                self.goal_is_clamped = False
+                self.state = self.PAUSED
+                self.last_transition = "PREEMPTED_EXTERNAL_PAUSED"
+                rospy.logwarn(
+                    "航点目标被外部客户端抢占(rviz 手发目标?), 任务自动暂停; "
+                    "恢复: rosservice call /subject1/resume_waypoints")
+                self.publish_status()
+                return
+
+            # —— 失败策略(2026-07-30): 单个航点失败不再拖死全任务 ——
+            self.goal_is_clamped = False
+            if self.on_failure == "retry_then_skip":
+                self.fail_count += 1
+                if self.fail_count <= self.failure_retry_limit:
+                    self.retry_after = (
+                        rospy.get_time() + self.failure_retry_delay_s)
+                    self.last_transition = "FAILED_RETRY"
+                    rospy.logwarn(
+                        "move_base 在航点 %d/%d [%s] 失败(status=%d), "
+                        "%.0fs 后重试 %d/%d(给自动脱困倒车留时间窗)",
+                        self.current_index + 1, len(self.waypoints), wp_name,
+                        status, self.failure_retry_delay_s,
+                        self.fail_count, self.failure_retry_limit)
+                    self.publish_status()
+                    return
+                self.skipped_indices.add(self.current_index)
+                rospy.logerr(
+                    "航点 %d/%d [%s] 连续失败 %d 次 → 跳过, 继续下一航点"
+                    "(比赛语义: 任务连续性优先; on_failure:=stop 可回旧行为)",
+                    self.current_index + 1, len(self.waypoints), wp_name,
+                    self.fail_count)
+                self.current_index += 1
+                self.fail_count = 0
+                # 审查P1: 跳过后与重试同宽的延迟窗——车多半仍被困, 立即发下一目标
+                # 会掐灭本次 ABORTED 的脱困资格并与倒车抢 cmd_vel
+                self.retry_after = (
+                    rospy.get_time() + self.failure_retry_delay_s)
+                self.consecutive_skips += 1
+                self.last_transition = "FAILED_SKIPPED"
+                if self.consecutive_skips >= self.skip_fuse_limit:
+                    self.state = self.FAILED
+                    self.last_transition = "FAILED"
+                    self.last_error = (
+                        "连续跳过 %d 个航点, 疑似系统性故障(TF断/定位失效/被围死), "
+                        "停止任务待人工处理" % self.consecutive_skips)
+                    rospy.logerr(self.last_error)
+                    self.publish_status()
+                    return
+                if self.current_index >= len(self.waypoints):
+                    self.state = self.COMPLETED
+                    self.last_transition = "COMPLETED"
+                    rospy.logwarn("全部航点完成(其中跳过 %d 个)",
+                                  len(self.skipped_indices))
                 self.publish_status()
                 return
 
@@ -719,6 +947,95 @@ class WaypointExecutor(object):
     def status_timer_cb(self, event):
         with self.lock:
             self.publish_status()
+            self.publish_waypoint_markers()
+
+    def publish_waypoint_markers(self):
+        """rviz 航点可视化: 绿=已到 蓝=当前 灰=待走 红=跳过, 橙球=当前子目标
+        (胡萝卜), 深绿折线=航点路线, 文字=序号:名称。frame=goal_frame(map,
+        与 odom 静态恒等 TF 绑定, subject1_map_to_odom)。"""
+        now = rospy.Time.now()
+        arr = MarkerArray()
+
+        line = Marker()
+        line.header.frame_id = self.goal_frame
+        line.header.stamp = now
+        line.ns = "route"
+        line.id = 9998
+        line.type = Marker.LINE_STRIP
+        line.action = Marker.ADD
+        line.scale.x = 0.08
+        line.color.r, line.color.g = 0.1, 0.5
+        line.color.b, line.color.a = 0.1, 0.6
+        line.pose.orientation.w = 1.0
+
+        for i, wp in enumerate(self.waypoints):
+            if not wp["enu_ready"]:
+                continue
+            line.points.append(Point(x=wp["east"], y=wp["north"], z=0.05))
+
+            m = Marker()
+            m.header.frame_id = self.goal_frame
+            m.header.stamp = now
+            m.ns = "waypoints"
+            m.id = i
+            m.type = Marker.SPHERE
+            m.action = Marker.ADD
+            m.pose.position.x = wp["east"]
+            m.pose.position.y = wp["north"]
+            m.pose.position.z = 0.15
+            m.pose.orientation.w = 1.0
+            m.scale.x = m.scale.y = m.scale.z = 0.5
+            if i in self.skipped_indices:
+                rgba = (1.0, 0.15, 0.15, 0.9)   # 红=已跳过
+            elif i < self.current_index:
+                rgba = (0.15, 0.9, 0.15, 0.9)   # 绿=已到达
+            elif i == self.current_index:
+                rgba = (0.2, 0.4, 1.0, 0.95)    # 蓝=当前目标
+            else:
+                rgba = (0.7, 0.7, 0.7, 0.7)     # 灰=待执行
+            m.color.r, m.color.g, m.color.b, m.color.a = rgba
+            arr.markers.append(m)
+
+            t = Marker()
+            t.header.frame_id = self.goal_frame
+            t.header.stamp = now
+            t.ns = "labels"
+            t.id = i
+            t.type = Marker.TEXT_VIEW_FACING
+            t.action = Marker.ADD
+            t.pose.position.x = wp["east"]
+            t.pose.position.y = wp["north"]
+            t.pose.position.z = 0.9
+            t.scale.z = 0.45
+            t.color.r = t.color.g = t.color.b = 1.0
+            t.color.a = 0.9
+            t.text = "%d:%s" % (i + 1, wp["name"])
+            arr.markers.append(t)
+
+        if line.points:
+            arr.markers.append(line)
+
+        carrot = Marker()
+        carrot.header.frame_id = self.goal_frame
+        carrot.header.stamp = now
+        carrot.ns = "carrot"
+        carrot.id = 9999
+        if (self.state == self.RUNNING and self.goal_is_clamped
+                and self.last_sent_target is not None):
+            carrot.type = Marker.SPHERE
+            carrot.action = Marker.ADD
+            carrot.pose.position.x = self.last_sent_target[0]
+            carrot.pose.position.y = self.last_sent_target[1]
+            carrot.pose.position.z = 0.3
+            carrot.pose.orientation.w = 1.0
+            carrot.scale.x = carrot.scale.y = carrot.scale.z = 0.7
+            carrot.color.r, carrot.color.g = 1.0, 0.55
+            carrot.color.b, carrot.color.a = 0.0, 0.95
+        else:
+            carrot.action = Marker.DELETE
+        arr.markers.append(carrot)
+
+        self.marker_pub.publish(arr)
 
     def publish_status(self):
         total = len(self.waypoints)

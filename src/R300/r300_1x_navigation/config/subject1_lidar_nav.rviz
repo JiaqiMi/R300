@@ -116,6 +116,11 @@ Visualization Manager:
       Color: 255; 25; 240
       Shaft Length: 0.8
       Head Length: 0.3
+    - Class: rviz/MarkerArray
+      Name: 航点(绿到蓝当前红跳过橙胡萝卜)
+      Enabled: true
+      Marker Topic: /subject1/waypoint_markers
+      Queue Size: 10
 Window Geometry:
   Width: 1500
   Height: 950
