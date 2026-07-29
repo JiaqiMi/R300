@@ -131,7 +131,7 @@
     <!-- 室内档参数覆盖(2026-07-29 审查P1-5/P0-3): 持久化, 不再依赖易失的 dynparam。
          窄环境膨胀收窄+衰减加快; 车速压到0.8(全链延迟0.8~1.5s下新障碍4m必撞账,
          室内空间小必须留裕)。声明在 include 之后, roslaunch 后声明覆盖先加载的 yaml。 -->
-    <param name="/move_base/local_costmap/inflation_layer/inflation_radius" value="0.50"/>
+    <param name="/move_base/local_costmap/inflation_layer/inflation_radius" value="0.45"/> <!-- 2026-07-29 0.50→0.45 按现场需求收窄; 硬下限0.35(内切)勿再降 -->
     <param name="/move_base/local_costmap/inflation_layer/cost_scaling_factor" value="3.0"/>
     <param name="/lidar_obstacle_scan_node/speed_limit_v_max" value="0.8"/>
     <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.15"/>

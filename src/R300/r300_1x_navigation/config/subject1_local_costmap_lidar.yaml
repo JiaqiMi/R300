@@ -61,6 +61,7 @@ local_costmap:
 
   inflation_layer:
     enabled: true
-    inflation_radius: 0.65
+    inflation_radius: 0.65  # 室外基准。硬下限=内切半径0.35(车半宽): 低于它连"必撞环"都画不全,
+                            # 细障碍会从footprint采样缝漏过(现场曾设0.25已纠正)。室内档在launch里覆盖为0.45
     cost_scaling_factor: 2.0  # 2026-07-29 3.0→2.0: 膨胀衰减放缓, 外圈软代价更高,
                               # DWA更不愿切入膨胀区(补偿致命标记天生偏小: 4cm格+侵蚀缩边)

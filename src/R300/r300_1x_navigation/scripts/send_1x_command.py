@@ -12,7 +12,7 @@ except ImportError:
 
 
 PORT = "/dev/ttyACM0"
-BAUDRATE = 460800
+BAUDRATE = 230400
 
 # 55 AA 55 AA 5A A5 5A A5 AA 00 00 00 00 00 00 00 00 : 启动发送
 CMD = bytes.fromhex(
