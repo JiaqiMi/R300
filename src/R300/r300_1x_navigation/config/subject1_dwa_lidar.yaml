@@ -72,11 +72,14 @@ DWAPlannerROS:
   forward_point_distance: 0.30  # 转向对准梯度的来源, 设0会让掉头决策犹豫(2026-07-29定稿)
 
   # 可以保留，但不能依靠它代替距离限速。
-  stop_time_buffer: 0.80
+  stop_time_buffer: 1.00  # 2026-07-30 0.8→1.0: 轨迹必须能在碰撞前 1s 停住(2m/s"来不及刹"配套)
 
-  # 不再从1.2m/s开始放大35%。
-  scaling_speed: 1.50
-  max_scaling_factor: 0.20
+  # 2026-07-30 启用"速度换胖身"(DWA内建, 之前几乎没启用): >1.0m/s 的轨迹用
+  # 放大的 footprint 做碰撞检查, 2.0m/s 时放大 50%(0.80×0.70→1.2×1.05)——
+  # 快轨迹在障碍附近先死、慢轨迹存活 → DWA 随距离自然降速。
+  # 这是 DWA 端唯一的"速度×距离"耦合, 与限速器(走廊物理账)双保险。
+  scaling_speed: 1.00
+  max_scaling_factor: 0.50
 
   # 选定一侧后，不要太快解除振荡方向约束。
   oscillation_reset_dist: 0.6
