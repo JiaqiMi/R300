@@ -45,7 +45,7 @@ local_costmap:
     # 新障碍簇与旧轨迹质心距离小于该值时，认为是同一个障碍。
     association_distance_m: 0.30
 
-    min_cluster_points: 1
+    min_cluster_points: 2   # 2026-07-29 1→2: 单格噪声不再成致命障碍(真沟在3~5m有11+束不受损)
 
     publish_active_scan: true
     active_scan_topic: /r300_lidar/active_obstacle_scan

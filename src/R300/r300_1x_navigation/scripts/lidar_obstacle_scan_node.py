@@ -92,6 +92,10 @@ class LidarObstacleScan:
         self.sensor_height = float(rospy.get_param('~sensor_height_above_ground', 0.48))
         self.neg_confirm = int(rospy.get_param('~neg_confirm', 3))
         self.pos_confirm = int(rospy.get_param('~pos_confirm', 2))
+        # 数据接缝伪障守卫：高程图数据前沿 3~4 格是"少点数不可靠带"（掠射单点建格），
+        # 会产生环状伪坡/伪正障碍（2026-07-29 实测：侵蚀3层伪坡-59%、伪正障碍-91%）。
+        # 障碍判定只在"边界侵蚀 N 层后的可靠区"内做，代价是障碍轮廓缩 N*4cm（核心保留）。
+        self.edge_erosion = int(rospy.get_param('~edge_erosion', 3))
         # ---- 虚拟扫描布局（对齐 vision_obstacle_layer_node 的输出契约）----
         fov_deg = float(rospy.get_param('~scan_fov_deg', 120.0))
         inc_deg = float(rospy.get_param('~scan_angle_increment_deg', 0.5))
@@ -254,9 +258,19 @@ class LidarObstacleScan:
         rng = (d2 < self.max_range ** 2) & (d2 > self.min_range ** 2)
         h = elev - ground
 
-        # 3) 三通道地形判定（v3 语义原样移植）
-        pos_mask = fin & (h > self.pos) & (h < self.max_h) & rng
-        neg_mask = fin & (h < -self.drop) & rng
+        # 可靠区 = 有效区做 N 层 3x3 侵蚀（见 edge_erosion 注释）；环带地面仍用全有效区（中位数抗噪）
+        rel = fin
+        if self.edge_erosion > 0:
+            rel = fin
+            for _ in range(self.edge_erosion):
+                p = np.pad(rel, 1, constant_values=False)
+                rel = (p[1:-1, 1:-1] & p[:-2, 1:-1] & p[2:, 1:-1]
+                       & p[1:-1, :-2] & p[1:-1, 2:]
+                       & p[:-2, :-2] & p[:-2, 2:] & p[2:, :-2] & p[2:, 2:])
+
+        # 3) 三通道地形判定（v3 语义 + 可靠区守卫）
+        pos_mask = rel & (h > self.pos) & (h < self.max_h) & rng
+        neg_mask = rel & (h < -self.drop) & rng
         k = 3  # 24cm 基线中心差分，抗单格噪声
         gx = np.full_like(elev, np.nan)
         gy = np.full_like(elev, np.nan)
@@ -264,7 +278,7 @@ class LidarObstacleScan:
         gy[:, k:-k] = (elev[:, 2 * k:] - elev[:, :-2 * k]) / (2 * k * res)
         slope = np.degrees(np.arctan(np.hypot(gx, gy)))
         neg_mask |= (np.isfinite(slope) & (slope > self.slope_deg)
-                     & fin & (np.abs(h) <= self.pos) & rng)
+                     & rel & (np.abs(h) <= self.pos) & rng)
 
         # 4) 世界格 N 帧去抖（v3 原样）
         def debounce(mask, hist, need):
@@ -335,7 +349,7 @@ class LidarObstacleScan:
             n_bins = max(1, int((self.max_range - self.cor_start) / self.cor_bin))
             bidx = np.clip(((fxa - self.cor_start) / self.cor_bin).astype(np.int32),
                            0, n_bins - 1)
-            ground_ok = fin & (h > -self.drop) & (h < self.pos)  # ±阈值内=已验证地面
+            ground_ok = rel & (h > -self.drop) & (h < self.pos)  # 可靠区内±阈值=已验证地面
             bad = neg_mask | pos_mask                            # 已去抖的障碍
             cnt_all = np.bincount(bidx[in_cor], minlength=n_bins)
             cnt_gnd = np.bincount(bidx[in_cor & ground_ok], minlength=n_bins)

@@ -21,8 +21,13 @@ ext_y: 0.0
 ext_yaw_deg: 0.0
 
 # ---- 地形判定（v3 语义）----
-drop_thresh: 0.4               # 负障碍：低于局部地面 15cm（坑/沟沿）
-pos_thresh: 0.2                 # 正障碍：高于局部地面 15cm
+drop_thresh: 0.25               # 负障碍阈值。2026-07-29 0.4→0.25: 现场调到0.4是被"数据接缝伪障"
+                                #  逼的(根源已由 edge_erosion 侵蚀守卫解决); 0.4 会漏掉恰好0.4m深的
+                                #  水坑, 0.25 保住水坑检测且草噪(<20cm)仍压得住
+pos_thresh: 0.2                 # 正障碍：高于局部地面 20cm(现场值)。若发烟罐实测<18cm, 可回 0.15
+                                #  (伪障根源已除, 侵蚀守卫兜底)
+edge_erosion: 3                 # 数据接缝伪障守卫: 障碍判定只在有效区侵蚀3层后的可靠区内做
+                                #  (2026-07-29 实测: 伪坡-59%/伪正障碍-91%, 障碍轮廓仅缩12cm)
 max_height: 4.5                  # 高于此值视为天花板/横梁，不算障碍
 slope_thresh_deg: 30.0           # 几何陡坡上限（24cm 基线中心差分）
 min_range: 0.60                  # 车体半对角 0.57m，避免把自车格当障碍
@@ -47,11 +52,10 @@ input_timeout_s: 2.0             # 高程图断流告警阈值（断流即停发
 # 地面上放开速度"。前方走廊切片统计有效地面 → 连续验证距离 D →
 # v = -a·t_r + sqrt((a·t_r)²+2a·(D-余量)), 经 dynamic_reconfigure 压 DWA。
 enable_ground_speed_limit: true  # 总开关: 计算 D 并发布 /r300_lidar/ground_speed_limit
-speed_limit_apply_to_dwa: true  # 执行开关: 写 /move_base/DWAPlannerROS 的 max_vel_x/max_vel_trans
-                                 # ★当前=影子模式(2026-07-28): 只发 /r300_lidar/ground_speed_limit 观测、
-                                 # 不干预 DWA——先单独验证感知提速(延迟~1s/探测7.5m)的避障效果,
-                                 # 车速此时由 subject1_dwa_lidar.yaml 的 max_vel_x/max_vel_trans 决定(现 1.5,
-                                 # 提速测试直接改那里); 影子数值合格后再把本开关置 true 接管
+speed_limit_apply_to_dwa: true   # 执行开关(2026-07-28 现场已打开接管): 写 /move_base/DWAPlannerROS 的
+                                 # max_vel_x/max_vel_trans。接管期间 dwa yaml 的 max_vel 只是初值,
+                                 # 真上限= speed_limit_v_max。要退回"纯观测影子模式"改 false
+                                 # (车速即回落 dwa yaml 静态值)
 speed_limit_v_max: 2.0           # 放开上限(2026-07-28 1.5→2.5)。开阔地自动跑满, 坑区/未验证地面自动降;
                                  # 限速接管后 dwa yaml 的 max_vel(1.5) 只是初值兼保底——
                                  # 关掉本功能即回落 1.5。GR3D/10Hz/水坑三关验收仍需在实车完成
