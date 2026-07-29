@@ -41,7 +41,6 @@
   观测值、不干预 DWA（实车首跑建议先观测一圈再打开执行）。
 """
 
-import collections
 import math
 
 import numpy as np
@@ -108,13 +107,9 @@ class LidarObstacleScan:
         self.fast_cloud_topic = rospy.get_param('~fast_cloud_topic', '/cloud_registered_body')
         self.fast_min_h = float(rospy.get_param('~fast_min_height', 0.30))
         self.fast_min_pts = int(rospy.get_param('~fast_min_points', 3))
-        self.fast_max_range = float(rospy.get_param('~fast_max_range', 10.0))
-        self.fast_cloud_timeout = float(rospy.get_param('~fast_cloud_timeout_s', 0.5))
-        # 2026-07-30 三帧累积: 单帧仅3400点, 8~10m处细障碍每帧只落1~2点过不了
-        # 密度门槛——累积近3帧(各帧按自己时刻的LIO位姿配准到世界系)密度×3,
-        # 远距细障碍可及; 运动补偿由逐帧TF完成, 2m/s下无拖影
-        self._fast_clouds = collections.deque(
-            maxlen=max(1, int(rospy.get_param('~fast_accum_frames', 3))))
+        self.fast_max_range = float(rospy.get_param('~fast_max_range', 9.0))
+        self.fast_cloud_timeout = float(rospy.get_param('~fast_cloud_timeout_s', 0.3))
+        self._fast_cloud = None
         # 数据接缝伪障守卫：高程图数据前沿 3~4 格是"少点数不可靠带"（掠射单点建格），
         # 会产生环状伪坡/伪正障碍（2026-07-29 实测：侵蚀3层伪坡-59%、伪正障碍-91%）。
         # 障碍判定只在"边界侵蚀 N 层后的可靠区"内做，代价是障碍轮廓缩 N*4cm（核心保留）。
@@ -321,7 +316,7 @@ class LidarObstacleScan:
         return False
 
     def _cloud_cb(self, msg):
-        self._fast_clouds.append(msg)  # deque(maxlen=N) 自动淘汰旧帧
+        self._fast_cloud = msg  # 单引用原子替换
 
     @staticmethod
     def _cloud_xyz(msg):
@@ -504,30 +499,16 @@ class LidarObstacleScan:
         # 5.5) 快反层: 单帧点云直通(仅正障碍), 与高程图束并联取最小值。
         # 密度门槛 fast_min_points(角度束×0.25m距离桶内≥N点)防雨尘/草尖单点噪声。
         fast_dbg = None
-        if self.fast_enable and self._fast_clouds:
-            pw_list = []
-            now_t = rospy.Time.now()
-            for cmsg in list(self._fast_clouds):
-                if (now_t - cmsg.header.stamp).to_sec() > self.fast_cloud_timeout:
-                    continue
+        if self.fast_enable and self._fast_cloud is not None:
+            cmsg = self._fast_cloud
+            if (rospy.Time.now() - cmsg.header.stamp).to_sec() <= self.fast_cloud_timeout:
                 pts = self._cloud_xyz(cmsg)
-                if pts is None or not len(pts):
-                    continue
-                try:  # 逐帧按自己时刻的 LIO 位姿配准(运动补偿), 缓存里已有不等待
-                    tc = self.buf.lookup_transform(
-                        self.lio_map_frame, self.lio_body_frame,
-                        cmsg.header.stamp, rospy.Duration(0.05))
-                except tf2_ros.TransformException:
-                    continue
-                Rc = self._quat_mat(tc.transform.rotation)
-                pc = pts @ Rc.T
-                pc[:, 0] += tc.transform.translation.x
-                pc[:, 1] += tc.transform.translation.y
-                pc[:, 2] += tc.transform.translation.z
-                pw_list.append(pc)
-            if pw_list:
-                pw = np.vstack(pw_list)
-                if True:  # 保持原缩进结构
+                if pts is not None and len(pts):
+                    R = self._quat_mat(t.transform.rotation)
+                    pw = pts @ R.T
+                    pw[:, 0] += t.transform.translation.x
+                    pw[:, 1] += t.transform.translation.y
+                    pw[:, 2] += t.transform.translation.z
                     hzp = pw[:, 2] - ground
                     sel = (hzp > self.fast_min_h) & (hzp < self.max_h)
                     if sel.any():
