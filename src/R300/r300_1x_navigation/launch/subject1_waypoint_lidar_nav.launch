@@ -190,7 +190,6 @@
     <!-- 2026-07-30 室内档到点容差1.5→0.3: 比赛容差1.5在rviz调试中造成"停在目标前
          1米多"被反复误读为卡死(实测三次"卡死"均为 Goal reached); 室外GPS航点不受影响 -->
     <param name="/move_base/DWAPlannerROS/xy_goal_tolerance" value="0.30"/> <!-- 2026-07-30 0.15→0.30: 实测0.15低于滑移底盘最低可动速度(指令在发/轮子不转,4秒4mm), 限速压底=瘫痪而非爬行 -->
-    <param name="/move_base/DWAPlannerROS/occdist_scale" value="0.15"/> <!-- 2026-07-30 室内保持0.15: dwa yaml 基准已提0.25(室外留距), 0.25在室内会拒进0.9m窄缝 -->
   </group>
 
   <!-- 2026-07-30 室外档: 全局代价地图同样切 mevius2 架构(滚动40m+雷达快照层+膨胀),
@@ -226,6 +225,6 @@
     <param name="/move_base/global_costmap/lidar_snapshot_layer/publish_active_scan" value="false"/>
     <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
     <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="1.3"/> <!-- 2026-07-30 1.0→1.3 与局部同步(2m/s制动包络) -->
-    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="1.5"/> <!-- 2026-07-30 2.0→1.5 与局部同步(贴障修正): 绿线也留距 -->
+    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="2.0"/>
   </group>
 </launch>
