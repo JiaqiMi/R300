@@ -166,6 +166,6 @@
     <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
     <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="0.45"/>
     <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="2.0"/>
-    <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.15"/>
+    <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.30"/> <!-- 2026-07-30 0.15→0.30: 实测0.15低于滑移底盘最低可动速度(指令在发/轮子不转,4秒4mm), 限速压底=瘫痪而非爬行 -->
   </group>
 </launch>
