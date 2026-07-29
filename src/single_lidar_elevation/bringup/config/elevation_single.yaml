@@ -22,6 +22,7 @@ subscribers:
 #     min_filter 是插件, 无发布请求即不计算——省 GPU 零代码改动）。
 publishers:
   elevation_map_raw:
-    layers: ['elevation']
+    layers: ['elevation', 'time']   # time=每格距上次真实观测的秒数(2026-07-29 加,
+                                    # 供避障适配器做"障碍记忆过期"根治行人残影幽灵)
     basic_layers: ['elevation']
     fps: 10.0

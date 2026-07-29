@@ -50,6 +50,8 @@ from grid_map_msgs.msg import GridMap
 from sensor_msgs.msg import LaserScan, PointCloud2, PointField
 import sensor_msgs.point_cloud2 as pcl2
 from std_msgs.msg import Float32, Header
+from geometry_msgs.msg import Twist
+from actionlib_msgs.msg import GoalStatusArray
 
 try:
     from dynamic_reconfigure.client import Client as DRClient
@@ -119,6 +121,15 @@ class LidarObstacleScan:
         self.cor_bin = max(0.1, float(rospy.get_param('~corridor_bin', 0.25)))
         self.cor_frac = float(rospy.get_param('~corridor_min_ground_frac', 0.3))
         self.cor_min_cells = int(rospy.get_param('~corridor_min_ground_cells', 8))
+        # ---- 幽灵污染根治两件套（2026-07-29 实测: 车周42%致命格为行人残影）----
+        # 记忆过期: 高程图 time 层=每格距上次真实观测的秒数, 超龄障碍不再进 scan。
+        # 真墙在视场内持续刷新不受影响; 转弯所需的秒级侧后记忆保留。
+        self.pos_memory_ttl = float(rospy.get_param('~pos_memory_ttl_s', 20.0))
+        self.neg_memory_ttl = float(rospy.get_param('~neg_memory_ttl_s', 60.0))
+        # 自动脱困: move_base 已放弃(ABORTED)+车头堵+车尾走廊经高程图验证干净+静止
+        # → 自动低速倒车 0.4m（DWA 在 footprint 陷入致命区后连倒车轨迹都会拒绝, 见死锁分析）
+        self.enable_auto_unstick = bool(rospy.get_param('~enable_auto_unstick', True))
+        self.unstick_cooldown = float(rospy.get_param('~unstick_cooldown_s', 15.0))
 
         self._neg_hist = {}
         self._pos_hist = {}
@@ -127,6 +138,12 @@ class LidarObstacleScan:
         self._dr_retry_after = 0.0
         self._last_sent_v = None
         self._last_hb = 0.0
+        self._last_abort = 0.0
+        self._last_unstick = 0.0
+        self._front_blocked = False
+        self._rear_free = False
+        self._pose_hist = []
+        self._time_layer_warned = False
         self.buf = tf2_ros.Buffer()
         tf2_ros.TransformListener(self.buf)
 
@@ -135,6 +152,8 @@ class LidarObstacleScan:
         self.pub_vlimit = rospy.Publisher('/r300_lidar/ground_speed_limit', Float32, queue_size=1)
         rospy.Subscriber(self.elevation_topic, GridMap, self.cb, queue_size=1,
                          buff_size=64 * 1024 * 1024)
+        self.pub_cmd = rospy.Publisher('/subject1/cmd_vel_raw', Twist, queue_size=1)
+        rospy.Subscriber('/move_base/status', GoalStatusArray, self._mb_status_cb, queue_size=2)
         rospy.Timer(rospy.Duration(1.0), self._watchdog)
         rospy.loginfo(
             'lidar_obstacle_scan: %s -> %s | 负<-%.2f 正>+%.2f 坡>%.0f° | 视场±%.0f° 量程%.1fm | '
@@ -148,6 +167,26 @@ class LidarObstacleScan:
             rospy.logwarn_throttle(
                 5.0, 'lidar_obstacle_scan: 高程图输入超时 %.1fs，已停发 scan（下游 TTL 会在 3s 内清空障碍）', age)
             self._fail_safe_slow('高程图断流')
+            return
+        # —— 自动脱困反射: move_base 已放弃(4s内) + 冷却期外 + 车头堵 + 车尾走廊
+        # 经高程图验证干净 + 静止。ABORTED 后 move_base 不再发 cmd_vel, 无话题争抢。
+        now = rospy.get_time()
+        if (self.enable_auto_unstick
+                and now - self._last_abort < 4.0
+                and now - self._last_unstick > self.unstick_cooldown
+                and self._front_blocked and self._rear_free and self._stationary()):
+            rospy.logwarn('lidar_obstacle_scan: 【自动脱困】DWA已放弃且车头受困, '
+                          '车尾1.3m走廊已验证干净 → 低速倒车0.4m')
+            self._last_unstick = now
+            tw = Twist()
+            tw.linear.x = -0.15
+            for _ in range(25):
+                if rospy.is_shutdown():
+                    break
+                self.pub_cmd.publish(tw)
+                rospy.sleep(0.1)
+            self.pub_cmd.publish(Twist())
+            rospy.logwarn('lidar_obstacle_scan: 【自动脱困】完成, 请重新下发目标')
 
     def _fail_safe_slow(self, reason):
         """感知不可信时把限速压到下限（地面无法验证 = 不允许快跑）。"""
@@ -188,6 +227,21 @@ class LidarObstacleScan:
             self._dr_client = None
             self._dr_retry_after = now + 5.0
             rospy.logwarn_throttle(10.0, 'lidar_obstacle_scan: 下发限速失败(%s)，重连中', exc)
+
+    def _mb_status_cb(self, msg):
+        for st in msg.status_list:
+            if st.status == 4:  # ABORTED = move_base 已放弃且不再发 cmd_vel
+                self._last_abort = rospy.get_time()
+
+    def _stationary(self):
+        """近 1.2 秒位移 < 5cm 视为静止（脱困前置条件, 防与运动中的 DWA 抢话题）"""
+        if len(self._pose_hist) < 2:
+            return False
+        tn, xn, yn = self._pose_hist[-1]
+        for t0, x0, y0 in self._pose_hist:
+            if tn - t0 >= 1.2:
+                return math.hypot(xn - x0, yn - y0) < 0.05
+        return False
 
     @staticmethod
     def _layer_matrix(msg, name):
@@ -280,6 +334,18 @@ class LidarObstacleScan:
         neg_mask |= (np.isfinite(slope) & (slope > self.slope_deg)
                      & rel & (np.abs(h) <= self.pos) & rng)
 
+        # 3.5) 障碍记忆过期（幽灵污染根治）: 调试/作业时人员走动的残影会被高程图
+        # 永久记住并经 360° scan 永续喂给 costmap（实测 42% 车周致命格为幽灵,
+        # 且每 ~30 分钟复发一次把车"软件围死"）。按 time 层给记忆设寿命。
+        tlay = self._layer_matrix(m, 'time')
+        if tlay is not None:
+            pos_mask &= (tlay <= self.pos_memory_ttl)
+            neg_mask &= (tlay <= self.neg_memory_ttl)
+        elif not self._time_layer_warned:
+            self._time_layer_warned = True
+            rospy.logwarn('lidar_obstacle_scan: 高程图未发布 time 层, 障碍记忆过期未生效'
+                          '(请在 elevation_single.yaml publishers.layers 加 time)')
+
         # 4) 世界格 N 帧去抖（v3 原样）
         def debounce(mask, hist, need):
             keys = set(zip((X[mask] / res).astype(np.int32).tolist(),
@@ -369,6 +435,17 @@ class LidarObstacleScan:
             self._send_dwa_limit(v)
             rospy.loginfo_throttle(
                 5.0, 'lidar_obstacle_scan: 验证地面 D=%.2fm → 限速 %.2fm/s', D, v)
+            # —— 自动脱困素材（1Hz watchdog 消费）——
+            self._front_blocked = D < 1.2
+            in_rear = (np.abs(fya) <= self.cor_half_w) & (fxa <= -0.42) & (fxa >= -1.7)
+            n_r = int(in_rear.sum())
+            self._rear_free = bool(
+                n_r > 40
+                and int((in_rear & bad).sum()) == 0
+                and int((in_rear & ground_ok).sum()) >= max(20, 0.3 * n_r))
+            tnow = rospy.get_time()
+            self._pose_hist.append((tnow, bx, by))
+            self._pose_hist = [p for p in self._pose_hist if tnow - p[0] < 3.0]
 
         if self.publish_debug_cloud:
             c, s = math.cos(-heading), math.sin(-heading)
