@@ -125,6 +125,11 @@ class LidarObstacleScan:
         # 记忆过期: 高程图 time 层=每格距上次真实观测的秒数, 超龄障碍不再进 scan。
         # 真墙在视场内持续刷新不受影响; 转弯所需的秒级侧后记忆保留。
         self.pos_memory_ttl = float(rospy.get_param('~pos_memory_ttl_s', 20.0))
+        # 2026-07-30 分段记忆(审查): 近车环带(min_range~near_ring_m)结构性无法被再次
+        # 观测(前向最近真实回波~0.94m), 障碍前静止>TTL 会"过期蒸发→起步撞", 给长记忆;
+        # 环带外保持短 TTL 防行人残影幽灵(20s 是室内实测调定的值, 勿整体放大)。
+        self.pos_memory_ttl_near = float(rospy.get_param('~pos_memory_ttl_near_s', 60.0))
+        self.near_ring = float(rospy.get_param('~near_ring_m', 1.2))
         self.neg_memory_ttl = float(rospy.get_param('~neg_memory_ttl_s', 60.0))
         # 自动脱困: move_base 已放弃(ABORTED)+车头堵+车尾走廊经高程图验证干净+静止
         # → 自动低速倒车 0.4m（DWA 在 footprint 陷入致命区后连倒车轨迹都会拒绝, 见死锁分析）
@@ -142,7 +147,7 @@ class LidarObstacleScan:
         self._last_unstick = 0.0
         self._abort_goal_id = None
         self._handled_goal_id = None
-        self._front_blocked = False
+        self._mb_active = False
         self._rear_free = False
         self._pose_hist = []
         self._time_layer_warned = False
@@ -176,25 +181,49 @@ class LidarObstacleScan:
         # 2026-07-30 修盲区: 原条件含"车头堵(D<1.2)", 但角卡(footprint角压致命格)时
         # 前方开阔照样全轨迹违规——move_base放弃+静止本身就是被困充分证据。
         # 改按目标ID边沿触发: 每个被放弃的目标只自救一次, 防止陈旧ABORTED状态无限重试。
+        # 2026-07-30 审查修订三守卫: ①每个被放弃的目标只救一次(成败都标 handled)——
+        # "失败即重试"无法区分急停与"车尾被顶住"(尾后0.45~0.6m环带在 min_range 盲区内,
+        # 细障碍不可见), 重试=以0.25反复撞击; ②要求当前无 ACTIVE 目标, 防倒车插进
+        # 下一目标的原地对位期与 DWA 抢 cmd_vel_raw(原地旋转也判"静止"); ③要求位姿流
+        # 新鲜(<1s), 防 TF 异常期间拿冻结的"静止+车尾净"素材盲发倒车。
         if (self.enable_auto_unstick
                 and self._abort_goal_id is not None
                 and self._abort_goal_id != self._handled_goal_id
+                and not self._mb_active
                 and now - self._last_abort < 30.0
                 and now - self._last_unstick > self.unstick_cooldown
+                and self._pose_hist and now - self._pose_hist[-1][0] < 1.0
                 and self._rear_free and self._stationary()):
-            self._handled_goal_id = self._abort_goal_id
+            goal_id = self._abort_goal_id
+            self._handled_goal_id = goal_id
+            start = self._pose_hist[-1]
             rospy.logwarn('lidar_obstacle_scan: 【自动脱困】DWA已放弃(角卡/围困), '
-                          '车尾1.3m走廊已验证干净 → 低速倒车0.4m')
+                          '车尾1.3m走廊已验证干净 → 倒车0.4m')
             self._last_unstick = now
             tw = Twist()
-            tw.linear.x = -0.15
-            for _ in range(25):
+            # 2026-07-30 -0.15→-0.25: 实测底盘死区≈0.2m/s, -0.15 属"指令在发轮子不转",
+            # 唯一自救路径空转。16 拍×0.1s×0.25=0.4m(固件坡道下实际约 0.2~0.35m)。
+            tw.linear.x = -0.25
+            for _ in range(16):
                 if rospy.is_shutdown():
                     break
                 self.pub_cmd.publish(tw)
                 rospy.sleep(0.1)
             self.pub_cmd.publish(Twist())
-            rospy.logwarn('lidar_obstacle_scan: 【自动脱困】完成, 请重新下发目标')
+            rospy.sleep(0.3)  # 等 cb 线程刷入倒车后的位姿
+            # 位移复核(仅用于告警, 不重试): 终点位姿必须比倒车开始时刻新才可信
+            end = self._pose_hist[-1] if self._pose_hist else None
+            if end is not None and end[0] > start[0] + 0.5:
+                moved = math.hypot(end[1] - start[1], end[2] - start[2])
+                if moved >= 0.10:
+                    rospy.logwarn('lidar_obstacle_scan: 【自动脱困】完成(实际倒车 %.2fm), '
+                                  '请重新下发目标', moved)
+                else:
+                    rospy.logerr('lidar_obstacle_scan: 【自动脱困】指令已发但位移仅 %.2fm'
+                                 '——疑似急停/被顶住/底盘未使能, 本目标不再自动重试, 请人工处理',
+                                 moved)
+            else:
+                rospy.logwarn('lidar_obstacle_scan: 【自动脱困】已执行, 但位姿流中断无法复核位移, 请人工确认')
 
     def _fail_safe_slow(self, reason):
         """感知不可信时把限速压到下限（地面无法验证 = 不允许快跑）。"""
@@ -237,10 +266,14 @@ class LidarObstacleScan:
             rospy.logwarn_throttle(10.0, 'lidar_obstacle_scan: 下发限速失败(%s)，重连中', exc)
 
     def _mb_status_cb(self, msg):
+        active = False
         for st in msg.status_list:
+            if st.status in (0, 1):  # PENDING/ACTIVE = 正在执行新目标, 禁止脱困插话
+                active = True
             if st.status == 4:  # ABORTED = move_base 已放弃且不再发 cmd_vel
                 self._last_abort = rospy.get_time()
                 self._abort_goal_id = st.goal_id.id  # 边沿触发: 每个放弃的目标只救一次
+        self._mb_active = active
 
     def _stationary(self):
         """近 1.2 秒位移 < 5cm 视为静止（脱困前置条件, 防与运动中的 DWA 抢话题）"""
@@ -285,6 +318,16 @@ class LidarObstacleScan:
             rospy.logwarn_throttle(5.0, 'lidar_obstacle_scan: TF %s->%s 不可用: %s',
                                    self.lio_map_frame, self.lio_body_frame, exc)
             self._fail_safe_slow('FAST-LIO TF 不可用')
+            return
+        # 2026-07-30 审查P0配套: scan 现以 TF 时刻打戳, 而 lookup(Time(0)) 只要缓存里有
+        # 任意旧数据就"成功"不抛异常——TF 陈旧时若照发 scan, 下游快照层会按消息龄(>1.0s)
+        # 静默丢帧, TTL 3s 后代价地图整层清空=盲驶。这里显式卡 TF 龄: 陈旧即按感知失效
+        # 处理(停发 scan → 快照层 stop_on_stale 1s 后令 move_base 停车, 与"TF 不可用"
+        # 走同一条失效保护链)。
+        tf_age = (rospy.Time.now() - t.header.stamp).to_sec()
+        if tf_age > 0.35:
+            rospy.logwarn_throttle(2.0, 'lidar_obstacle_scan: FAST-LIO TF 陈旧 %.2fs, 停发 scan', tf_age)
+            self._fail_safe_slow('FAST-LIO TF 陈旧')
             return
         q = t.transform.rotation
         yaw_body = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -348,7 +391,9 @@ class LidarObstacleScan:
         # 且每 ~30 分钟复发一次把车"软件围死"）。按 time 层给记忆设寿命。
         tlay = self._layer_matrix(m, 'time')
         if tlay is not None:
-            pos_mask &= (tlay <= self.pos_memory_ttl)
+            pos_ttl = np.where(d2 < self.near_ring ** 2,
+                               self.pos_memory_ttl_near, self.pos_memory_ttl)
+            pos_mask &= (tlay <= pos_ttl)
             neg_mask &= (tlay <= self.neg_memory_ttl)
         elif not self._time_layer_warned:
             self._time_layer_warned = True
@@ -398,7 +443,15 @@ class LidarObstacleScan:
                    (r >= self.range_min) & (r <= self.range_max)
             np.minimum.at(ranges, idx[keep], r[keep].astype(np.float32))
 
-        stamp = rospy.Time.now()
+        # 2026-07-30 旋转判撞修复: stamp 必须=位姿采样时刻(回调入口 TF 的时间), 不能用 now()。
+        # 此前 now() 比 TF 采样晚 0.1~0.2s(numpy 处理耗时+消息龄), 下游快照层按 stamp 查
+        # 1X 树 TF 把点反变换回世界系——旋转 0.75rad/s 时两次采样差=4~9° 切向错位
+        # (2m 处 15~30cm), 每帧方向随机、又被 hold_time 3s 锁存成致命弧, 恰好填进
+        # 0.36~0.52m 的旋转扫掠环 = "现实能转/软件判撞"的主因。改用 TF 时刻后快照层
+        # 查的是同一时刻的位姿; 且查过去时刻的 TF 缓存里已有, 不再需要等 1X TF 追上 now。
+        stamp = t.header.stamp
+        if stamp.is_zero():
+            stamp = rospy.Time.now()
         scan = LaserScan()
         scan.header = Header(stamp=stamp, frame_id=self.output_frame)
         scan.angle_min = self.angle_min
@@ -412,20 +465,34 @@ class LidarObstacleScan:
         scan.intensities = []
         self.pub_scan.publish(scan)
 
+        # ---- 走廊系底料（限速与脱困共用）----
+        # 2026-07-30 与限速开关解耦: 此前 _rear_free/_pose_hist 只在限速分支内更新,
+        # 关掉 enable_ground_speed_limit 会让自动脱困静默失效(永远判非静止)。
+        csl, ssl = math.cos(-heading), math.sin(-heading)
+        fxa = csl * (X - bx) - ssl * (Y - by)
+        fya = ssl * (X - bx) + csl * (Y - by)
+        ground_ok = rel & (h > -self.drop) & (h < self.pos)  # 可靠区内±阈值=已验证地面
+        bad = neg_mask | pos_mask                            # 已去抖的障碍
+        # —— 自动脱困素材（1Hz watchdog 消费）——
+        in_rear = (np.abs(fya) <= self.cor_half_w) & (fxa <= -0.42) & (fxa >= -1.7)
+        n_r = int(in_rear.sum())
+        self._rear_free = bool(
+            n_r > 40
+            and int((in_rear & bad).sum()) == 0
+            and int((in_rear & ground_ok).sum()) >= max(20, 0.3 * n_r))
+        tnow = rospy.get_time()
+        self._pose_hist.append((tnow, bx, by))
+        self._pose_hist = [p for p in self._pose_hist if tnow - p[0] < 3.0]
+
         # ---- 第三招：地面确认限速（不要开得比验证过的地面更快）----
         # 车前走廊按纵向切片，逐片要求"有效地面格达标且无障碍"，得到连续验证
         # 距离 D；负障碍/陡坡/正障碍/无数据空洞任何一种都会截断 D。
         if self.enable_speed_limit:
-            csl, ssl = math.cos(-heading), math.sin(-heading)
-            fxa = csl * (X - bx) - ssl * (Y - by)
-            fya = ssl * (X - bx) + csl * (Y - by)
             in_cor = (np.abs(fya) <= self.cor_half_w) & \
                      (fxa >= self.cor_start) & (fxa <= self.max_range)
             n_bins = max(1, int((self.max_range - self.cor_start) / self.cor_bin))
             bidx = np.clip(((fxa - self.cor_start) / self.cor_bin).astype(np.int32),
                            0, n_bins - 1)
-            ground_ok = rel & (h > -self.drop) & (h < self.pos)  # 可靠区内±阈值=已验证地面
-            bad = neg_mask | pos_mask                            # 已去抖的障碍
             cnt_all = np.bincount(bidx[in_cor], minlength=n_bins)
             cnt_gnd = np.bincount(bidx[in_cor & ground_ok], minlength=n_bins)
             cnt_bad = np.bincount(bidx[in_cor & bad], minlength=n_bins)
@@ -444,17 +511,6 @@ class LidarObstacleScan:
             self._send_dwa_limit(v)
             rospy.loginfo_throttle(
                 5.0, 'lidar_obstacle_scan: 验证地面 D=%.2fm → 限速 %.2fm/s', D, v)
-            # —— 自动脱困素材（1Hz watchdog 消费）——
-            self._front_blocked = D < 1.2
-            in_rear = (np.abs(fya) <= self.cor_half_w) & (fxa <= -0.42) & (fxa >= -1.7)
-            n_r = int(in_rear.sum())
-            self._rear_free = bool(
-                n_r > 40
-                and int((in_rear & bad).sum()) == 0
-                and int((in_rear & ground_ok).sum()) >= max(20, 0.3 * n_r))
-            tnow = rospy.get_time()
-            self._pose_hist.append((tnow, bx, by))
-            self._pose_hist = [p for p in self._pose_hist if tnow - p[0] < 3.0]
 
         if self.publish_debug_cloud:
             c, s = math.cos(-heading), math.sin(-heading)

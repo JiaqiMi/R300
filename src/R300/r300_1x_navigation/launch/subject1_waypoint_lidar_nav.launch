@@ -138,6 +138,17 @@
     <param name="/move_base/local_costmap/inflation_layer/inflation_radius" value="0.45"/> <!-- 2026-07-29定稿: 通道由内切0.35(=车半宽)决定, 膨胀0.45不堵道只加预警梯度, 防"贴边停车->冻结" -->
     <param name="/move_base/local_costmap/inflation_layer/cost_scaling_factor" value="3.0"/>
     <param name="/lidar_obstacle_scan_node/speed_limit_v_max" value="0.8"/>
+    <!-- 2026-07-30 室内档补齐(全参数四代理审查):
+         DWA静态上限: dynamic_reconfigure 连上并首次下发前(move_base 起动后数秒,
+           失败还有 5s 退避), DWA 上限是 yaml 静态值 1.5——室内窄环境的启动窗口, 必须压死;
+         margin: yaml 的 1.45 是室外含全链延迟的账, 室内 0.8m/s 下需 D≥2.17m 才提速
+           =窄室内永远 0.3 爬行, 回归制动方程推导值 0.75。
+         (pos_ttl 不再整体放大: "静止>20s 障碍蒸发"已由节点内近环分段记忆解决——
+          pos_memory_ttl_near_s=60 只作用于 0.6~1.2m 无法再观测的环带, 其余保持 20s
+          防行人残影; 整体 60s 会把室内幽灵存活期放大 3 倍, 见审查记录) -->
+    <param name="/move_base/DWAPlannerROS/max_vel_x" value="0.8"/>
+    <param name="/move_base/DWAPlannerROS/max_vel_trans" value="0.8"/>
+    <param name="/lidar_obstacle_scan_node/speed_limit_margin" value="0.75"/>
 
     <!-- 2026-07-29 室内档: 全局代价地图从"2km空白图(绿线穿障直线)"改为 mevius2 架构——
          20m滚动窗+雷达快照层+膨胀, 让全局规划消费全部7.5m感知, 绿线绕障碍走,
@@ -158,14 +169,14 @@
     <param name="/move_base/global_costmap/lidar_snapshot_layer/enabled" value="true"/>
     <param name="/move_base/global_costmap/lidar_snapshot_layer/topic" value="/r300_lidar/obstacle_scan"/>
     <param name="/move_base/global_costmap/lidar_snapshot_layer/hold_time_s" value="3.0"/>
-    <param name="/move_base/global_costmap/lidar_snapshot_layer/max_message_age_s" value="0.5"/>
-    <param name="/move_base/global_costmap/lidar_snapshot_layer/min_cluster_points" value="2"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/max_message_age_s" value="1.0"/> <!-- 2026-07-30 0.5→1.0 同局部层: scan 以位姿采样时刻打戳后名义消息龄0.15~0.5s, 新鲜度把关在适配节点 -->
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/min_cluster_points" value="1"/> <!-- 2026-07-30 2→1 与局部层一致(P0): 细障碍(钢筋/标桩)dedup后仅剩1点, =2时整簇被丢, 全局绿线直穿细障碍→跟线-否决振荡 -->
     <param name="/move_base/global_costmap/lidar_snapshot_layer/cluster_tolerance_m" value="0.45"/>
     <param name="/move_base/global_costmap/lidar_snapshot_layer/association_distance_m" value="0.50"/>
     <param name="/move_base/global_costmap/lidar_snapshot_layer/publish_active_scan" value="false"/>
     <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
     <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="0.45"/>
-    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="2.0"/>
+    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="3.0"/> <!-- 2026-07-30 2.0→3.0 与室内局部层统一: 两层对同一障碍贴近意愿不同会造成"跟线-离线"拉扯 -->
     <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.30"/>
     <!-- 2026-07-30 室内档到点容差1.5→0.3: 比赛容差1.5在rviz调试中造成"停在目标前
          1米多"被反复误读为卡死(实测三次"卡死"均为 Goal reached); 室外GPS航点不受影响 -->

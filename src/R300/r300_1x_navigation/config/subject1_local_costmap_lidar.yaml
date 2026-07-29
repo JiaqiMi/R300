@@ -36,7 +36,10 @@ local_costmap:
     stop_on_stale: true          # 适配节点整个挂死时: scan断流1s→current_=false→move_base停车,
                                  # 否则TTL 3s后障碍全清+车按最后限速2.0盲开(审计发现的真隐患)
 
-    max_message_age_s: 0.5
+    max_message_age_s: 1.0   # 2026-07-30 0.5→1.0(审查P0): scan 改以位姿采样时刻打戳后,
+                             #  名义消息龄=TF龄+numpy处理≈0.15~0.5s, 0.5 会在正常工况
+                             #  间歇静默丢帧。新鲜度把关已前移到适配节点(TF龄>0.35s 即
+                             #  停发+限速); TTL/hold 记账用接收时刻, 放宽不影响 3s 保持语义
     transform_timeout_s: 0.10
 
     min_range_m: 0.20

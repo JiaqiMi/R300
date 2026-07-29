@@ -65,8 +65,10 @@ def tick(_):
     # (~10Hz)时进行。旧实现按 50Hz 定时器差分——4/5 个 tick 得 0、1/5 得 5 倍真速,
     # 低通后速度估计在 0.35~2 倍真值间振荡, DWA 加速度采样窗被垃圾锚点带偏,
     # 是室内 "failed to produce path"×45 与掉头爬行的头号放大器。
+    new_sample = False
     if state['t'] is None:
         state.update(t=tf_stamp, x=x, y=y, yaw=yaw)
+        new_sample = True
     elif tf_stamp > state['t'] + 1e-6:
         dt = tf_stamp - state['t']
         dyaw = (yaw - state['yaw'] + math.pi) % (2 * math.pi) - math.pi
@@ -75,6 +77,7 @@ def tick(_):
         state['v'] += ALPHA * (vx - state['v'])
         state['w'] += ALPHA * (w - state['w'])
         state.update(t=tf_stamp, x=x, y=y, yaw=yaw)
+        new_sample = True
 
     tfm = TransformStamped()
     tfm.header.stamp = now
@@ -86,6 +89,17 @@ def tick(_):
     tfm.transform.rotation.z = math.sin(yaw / 2)
     tfm.transform.rotation.w = math.cos(yaw / 2)
     br.sendTransform(tfm)
+    # 2026-07-30 旋转判撞修复配套: 障碍 scan 现以 FAST-LIO TF 时刻打戳, 快照层按该
+    # 过去时刻查本桥的 odom->base_link。FAST-LIO 每出一个新样本(~10Hz)就补发一帧
+    # "精确采样时刻"的 TF, 使该查询命中真实样本——只有 50Hz now 时戳帧(阶梯保持位姿)
+    # 时, 插值会残留 0~100ms 切向错位。now 帧保留(move_base 按当前时刻查询依赖它)。
+    if new_sample:
+        tfe = TransformStamped()
+        tfe.header.stamp = tr_full.header.stamp
+        tfe.header.frame_id = lio_map
+        tfe.child_frame_id = out_frame
+        tfe.transform = tfm.transform
+        br.sendTransform(tfe)
 
     od = Odometry()
     od.header.stamp = now
