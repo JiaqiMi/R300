@@ -53,6 +53,13 @@ Visualization Manager:
       Height Transformer: Layer
       Show Grid Lines: false
     - Class: rviz/Map
+      Name: 全局代价地图
+      Enabled: true
+      Topic: /move_base/global_costmap/costmap
+      Color Scheme: costmap
+      Alpha: 0.35
+      Draw Behind: true
+    - Class: rviz/Map
       Name: 局部代价地图
       Enabled: true
       Topic: /move_base/local_costmap/costmap

@@ -138,6 +138,34 @@
     <param name="/move_base/local_costmap/inflation_layer/inflation_radius" value="0.45"/> <!-- 2026-07-29定稿: 通道由内切0.35(=车半宽)决定, 膨胀0.45不堵道只加预警梯度, 防"贴边停车->冻结" -->
     <param name="/move_base/local_costmap/inflation_layer/cost_scaling_factor" value="3.0"/>
     <param name="/lidar_obstacle_scan_node/speed_limit_v_max" value="0.8"/>
+
+    <!-- 2026-07-29 室内档: 全局代价地图从"2km空白图(绿线穿障直线)"改为 mevius2 架构——
+         20m滚动窗+雷达快照层+膨胀, 让全局规划消费全部7.5m感知, 绿线绕障碍走,
+         DWA只需跟线(根治"感知被浪费在路线层"/绕障挣扎)。室外GPS航点可能>20m,
+         滚动窗会让远目标出图, 故仅室内档启用 -->
+    <rosparam param="/move_base/global_costmap/plugins">
+      - {name: lidar_snapshot_layer, type: "r300_1x_navigation/VisionSnapshotLayer"}
+      - {name: inflation_layer, type: "costmap_2d::InflationLayer"}
+    </rosparam>
+    <param name="/move_base/global_costmap/static_map" value="false"/>
+    <param name="/move_base/global_costmap/rolling_window" value="true"/>
+    <param name="/move_base/global_costmap/width" value="20.0"/>
+    <param name="/move_base/global_costmap/height" value="20.0"/>
+    <param name="/move_base/global_costmap/resolution" value="0.1"/>
+    <param name="/move_base/global_costmap/global_frame" value="odom"/>
+    <param name="/move_base/global_costmap/update_frequency" value="2.0"/>
+    <param name="/move_base/global_costmap/publish_frequency" value="1.0"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/enabled" value="true"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/topic" value="/r300_lidar/obstacle_scan"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/hold_time_s" value="3.0"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/max_message_age_s" value="0.5"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/min_cluster_points" value="2"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/cluster_tolerance_m" value="0.45"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/association_distance_m" value="0.50"/>
+    <param name="/move_base/global_costmap/lidar_snapshot_layer/publish_active_scan" value="false"/>
+    <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
+    <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="0.45"/>
+    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="2.0"/>
     <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.15"/>
   </group>
 </launch>
