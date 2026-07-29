@@ -12,7 +12,7 @@
     owns that transform, avoiding duplicate TF publishers.
   -->
   <arg name="serial_port" default="/dev/ttyACM0"/>
-  <arg name="baudrate" default="460800"/>
+  <arg name="baudrate" default="230400"/> <!-- 2026-07-29 修正: 1X 实际输出 230400, 460800 裸roslaunch会零数据(start_1x.sh一直是230400) -->
   <arg name="publish_full_attitude" default="false"/>
   <arg name="origin_mode" default="deferred"/>
   <arg name="origin_set_max_age_s" default="0.50"/>

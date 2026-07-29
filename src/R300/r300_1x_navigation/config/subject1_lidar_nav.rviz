@@ -30,7 +30,7 @@ Visualization Manager:
     Saved: ~
   Displays:
     - Class: rviz/Grid
-      Name: Grid
+      Name: 米制网格(1m)
       Enabled: true
       Cell Size: 1
       Plane Cell Count: 30
@@ -39,7 +39,7 @@ Visualization Manager:
       Name: TF
       Enabled: false
     - Class: grid_map_rviz_plugin/GridMap
-      Name: ElevationMap
+      Name: 高程图
       Enabled: true
       Topic: /elevation_mapping/elevation_map_raw
       Layer: elevation
@@ -53,28 +53,28 @@ Visualization Manager:
       Height Transformer: Layer
       Show Grid Lines: false
     - Class: rviz/Map
-      Name: LocalCostmap
+      Name: 局部代价地图
       Enabled: true
       Topic: /move_base/local_costmap/costmap
       Color Scheme: costmap
       Alpha: 0.5
       Draw Behind: false
     - Class: rviz/Path
-      Name: GlobalPlan(Navfn)
+      Name: 全局路径·绿
       Enabled: true
       Topic: /move_base/NavfnROS/plan
       Color: 25; 255; 50
       Line Style: Billboards
       Line Width: 0.06
     - Class: rviz/Path
-      Name: LocalPlan(DWA)
+      Name: DWA局部路径·青
       Enabled: true
       Topic: /move_base/DWAPlannerROS/local_plan
       Color: 0; 220; 255
       Line Style: Billboards
       Line Width: 0.08
     - Class: rviz/LaserScan
-      Name: LidarObstacleScan(当前帧)
+      Name: 雷达障碍·当前帧·红
       Enabled: true
       Topic: /r300_lidar/obstacle_scan
       Color: 255; 40; 40
@@ -82,7 +82,7 @@ Visualization Manager:
       Style: Spheres
       Size (m): 0.12
     - Class: rviz/LaserScan
-      Name: ActiveScan(TTL保持)
+      Name: 雷达障碍·TTL保持·黄
       Enabled: true
       Topic: /r300_lidar/active_obstacle_scan
       Color: 255; 220; 0
@@ -90,7 +90,7 @@ Visualization Manager:
       Style: Spheres
       Size (m): 0.09
     - Class: rviz/PointCloud2
-      Name: TerrainDebug(正负障碍)
+      Name: 地形障碍调试云·橙
       Enabled: true
       Topic: /r300_lidar/obstacle_points
       Color: 255; 140; 0
@@ -98,12 +98,12 @@ Visualization Manager:
       Style: Spheres
       Size (m): 0.07
     - Class: rviz/Polygon
-      Name: Footprint
+      Name: 车体轮廓
       Enabled: true
       Topic: /move_base/local_costmap/footprint
       Color: 200; 0; 255
     - Class: rviz/Pose
-      Name: CurrentGoal
+      Name: 当前导航目标
       Enabled: true
       Topic: /move_base/current_goal
       Color: 255; 25; 240
