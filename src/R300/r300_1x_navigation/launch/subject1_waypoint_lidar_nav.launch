@@ -22,6 +22,12 @@
          杜绝"静默假定位"(室外正常流程不受影响, 3 秒通过)。 -->
   <arg name="indoor_test_mode" default="false"/>
   <arg name="require_1x_alignment" default="true"/>
+  <!-- 2026-07-30 现场开关: 地面确认限速的执行开关。false=纯观测影子模式——
+       限速器照算 D 并发布 /r300_lidar/ground_speed_limit, 但不压 DWA,
+       车速回落 dwa yaml 静态上限(室外1.5/室内被室内档压0.8)。
+       注意: false 时接近负障碍/未验证地面【不会】减速, 只有已标记的障碍
+       会被 DWA 绕行/拦停; 感知断流的兜底停车链(stop_on_stale)不受影响 -->
+  <arg name="speed_limit_apply_to_dwa" default="true"/>
 
   <arg name="lidar_config_file"
        default="$(find r300_1x_navigation)/config/subject1_lidar_obstacles.yaml"/>
@@ -97,6 +103,9 @@
     <arg name="lio_map_frame" value="$(arg lio_map_frame)"/>
     <arg name="lio_body_frame" value="$(arg lio_body_frame)"/>
   </include>
+  <!-- 声明在 include 之后覆盖 yaml 值(与室内档同机制) -->
+  <param name="/lidar_obstacle_scan_node/speed_limit_apply_to_dwa"
+         value="$(arg speed_limit_apply_to_dwa)"/>
 
   <group if="$(arg sign_guidance_enabled)">
     <node pkg="r300_1x_navigation"
