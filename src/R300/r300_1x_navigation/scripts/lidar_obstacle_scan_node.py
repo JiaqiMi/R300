@@ -140,6 +140,8 @@ class LidarObstacleScan:
         self._last_hb = 0.0
         self._last_abort = 0.0
         self._last_unstick = 0.0
+        self._abort_goal_id = None
+        self._handled_goal_id = None
         self._front_blocked = False
         self._rear_free = False
         self._pose_hist = []
@@ -171,11 +173,17 @@ class LidarObstacleScan:
         # —— 自动脱困反射: move_base 已放弃(4s内) + 冷却期外 + 车头堵 + 车尾走廊
         # 经高程图验证干净 + 静止。ABORTED 后 move_base 不再发 cmd_vel, 无话题争抢。
         now = rospy.get_time()
+        # 2026-07-30 修盲区: 原条件含"车头堵(D<1.2)", 但角卡(footprint角压致命格)时
+        # 前方开阔照样全轨迹违规——move_base放弃+静止本身就是被困充分证据。
+        # 改按目标ID边沿触发: 每个被放弃的目标只自救一次, 防止陈旧ABORTED状态无限重试。
         if (self.enable_auto_unstick
-                and now - self._last_abort < 4.0
+                and self._abort_goal_id is not None
+                and self._abort_goal_id != self._handled_goal_id
+                and now - self._last_abort < 30.0
                 and now - self._last_unstick > self.unstick_cooldown
-                and self._front_blocked and self._rear_free and self._stationary()):
-            rospy.logwarn('lidar_obstacle_scan: 【自动脱困】DWA已放弃且车头受困, '
+                and self._rear_free and self._stationary()):
+            self._handled_goal_id = self._abort_goal_id
+            rospy.logwarn('lidar_obstacle_scan: 【自动脱困】DWA已放弃(角卡/围困), '
                           '车尾1.3m走廊已验证干净 → 低速倒车0.4m')
             self._last_unstick = now
             tw = Twist()
@@ -232,6 +240,7 @@ class LidarObstacleScan:
         for st in msg.status_list:
             if st.status == 4:  # ABORTED = move_base 已放弃且不再发 cmd_vel
                 self._last_abort = rospy.get_time()
+                self._abort_goal_id = st.goal_id.id  # 边沿触发: 每个放弃的目标只救一次
 
     def _stationary(self):
         """近 1.2 秒位移 < 5cm 视为静止（脱困前置条件, 防与运动中的 DWA 抢话题）"""
