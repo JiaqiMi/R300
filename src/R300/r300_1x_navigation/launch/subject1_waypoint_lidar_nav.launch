@@ -166,6 +166,9 @@
     <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
     <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="0.45"/>
     <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="2.0"/>
-    <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.30"/> <!-- 2026-07-30 0.15→0.30: 实测0.15低于滑移底盘最低可动速度(指令在发/轮子不转,4秒4mm), 限速压底=瘫痪而非爬行 -->
+    <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.30"/>
+    <!-- 2026-07-30 室内档到点容差1.5→0.3: 比赛容差1.5在rviz调试中造成"停在目标前
+         1米多"被反复误读为卡死(实测三次"卡死"均为 Goal reached); 室外GPS航点不受影响 -->
+    <param name="/move_base/DWAPlannerROS/xy_goal_tolerance" value="0.30"/> <!-- 2026-07-30 0.15→0.30: 实测0.15低于滑移底盘最低可动速度(指令在发/轮子不转,4秒4mm), 限速压底=瘫痪而非爬行 -->
   </group>
 </launch>
