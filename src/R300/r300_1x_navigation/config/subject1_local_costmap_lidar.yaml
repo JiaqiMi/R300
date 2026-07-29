@@ -26,7 +26,10 @@ local_costmap:
     topic: /r300_lidar/obstacle_scan
 
     # 每个独立障碍自最后一次匹配观测起保持 3 秒（TTL 过期清除，无 raytrace）。
-    hold_time_s: 0.1
+    hold_time_s: 3.0    # 2026-07-29 0.1→3.0: 0.1s是位姿冻结事故期间为清"甩尾环"临时砍的,
+                        # 该根因已由indoor_test_mode修复。TTL过短=近盲区失忆(车头0.5~1m雷达
+                        # 打不到, 障碍从costmap蒸发→检测到仍碰撞)+转弯侧扫无记忆。
+                        # 3.0=原设计值, 覆盖近盲区; 代价是行人拖尾~3s
 
     # 保持逻辑由每个障碍自己的 TTL 负责，不因短时断流提前清空。
     expected_update_rate_s: 0.0
@@ -55,4 +58,5 @@ local_costmap:
   inflation_layer:
     enabled: true
     inflation_radius: 0.65
-    cost_scaling_factor: 3.0
+    cost_scaling_factor: 2.0  # 2026-07-29 3.0→2.0: 膨胀衰减放缓, 外圈软代价更高,
+                              # DWA更不愿切入膨胀区(补偿致命标记天生偏小: 4cm格+侵蚀缩边)
