@@ -135,7 +135,7 @@
     <!-- 室内档参数覆盖(2026-07-29 审查P1-5/P0-3): 持久化, 不再依赖易失的 dynparam。
          窄环境膨胀收窄+衰减加快; 车速压到0.8(全链延迟0.8~1.5s下新障碍4m必撞账,
          室内空间小必须留裕)。声明在 include 之后, roslaunch 后声明覆盖先加载的 yaml。 -->
-    <param name="/move_base/local_costmap/inflation_layer/inflation_radius" value="0.45"/> <!-- 2026-07-29定稿: 通道由内切0.35(=车半宽)决定, 膨胀0.45不堵道只加预警梯度, 防"贴边停车->冻结" -->
+    <param name="/move_base/local_costmap/inflation_layer/inflation_radius" value="0.40"/> <!-- 2026-07-30 0.45→0.40 缝隙通行: 0.45时0.9m缝中心软代价≈192(≈4倍中性), navfn宁绕远6m也不走缝/DWA也不愿进; 0.40时缝中心代价归0。硬下限=内切0.36(必撞环), 勿再低 -->
     <param name="/move_base/local_costmap/inflation_layer/cost_scaling_factor" value="3.0"/>
     <param name="/lidar_obstacle_scan_node/speed_limit_v_max" value="0.8"/>
     <!-- 2026-07-30 室内档补齐(全参数四代理审查):
@@ -175,7 +175,7 @@
     <param name="/move_base/global_costmap/lidar_snapshot_layer/association_distance_m" value="0.50"/>
     <param name="/move_base/global_costmap/lidar_snapshot_layer/publish_active_scan" value="false"/>
     <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
-    <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="0.45"/>
+    <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="0.40"/> <!-- 2026-07-30 0.45→0.40 与局部同步(缝隙通行), 全局绿线才愿意穿可过的缝 -->
     <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="3.0"/> <!-- 2026-07-30 2.0→3.0 与室内局部层统一: 两层对同一障碍贴近意愿不同会造成"跟线-离线"拉扯 -->
     <param name="/lidar_obstacle_scan_node/speed_limit_v_min" value="0.30"/>
     <!-- 2026-07-30 室内档到点容差1.5→0.3: 比赛容差1.5在rviz调试中造成"停在目标前
