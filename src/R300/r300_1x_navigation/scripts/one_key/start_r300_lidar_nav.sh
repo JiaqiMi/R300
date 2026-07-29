@@ -39,7 +39,14 @@ LIO_BODY_FRAME="${LIO_BODY_FRAME:-body}"
 # --no-sign-guidance 或 SIGN_GUIDANCE_ENABLED=false。
 SIGN_GUIDANCE_ENABLED="${SIGN_GUIDANCE_ENABLED:-true}"
 DETECTIONS_TOPIC="${DETECTIONS_TOPIC:-/r300_vision/detections}"
+AVAILABLE_CLASSES_TOPIC="${AVAILABLE_CLASSES_TOPIC:-/r300_vision/available_classes}"
 SIGN_CONFIG_FILE="${SIGN_CONFIG_FILE:-}"
+
+# auto 表示只要启用视觉指示牌或泊车，就在本 launch 中启动双 YOLO。
+LAUNCH_VISION="${LAUNCH_VISION:-auto}"
+VISION_MODEL1_PATH="${VISION_MODEL1_PATH:-}"
+VISION_MODEL2_PATH="${VISION_MODEL2_PATH:-}"
+VISION_CONFIG_FILE="${VISION_CONFIG_FILE:-}"
 
 # 全部航点结束后自动执行比赛保底版泊车。默认开启。
 PARKING_ENABLED="${PARKING_ENABLED:-true}"
@@ -87,7 +94,13 @@ usage() {
   --sign-guidance          开启视觉左/右指示牌临时目标（默认）
   --no-sign-guidance       关闭指示牌功能，保持原纯雷达导航
   --detections-topic NAME  指定视觉检测话题
+  --available-classes-topic NAME  指定视觉可用类别话题
   --sign-config PATH       指定指示牌临时目标参数 YAML
+  --vision                 在本 launch 中启动双 YOLO（默认按功能自动）
+  --no-vision              使用外部已运行的双 YOLO
+  --vision-model1 PATH     指定双 YOLO 模型1
+  --vision-model2 PATH     指定双 YOLO 模型2
+  --vision-config PATH     指定双 YOLO 参数 YAML
   --parking                开启航点完成后的自主泊车（默认）
   --no-parking             关闭自主泊车
   --parking-config PATH    指定自主泊车参数 YAML
@@ -100,7 +113,9 @@ usage() {
   R300_WS, CAN_PORT, CAN_BITRATE, WAYPOINT_FILE, MAX_GOAL_DIST,
   ELEVATION_TOPIC, OBSTACLE_SCAN_TOPIC,
   DEBUG_CLOUD_TOPIC, LIO_MAP_FRAME, LIO_BODY_FRAME,
-  SIGN_GUIDANCE_ENABLED, DETECTIONS_TOPIC, SIGN_CONFIG_FILE,
+  SIGN_GUIDANCE_ENABLED, DETECTIONS_TOPIC, AVAILABLE_CLASSES_TOPIC,
+  SIGN_CONFIG_FILE, LAUNCH_VISION, VISION_MODEL1_PATH,
+  VISION_MODEL2_PATH, VISION_CONFIG_FILE,
   PARKING_ENABLED, PARKING_CONFIG_FILE,
   READY_TIMEOUT, LIDAR_HOLD_TIME_S,
   LAUNCH_RVIZ, LAUNCH_BASE, ODOM_PATH, SETUP_CAN, AUTO_RUN
@@ -138,9 +153,25 @@ while [[ $# -gt 0 ]]; do
     --detections-topic)
       [[ $# -ge 2 ]] || { error "--detections-topic 后缺少话题名"; exit 2; }
       DETECTIONS_TOPIC="$2"; shift 2 ;;
+    --available-classes-topic)
+      [[ $# -ge 2 ]] || { error "--available-classes-topic 后缺少话题名"; exit 2; }
+      AVAILABLE_CLASSES_TOPIC="$2"; shift 2 ;;
     --sign-config)
       [[ $# -ge 2 ]] || { error "--sign-config 后缺少路径"; exit 2; }
       SIGN_CONFIG_FILE="$2"; shift 2 ;;
+    --vision)
+      LAUNCH_VISION="true"; shift ;;
+    --no-vision)
+      LAUNCH_VISION="false"; shift ;;
+    --vision-model1)
+      [[ $# -ge 2 ]] || { error "--vision-model1 后缺少模型路径"; exit 2; }
+      VISION_MODEL1_PATH="$2"; shift 2 ;;
+    --vision-model2)
+      [[ $# -ge 2 ]] || { error "--vision-model2 后缺少模型路径"; exit 2; }
+      VISION_MODEL2_PATH="$2"; shift 2 ;;
+    --vision-config)
+      [[ $# -ge 2 ]] || { error "--vision-config 后缺少 YAML 路径"; exit 2; }
+      VISION_CONFIG_FILE="$2"; shift 2 ;;
     --parking)
       PARKING_ENABLED="true"; shift ;;
     --no-parking)
@@ -165,7 +196,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 for variable_name in \
-  ELEVATION_TOPIC OBSTACLE_SCAN_TOPIC DEBUG_CLOUD_TOPIC DETECTIONS_TOPIC
+  ELEVATION_TOPIC OBSTACLE_SCAN_TOPIC DEBUG_CLOUD_TOPIC DETECTIONS_TOPIC \
+  AVAILABLE_CLASSES_TOPIC
 do
   value="${!variable_name}"
   [[ "$value" == /* ]] || printf -v "$variable_name" '/%s' "$value"
@@ -183,6 +215,17 @@ fi
 if [[ "$PARKING_ENABLED" != "true" &&
       "$PARKING_ENABLED" != "false" ]]; then
   error "PARKING_ENABLED 只能是 true 或 false：$PARKING_ENABLED"
+  exit 2
+fi
+if [[ "$LAUNCH_VISION" == "auto" ]]; then
+  if [[ "$SIGN_GUIDANCE_ENABLED" == "true" || "$PARKING_ENABLED" == "true" ]]; then
+    LAUNCH_VISION="true"
+  else
+    LAUNCH_VISION="false"
+  fi
+fi
+if [[ "$LAUNCH_VISION" != "true" && "$LAUNCH_VISION" != "false" ]]; then
+  error "LAUNCH_VISION 只能是 auto、true 或 false：$LAUNCH_VISION"
   exit 2
 fi
 
@@ -249,6 +292,33 @@ PKG_PATH="$(rospack find "$PKG")"
 [[ -f "$PKG_PATH/launch/$LAUNCH_FILE" ]] || {
   error "未找到 $PKG_PATH/launch/$LAUNCH_FILE"; exit 1;
 }
+
+if [[ "$LAUNCH_VISION" == "true" ]]; then
+  VISION_PKG_PATH="$(rospack find r300_yolo_detector 2>/dev/null || true)"
+  [[ -n "$VISION_PKG_PATH" ]] || {
+    error "ROS 找不到功能包 r300_yolo_detector"; exit 1;
+  }
+  [[ -n "$VISION_MODEL1_PATH" ]] || \
+    VISION_MODEL1_PATH="$VISION_PKG_PATH/models/c11_260711.pt"
+  [[ -n "$VISION_MODEL2_PATH" ]] || \
+    VISION_MODEL2_PATH="$VISION_PKG_PATH/models/model_c6_260723.pt"
+  [[ -n "$VISION_CONFIG_FILE" ]] || \
+    VISION_CONFIG_FILE="$VISION_PKG_PATH/config/dual_detector.yaml"
+
+  for model_path in "$VISION_MODEL1_PATH" "$VISION_MODEL2_PATH"; do
+    [[ -f "$model_path" ]] || {
+      error "双 YOLO 模型文件不存在：$model_path"
+      error "请通过 --vision-model1/--vision-model2 或环境变量覆盖。"
+      exit 1
+    }
+  done
+  [[ -f "$VISION_CONFIG_FILE" ]] || {
+    error "双 YOLO 配置文件不存在：$VISION_CONFIG_FILE"; exit 1;
+  }
+  VISION_MODEL1_PATH="$(readlink -f "$VISION_MODEL1_PATH")"
+  VISION_MODEL2_PATH="$(readlink -f "$VISION_MODEL2_PATH")"
+  VISION_CONFIG_FILE="$(readlink -f "$VISION_CONFIG_FILE")"
+fi
 
 LIDAR_ADAPTER_NODE="$PKG_PATH/scripts/lidar_obstacle_scan_node.py"
 [[ -f "$LIDAR_ADAPTER_NODE" ]] || {
@@ -341,6 +411,12 @@ if rosnode list 2>/dev/null | grep -qx '/move_base'; then
   error "检测到已有 /move_base。请先停止纯实车、视觉或旧雷达导航。"
   exit 1
 fi
+if [[ "$LAUNCH_VISION" == "true" ]] &&
+   rosnode list 2>/dev/null | grep -qx '/r300_dual_yolo_depth_node'; then
+  error "检测到已有 /r300_dual_yolo_depth_node。"
+  error "请停止旧视觉节点，或使用 --no-vision 复用外部视觉。"
+  exit 1
+fi
 
 info "等待独立 1X 原始解析数据……"
 if ! timeout "$READY_TIMEOUT" rostopic echo -n 1 /one_x/ins_fix >/dev/null 2>&1; then
@@ -363,12 +439,13 @@ if [[ "$ELEVATION_TYPE" != "grid_map_msgs/GridMap" ]]; then
 fi
 ok "外部高程图数据正常：$ELEVATION_TYPE"
 
-if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
+if [[ ( "$SIGN_GUIDANCE_ENABLED" == "true" || "$PARKING_ENABLED" == "true" ) &&
+      "$LAUNCH_VISION" == "false" ]]; then
   info "等待摄像头视觉检测：$DETECTIONS_TOPIC"
   if ! timeout "$READY_TIMEOUT" rostopic echo -n 1 "$DETECTIONS_TOPIC" \
       >/dev/null 2>&1; then
     error "没有收到视觉检测结果：$DETECTIONS_TOPIC"
-    error "请先启动摄像头与 YOLO；若本次只做纯雷达导航，请加 --no-sign-guidance。"
+    error "请先启动摄像头与 YOLO；或移除 --no-vision 让本脚本启动视觉。"
     exit 1
   fi
   DETECTIONS_TYPE="$(rostopic type "$DETECTIONS_TOPIC" 2>/dev/null || true)"
@@ -377,8 +454,8 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
     error "期望：r300_vision_msgs/DetectedObjectArray"
     exit 1
   fi
-  ok "视觉左/右指示牌输入正常：$DETECTIONS_TYPE"
-else
+  ok "外部视觉检测输入正常：$DETECTIONS_TYPE"
+elif [[ "$SIGN_GUIDANCE_ENABLED" == "false" && "$PARKING_ENABLED" == "false" ]]; then
   warn "视觉指示牌临时目标已关闭，本次保持原纯雷达避障逻辑。"
 fi
 
@@ -486,6 +563,8 @@ ROSLAUNCH_ARGS=(
   "sign_guidance_enabled:=$SIGN_GUIDANCE_ENABLED"
   "parking_enabled:=$PARKING_ENABLED"
   "detections_topic:=$DETECTIONS_TOPIC"
+  "available_classes_topic:=$AVAILABLE_CLASSES_TOPIC"
+  "launch_vision:=$LAUNCH_VISION"
   "auto_start:=false"
   "max_goal_distance_from_origin_m:=$MAX_GOAL_DIST"
 )
@@ -495,6 +574,13 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
 fi
 if [[ "$PARKING_ENABLED" == "true" ]]; then
   ROSLAUNCH_ARGS+=("parking_config_file:=$PARKING_CONFIG_FILE")
+fi
+if [[ "$LAUNCH_VISION" == "true" ]]; then
+  ROSLAUNCH_ARGS+=(
+    "vision_model1_path:=$VISION_MODEL1_PATH"
+    "vision_model2_path:=$VISION_MODEL2_PATH"
+    "vision_config_file:=$VISION_CONFIG_FILE"
+  )
 fi
 
 mkdir -p "$LOG_DIR"
@@ -512,6 +598,13 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
   info "指示牌参数：$SIGN_CONFIG_FILE"
 else
   info "视觉指示牌临时目标：关闭"
+fi
+if [[ "$LAUNCH_VISION" == "true" ]]; then
+  info "双 YOLO：由本 launch 启动"
+  info "模型1：$VISION_MODEL1_PATH"
+  info "模型2：$VISION_MODEL2_PATH"
+else
+  info "双 YOLO：使用外部节点"
 fi
 if [[ -n "$LIDAR_HOLD_TIME_S" ]]; then
   info "雷达快照层期望保持时间：${LIDAR_HOLD_TIME_S}s"
@@ -599,6 +692,47 @@ wait_service() {
   exit 1
 }
 
+check_parking_available_classes() {
+  info "校验自主泊车视觉类别能力：$AVAILABLE_CLASSES_TOPIC"
+  if timeout "$READY_TIMEOUT" python3 - "$AVAILABLE_CLASSES_TOPIC" <<'PY'
+import json
+import sys
+
+import rospy
+from std_msgs.msg import String
+
+topic = sys.argv[1]
+required = {"park", "parking_slot", "vehicle"}
+rospy.init_node("r300_parking_class_check", anonymous=True, disable_signals=True)
+message = rospy.wait_for_message(topic, String)
+try:
+    decoded = json.loads(message.data)
+except (TypeError, ValueError) as exc:
+    print("available_classes 不是有效 JSON: %s" % exc, file=sys.stderr)
+    sys.exit(2)
+if not isinstance(decoded, list):
+    print("available_classes 必须是 JSON 数组", file=sys.stderr)
+    sys.exit(2)
+available = {
+    str(value).strip().lower()
+    for value in decoded
+    if str(value).strip()
+}
+missing = sorted(required - available)
+print("available_classes=" + ",".join(sorted(available)))
+if missing:
+    print("missing_classes=" + ",".join(missing), file=sys.stderr)
+    sys.exit(3)
+PY
+  then
+    ok "自主泊车所需视觉类别全部可用"
+  else
+    error "视觉模型不具备 park、parking_slot、vehicle 完整能力"
+    error "禁止启动自主泊车；请更换包含缺失类别且映射正确的模型。"
+    exit 1
+  fi
+}
+
 check_lio_tf() {
   local tf_log
   ensure_launch_alive
@@ -631,6 +765,18 @@ check_topic_type "$OBSTACLE_SCAN_TOPIC" sensor_msgs/LaserScan "雷达虚拟 Lase
 
 wait_message /move_base/local_costmap/costmap "雷达局部代价地图"
 wait_service /subject1/start_waypoints "航点启动服务"
+
+if [[ "$SIGN_GUIDANCE_ENABLED" == "true" || "$PARKING_ENABLED" == "true" ]]; then
+  wait_message "$DETECTIONS_TOPIC" "视觉检测数据"
+  check_topic_type "$DETECTIONS_TOPIC" r300_vision_msgs/DetectedObjectArray \
+    "视觉检测数据"
+fi
+
+if [[ "$PARKING_ENABLED" == "true" ]]; then
+  wait_message "$AVAILABLE_CLASSES_TOPIC" "视觉可用类别"
+  check_topic_type "$AVAILABLE_CLASSES_TOPIC" std_msgs/String "视觉可用类别"
+  check_parking_available_classes
+fi
 
 if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
   wait_message /subject1/direction_sign/state "视觉指示牌临时目标状态"

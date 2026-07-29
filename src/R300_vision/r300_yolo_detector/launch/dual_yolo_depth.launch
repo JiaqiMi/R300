@@ -1,17 +1,21 @@
 <launch>
     <arg
         name="model1_path"
-        default="$(find r300_yolo_detector)/models/model_c6_260727.pt"
+        default="$(find r300_yolo_detector)/models/c11_260711.pt"
     />
 
     <arg
         name="model2_path"
-        default="$(find r300_yolo_detector)/models/model_c7_260727.pt"
+        default="$(find r300_yolo_detector)/models/model_c6_260723.pt"
     />
 
     <arg
         name="config_file"
         default="$(find r300_yolo_detector)/config/dual_detector.yaml"
+    />
+    <arg
+        name="available_classes_topic"
+        default="/r300_vision/available_classes"
     />
 
     <node
@@ -34,5 +38,6 @@
         <!-- launch参数优先覆盖YAML中的路径 -->
         <param name="model1_path" value="$(arg model1_path)"/>
         <param name="model2_path" value="$(arg model2_path)"/>
+        <param name="available_classes_topic" value="$(arg available_classes_topic)"/>
     </node>
 </launch>

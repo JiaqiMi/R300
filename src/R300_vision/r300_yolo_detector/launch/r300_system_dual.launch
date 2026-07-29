@@ -7,13 +7,15 @@
 
     <arg
         name="model1_path"
-        default="$(find r300_yolo_detector)/models/model_c6_260727.pt"
+        default="$(find r300_yolo_detector)/models/c11_260711.pt"
     />
 
     <arg
         name="model2_path"
-        default="$(find r300_yolo_detector)/models/model_c7_260727.pt"
+        default="$(find r300_yolo_detector)/models/model_c6_260723.pt"
     />
+    <arg name="available_classes_topic"
+         default="/r300_vision/available_classes"/>
 
     <!-- 1. RealSense D435i -->
     <group if="$(arg enable_camera)">
@@ -27,6 +29,8 @@
     <include file="$(find r300_yolo_detector)/launch/dual_yolo_depth.launch">
         <arg name="model1_path" value="$(arg model1_path)"/>
         <arg name="model2_path" value="$(arg model2_path)"/>
+        <arg name="available_classes_topic"
+             value="$(arg available_classes_topic)"/>
     </include>
 
     <!-- 3. 轻量目标坐标/经纬度实时回传（不订阅图像、不写文件） -->

@@ -8,9 +8,13 @@ single_use: true
 
 # ROS 接口
 detections_topic: /r300_vision/detections
+available_classes_topic: /r300_vision/available_classes
 waypoint_status_topic: /subject1/waypoint_status
+odom_topic: /subject1/dwa_odom
 cmd_vel_topic: /subject1/cmd_vel_raw
 move_base_action: /move_base
+make_plan_service: /move_base/make_plan
+dwa_reconfigure_namespace: /move_base/DWAPlannerROS
 map_frame: map
 base_frame: base_link
 
@@ -21,15 +25,21 @@ slot_classes:
   - parking_slot
 vehicle_classes:
   - vehicle
+required_classes:
+  - park
+  - parking_slot
+  - vehicle
 
-# 检测筛选
+# 视觉健康和检测筛选
+vision_ready_timeout_s: 8.0
+max_detection_age_s: 1.0
+odom_max_age_s: 0.5
 park_min_confidence: 0.65
 slot_min_confidence: 0.55
 vehicle_min_confidence: 0.45
 confirm_frames: 3
 confirm_max_gap_s: 0.80
 candidate_match_px: 90
-max_detection_age_s: 0.80
 min_bbox_width_px: 20
 min_bbox_height_px: 20
 min_target_distance_m: 0.40
@@ -39,7 +49,8 @@ max_target_distance_m: 15.0
 search_angular_speed_radps: 0.28
 search_direction: 1.0
 search_rotate_s: 0.90
-search_pause_s: 0.55
+# 双模型默认约 4Hz；1.0s 停顿可在同一次静止窗口内积累 3 帧。
+search_pause_s: 1.00
 search_timeout_s: 90.0
 
 # 靠近停车牌与驶入车位
@@ -52,19 +63,46 @@ slot_goal_extension_m: 0.80
 goal_timeout_s: 35.0
 action_server_timeout_s: 8.0
 tf_timeout_s: 1.0
+make_plan_tolerance_m: 0.20
+make_plan_timeout_s: 2.0
+
+# 空车位必须连续多帧保持为空；任一占用帧立即清零 empty_streak。
+slot_confirm_frames: 3
+empty_confirm_frames: 3
+slot_match_center_px: 80
+slot_match_depth_m: 1.0
 
 # 空车位判定：满足任意一项即视为占用：
 # 1) vehicle 中心落在 parking_slot 检测框内；
 # 2) vehicle 框与 parking_slot 框重叠比例达到阈值；
 # 3) 两者三维平面距离小于 occupied_distance_m。
 vehicle_center_margin_ratio: 0.08
-vehicle_overlap_ratio_threshold: 0.45
+vehicle_slot_overlap_threshold: 0.15
 occupied_distance_m: 1.80
+
+# 泊车期间通过 DWAPlannerROS dynamic_reconfigure 临时切换为低速参数；
+# reset、ERROR、FINISH、shutdown 时恢复启动前参数。
+dwa_reconfigure_timeout_s: 3.0
+parking_max_vel_x: 0.30
+parking_min_vel_x: 0.00
+parking_max_trans_vel: 0.30
+parking_min_trans_vel: 0.00
+parking_max_rot_vel: 0.35
+parking_min_rot_vel: 0.05
+parking_xy_goal_tolerance_m: 0.40
+parking_yaw_goal_tolerance_rad: 0.52
+
+# move_base SUCCEEDED 后的最终停车验证。
+final_position_tolerance_m: 0.50
+final_yaw_tolerance_rad: 0.52
+final_speed_tolerance_mps: 0.10
+final_stable_time_s: 1.0
+final_verify_timeout_s: 5.0
 
 # RealSense 相机光学坐标 -> ROS base_link(FLU)
 # 相机：X右、Y下、Z前；base_link：X前、Y左、Z上。
 # Xb=Zc, Yb=-Xc, Zb=-Yc
-camera_to_base_rotation:
+camera_to_body_rotation:
   - 0.0
   - 0.0
   - 1.0
@@ -76,7 +114,7 @@ camera_to_base_rotation:
   - 0.0
 
 # 暂按现有视觉配置：相机位于车体原点前方 0.30m、上方 0.10m。
-camera_in_base_translation_m:
+camera_in_body_translation_m:
   - 0.30
   - 0.00
   - 0.10

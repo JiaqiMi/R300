@@ -26,6 +26,9 @@
 
 白框模型训练完成后，必须确认模型类别名称与
 `config/subject1_parking.yaml` 中的 `slot_classes` 一致。
+双 YOLO 节点会锁存发布 `/r300_vision/available_classes`。只有该列表同时
+包含 `park`、`parking_slot`、`vehicle`，泊车节点才允许启动；当前模型若
+没有 `parking_slot`，一键脚本会明确报错并停止，不会让车辆旋转等待。
 
 ## 自动触发
 
@@ -43,7 +46,9 @@
 ```text
 订阅：
 /r300_vision/detections
+/r300_vision/available_classes
 /subject1/waypoint_status
+/subject1/dwa_odom
 
 发布：
 /subject1/cmd_vel_raw              # 只在搜索时低速旋转
@@ -58,7 +63,8 @@
 
 ## 启动
 
-原雷达导航脚本默认已经开启停车节点：
+雷达导航脚本默认开启停车，并按需启动双 YOLO。可通过
+`--vision-model1`、`--vision-model2` 指定现场模型：
 
 ```bash
 rosrun r300_1x_navigation start_r300_lidar_nav.sh --run
@@ -145,6 +151,8 @@ config/subject1_parking.yaml
    `base_link`，然后再由 TF 转换到 `map`。
 3. 默认相机外参是前方 0.30 m、上方 0.10 m；实际安装位置不同必须修改。
 4. 当前 DWA 的 `xy_goal_tolerance` 较大，因此使用
-   `slot_goal_extension_m` 将目标沿白框方向稍微延伸，以提高车头进入白框的概率。
+   dynamic_reconfigure 在泊车期间临时切换为低速和较小容差，流程结束后恢复。
 5. 车位是否占用采用三种简单判定：检测框中心、检测框重叠、三维距离；
-   任意一项满足即判定占用。
+   任意一项满足即判定占用，并要求连续多帧为空。
+6. 驶入前必须通过 `/move_base/make_plan`，`SUCCEEDED` 后还要连续验证最终
+   位置、朝向和速度，验证通过才发布停车完成。

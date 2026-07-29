@@ -30,8 +30,19 @@
   -->
   <arg name="sign_guidance_enabled" default="true"/>
   <arg name="detections_topic" default="/r300_vision/detections"/>
+  <arg name="available_classes_topic"
+       default="/r300_vision/available_classes"/>
   <arg name="sign_config_file"
        default="$(find r300_1x_navigation)/config/subject1_direction_sign.yaml"/>
+
+  <!-- 一键脚本可选择在同一 roslaunch 中启动摄像头双 YOLO 节点。 -->
+  <arg name="launch_vision" default="false"/>
+  <arg name="vision_model1_path"
+       default="$(find r300_yolo_detector)/models/c11_260711.pt"/>
+  <arg name="vision_model2_path"
+       default="$(find r300_yolo_detector)/models/model_c6_260723.pt"/>
+  <arg name="vision_config_file"
+       default="$(find r300_yolo_detector)/config/dual_detector.yaml"/>
 
   <!--
     比赛保底版自主泊车：全部 GPS 航点完成后自动启动。
@@ -94,6 +105,16 @@
     <arg name="lio_body_frame" value="$(arg lio_body_frame)"/>
   </include>
 
+  <group if="$(arg launch_vision)">
+    <include file="$(find r300_yolo_detector)/launch/dual_yolo_depth.launch">
+      <arg name="model1_path" value="$(arg vision_model1_path)"/>
+      <arg name="model2_path" value="$(arg vision_model2_path)"/>
+      <arg name="config_file" value="$(arg vision_config_file)"/>
+      <arg name="available_classes_topic"
+           value="$(arg available_classes_topic)"/>
+    </include>
+  </group>
+
   <group if="$(arg sign_guidance_enabled)">
     <node pkg="r300_1x_navigation"
           type="direction_sign_local_goal.py"
@@ -121,9 +142,13 @@
       <rosparam command="load" file="$(arg parking_config_file)"/>
       <param name="enabled" value="true"/>
       <param name="detections_topic" value="$(arg detections_topic)"/>
+      <param name="available_classes_topic"
+             value="$(arg available_classes_topic)"/>
       <param name="waypoint_status_topic" value="/subject1/waypoint_status"/>
+      <param name="odom_topic" value="$(arg dwa_odom_topic)"/>
       <param name="cmd_vel_topic" value="/subject1/cmd_vel_raw"/>
       <param name="move_base_action" value="/move_base"/>
+      <param name="make_plan_service" value="/move_base/make_plan"/>
       <param name="map_frame" value="map"/>
       <param name="base_frame" value="base_link"/>
     </node>

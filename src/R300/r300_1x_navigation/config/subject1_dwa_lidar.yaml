@@ -2,6 +2,9 @@
 # 高程图链路端到端延迟约 1.0~1.8s（含卡尔曼平滑），负障碍再加 0.6s 去抖；
 # 2.5m/s 下反应+制动距离会超过坑的可探测距离，故先压到 1.5m/s。
 # 后续加 /cloud_registered_body 快反层验证后可逐步回调。
+# 自主泊车不会永久改动本文件的赛道速度；parking_manager 在通过全部
+# 启动检查后使用 /move_base/DWAPlannerROS dynamic_reconfigure 临时切换
+# 为 subject1_parking.yaml 中的低速和小容差，并在结束/复位/错误时恢复。
 DWAPlannerROS:
   odom_topic: /subject1/dwa_odom
 

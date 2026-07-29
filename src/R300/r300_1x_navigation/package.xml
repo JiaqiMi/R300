@@ -63,6 +63,7 @@
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>roscpp</exec_depend>
   <exec_depend>r300_vision_msgs</exec_depend>
+  <exec_depend>r300_yolo_detector</exec_depend>
   <exec_depend>tf2_geometry_msgs</exec_depend>
   <exec_depend>rplidar_ros</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>

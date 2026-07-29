@@ -7,6 +7,7 @@ from __future__ import annotations
 import torch
 from ultralytics import YOLO
 
+import json
 import threading
 import time
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ import rospy
 from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import PointStamped
 from sensor_msgs.msg import CameraInfo, Image
+from std_msgs.msg import String
 
 from r300_vision_msgs.msg import (
     DetectedObject,
@@ -42,23 +44,13 @@ GLOBAL_CLASS_NAME_TO_ID: Dict[str, int] = {
     "chevro_left": 9,
     "chevro_right": 10,
     "sandbag": 11,
-    "crater":12
+    "crater": 12,
+    "parking_slot": 13,
 }
 
 GLOBAL_CLASS_ID_TO_NAME: Dict[int, str] = {
     class_id: class_name
     for class_name, class_id in GLOBAL_CLASS_NAME_TO_ID.items()
-}
-
-# 模型1原始类别编号等于全局编号，但只允许发布这些类别。
-# 其余 0、1、5、7、8、11 交给模型2负责，模型1结果直接忽略。
-MODEL1_ALLOWED_GLOBAL_IDS: Set[int] = {
-    2,   # vehicle
-    3,   # smoke
-    4,   # trench
-    6,   # person
-    9,   # chevro_left
-    10,  # chevro_right
 }
 
 # 模型1训练时将六个类别重新映射为 0~5，需要恢复到全局编号。
@@ -99,11 +91,8 @@ class DualYoloDepthNode:
     """
     D435i + 双 YOLO 模型 + 深度定位节点。
 
-    模型1：c11_260711.pt，包含完整12类，但只保留：
-        vehicle、smoke、trench、person、chevro_left、chevro_right
-
-    模型2：model0722.pt，包含六个重映射类别，负责：
-        tire、barrel、puddle、rockfall、park、sandbag
+        两个模型都先依据各自的本地映射和实际 model.names 转为全局类别，
+        随后才参与融合和消息发布。实际能力通过 available_classes 发布。
 
     最终仍只发布：
         /r300_vision/detections
@@ -216,6 +205,12 @@ class DualYoloDepthNode:
                 "/r300_vision/target_point",
             )
         )
+        self.available_classes_topic = str(
+            rospy.get_param(
+                "~available_classes_topic",
+                "/r300_vision/available_classes",
+            )
+        )
 
         self.sync_queue_size = int(
             rospy.get_param("~sync_queue_size", 8)
@@ -289,7 +284,22 @@ class DualYoloDepthNode:
             str(self.model2.names),
         )
 
-        self._validate_model_class_mappings()
+        self.model1_local_to_global = self._build_resolved_mapping(
+            self.model1,
+            MODEL1_LOCAL_TO_GLOBAL,
+            "model1",
+        )
+        self.model2_local_to_global = self._build_resolved_mapping(
+            self.model2,
+            MODEL2_LOCAL_TO_GLOBAL,
+            "model2",
+        )
+        available_global_ids = set(self.model1_local_to_global.values())
+        available_global_ids.update(self.model2_local_to_global.values())
+        self.available_classes = sorted(
+            GLOBAL_CLASS_ID_TO_NAME[class_id]
+            for class_id in available_global_ids
+        )
 
         # 模型2 predict() 使用所有类别最终阈值中的最小值，之后再按类别过滤。
         model2_threshold_values = [self.model2_conf_threshold]
@@ -332,6 +342,15 @@ class DualYoloDepthNode:
             self.target_point_topic,
             PointStamped,
             queue_size=10,
+        )
+        self.available_classes_pub = rospy.Publisher(
+            self.available_classes_topic,
+            String,
+            queue_size=1,
+            latch=True,
+        )
+        self.available_classes_pub.publish(
+            String(data=json.dumps(self.available_classes, ensure_ascii=True))
         )
 
         # ============================================================
@@ -378,6 +397,11 @@ class DualYoloDepthNode:
         rospy.loginfo("RGB topic: %s", self.rgb_topic)
         rospy.loginfo("Depth topic: %s", self.depth_topic)
         rospy.loginfo("CameraInfo topic: %s", self.camera_info_topic)
+        rospy.loginfo(
+            "Available global classes (%s): %s",
+            self.available_classes_topic,
+            ", ".join(self.available_classes) or "NONE",
+        )
 
     def _validate_parameters(self) -> None:
         if not self.model1_path:
@@ -409,71 +433,53 @@ class DualYoloDepthNode:
             return str(names[class_id])
         return str(names[class_id])
 
-    def _validate_model_class_mappings(self) -> None:
-        # # 模型1按全局ID读取，检查关键类名称是否一致。
-        # for class_id in sorted(MODEL1_ALLOWED_GLOBAL_IDS):
-        #     expected_name = GLOBAL_CLASS_ID_TO_NAME[class_id]
-        #     try:
-        #         actual_name = self._model_class_name(
-        #             self.model1,
-        #             class_id,
-        #         )
-        #     except (KeyError, IndexError, TypeError):
-        #         raise RuntimeError(
-        #             f"模型1缺少类别ID {class_id} ({expected_name})"
-        #         )
+    def _build_resolved_mapping(
+        self,
+        model: YOLO,
+        configured_mapping: Dict[int, int],
+        model_label: str,
+    ) -> Dict[int, int]:
+        """根据模型真实 names 校验并构造本地 ID 到全局 ID 的映射。"""
+        resolved: Dict[int, int] = {}
+        names = model.names
+        items = names.items() if isinstance(names, dict) else enumerate(names)
+        for raw_local_id, raw_actual_name in items:
+            local_id = int(raw_local_id)
+            actual_name = str(raw_actual_name).strip().lower()
+            configured_global_id = configured_mapping.get(local_id)
+            configured_name = (
+                GLOBAL_CLASS_ID_TO_NAME.get(configured_global_id)
+                if configured_global_id is not None
+                else None
+            )
 
-        #     if actual_name != expected_name:
-        #         rospy.logwarn(
-        #             "Model1 class mismatch: id=%d expected=%s actual=%s",
-        #             class_id,
-        #             expected_name,
-        #             actual_name,
-        #         )
+            if configured_name == actual_name:
+                resolved[local_id] = configured_global_id
+                continue
 
-        # 模型1严格按本地ID映射回全局ID。
-        for local_id, global_id in MODEL1_LOCAL_TO_GLOBAL.items():
-            expected_name = GLOBAL_CLASS_ID_TO_NAME[global_id]
-            try:
-                actual_name = self._model_class_name(
-                    self.model1,
-                    local_id,
-                )
-            except (KeyError, IndexError, TypeError):
-                raise RuntimeError(
-                    f"模型1缺少本地类别ID {local_id}，期望类别 {expected_name}"
-                )
+            # 模型元数据是当前实际能力的最终依据。这样既兼容全类别模型，
+            # 也能在后续模型真正包含 parking_slot 时自动纳入能力列表。
+            actual_global_id = GLOBAL_CLASS_NAME_TO_ID.get(actual_name)
+            if actual_global_id is not None:
+                resolved[local_id] = actual_global_id
+                if configured_name is not None:
+                    rospy.logwarn(
+                        "%s mapping mismatch: local_id=%d configured=%s "
+                        "actual=%s; using actual model class",
+                        model_label,
+                        local_id,
+                        configured_name,
+                        actual_name,
+                    )
+                continue
 
-            if actual_name != expected_name:
-                rospy.logwarn(
-                    "Model1 class mismatch: local_id=%d expected=%s actual=%s; "
-                    "仍按预设ID映射发布",
-                    local_id,
-                    expected_name,
-                    actual_name,
-                )
-
-        # 模型2严格按本地ID映射回全局ID。
-        for local_id, global_id in MODEL2_LOCAL_TO_GLOBAL.items():
-            expected_name = GLOBAL_CLASS_ID_TO_NAME[global_id]
-            try:
-                actual_name = self._model_class_name(
-                    self.model2,
-                    local_id,
-                )
-            except (KeyError, IndexError, TypeError):
-                raise RuntimeError(
-                    f"模型2缺少本地类别ID {local_id}，期望类别 {expected_name}"
-                )
-
-            if actual_name != expected_name:
-                rospy.logwarn(
-                    "Model2 class mismatch: local_id=%d expected=%s actual=%s; "
-                    "仍按预设ID映射发布",
-                    local_id,
-                    expected_name,
-                    actual_name,
-                )
+            rospy.logwarn(
+                "%s has no global mapping: local_id=%d actual=%s; class disabled",
+                model_label,
+                local_id,
+                actual_name,
+            )
+        return resolved
 
     @staticmethod
     def bgr_numpy_to_ros_image(
@@ -647,46 +653,7 @@ class DualYoloDepthNode:
         return inter_area / union_area
 
     def parse_model1_result(self, result) -> List[CandidateDetection]:
-        """解析模型1，只保留非专用类别。"""
-        candidates: List[CandidateDetection] = []
-        boxes = result.boxes
-        if boxes is None:
-            return candidates
-
-        xyxy_array = boxes.xyxy.detach().cpu().numpy()
-        class_array = boxes.cls.detach().cpu().numpy()
-        confidence_array = boxes.conf.detach().cpu().numpy()
-
-        for xyxy, class_value, confidence_value in zip(
-            xyxy_array,
-            class_array,
-            confidence_array,
-        ):
-            global_id = int(class_value)
-            if global_id not in MODEL1_ALLOWED_GLOBAL_IDS:
-                continue
-
-            class_name = GLOBAL_CLASS_ID_TO_NAME[global_id]
-            candidates.append(
-                CandidateDetection(
-                    source_model="M1",
-                    local_class_id=global_id,
-                    global_class_id=global_id,
-                    class_name=class_name,
-                    confidence=float(confidence_value),
-                    xyxy=(
-                        float(xyxy[0]),
-                        float(xyxy[1]),
-                        float(xyxy[2]),
-                        float(xyxy[3]),
-                    ),
-                )
-            )
-
-        return candidates
-
-    def parse_model2_result(self, result) -> List[CandidateDetection]:
-        """解析模型2，恢复到12类全局编号并应用类别独立阈值。"""
+        """解析模型1并将每个本地类别 ID 映射为全局类别。"""
         candidates: List[CandidateDetection] = []
         boxes = result.boxes
         if boxes is None:
@@ -702,7 +669,53 @@ class DualYoloDepthNode:
             confidence_array,
         ):
             local_id = int(class_value)
-            if local_id not in MODEL2_LOCAL_TO_GLOBAL:
+            global_id = self.model1_local_to_global.get(local_id)
+            if global_id is None:
+                rospy.logwarn_throttle(
+                    5.0,
+                    "Model1 returned unmapped local class id=%d",
+                    local_id,
+                )
+                continue
+
+            class_name = GLOBAL_CLASS_ID_TO_NAME[global_id]
+            candidates.append(
+                CandidateDetection(
+                    source_model="M1",
+                    local_class_id=local_id,
+                    global_class_id=global_id,
+                    class_name=class_name,
+                    confidence=float(confidence_value),
+                    xyxy=(
+                        float(xyxy[0]),
+                        float(xyxy[1]),
+                        float(xyxy[2]),
+                        float(xyxy[3]),
+                    ),
+                )
+            )
+
+        return candidates
+
+    def parse_model2_result(self, result) -> List[CandidateDetection]:
+        """解析模型2，映射为全局编号并应用类别独立阈值。"""
+        candidates: List[CandidateDetection] = []
+        boxes = result.boxes
+        if boxes is None:
+            return candidates
+
+        xyxy_array = boxes.xyxy.detach().cpu().numpy()
+        class_array = boxes.cls.detach().cpu().numpy()
+        confidence_array = boxes.conf.detach().cpu().numpy()
+
+        for xyxy, class_value, confidence_value in zip(
+            xyxy_array,
+            class_array,
+            confidence_array,
+        ):
+            local_id = int(class_value)
+            global_id = self.model2_local_to_global.get(local_id)
+            if global_id is None:
                 rospy.logwarn_throttle(
                     5.0,
                     "Model2 returned unknown local class id=%d",
@@ -710,7 +723,6 @@ class DualYoloDepthNode:
                 )
                 continue
 
-            global_id = MODEL2_LOCAL_TO_GLOBAL[local_id]
             class_name = GLOBAL_CLASS_ID_TO_NAME[global_id]
             confidence = float(confidence_value)
             class_threshold = self.model2_class_conf_thresholds.get(

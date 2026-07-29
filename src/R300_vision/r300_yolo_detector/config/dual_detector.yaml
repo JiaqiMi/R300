@@ -1,10 +1,10 @@
 # ============================================================
 # 双模型路径
 # ============================================================
-# model1：完整12类模型，但仅发布 vehicle/smoke/trench/person/左右转
-# model2：六类专用模型，负责 tire/barrel/puddle/rockfall/park/sandbag
+# 默认使用仓库中实际存在的全类别模型 + 六类专用模型。
+# 最终可发布类别以节点锁存发布的 /r300_vision/available_classes 为准。
 model1_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/c11_260711.pt
-model2_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model0722.pt
+model2_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model_c6_260723.pt
 
 # ============================================================
 # 输入/输出话题：保持原话题不变，下游模块无需修改
@@ -16,6 +16,7 @@ camera_info_topic: /camera/color/camera_info
 annotated_topic: /r300_vision/annotated_image
 detections_topic: /r300_vision/detections
 target_point_topic: /r300_vision/target_point
+available_classes_topic: /r300_vision/available_classes
 
 # ============================================================
 # 推理参数
