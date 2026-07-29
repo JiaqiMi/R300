@@ -43,10 +43,11 @@ local_costmap:
     dedup_resolution_m: 0.05
 
     # 同一帧中，距离小于该值的几何点聚为同一个障碍。
-    cluster_tolerance_m: 0.25
+    cluster_tolerance_m: 0.45  # 2026-07-29 回退0.25→0.45: 0.25在高速下与关联距离共同导致轨迹碎裂
 
     # 新障碍簇与旧轨迹质心距离小于该值时，认为是同一个障碍。
-    association_distance_m: 0.30
+    association_distance_m: 0.50  # 2026-07-29 回退0.30→0.50: 2m/s×(1/7.6Hz)=0.26m/帧≈0.30上限,
+                                  # 提速即关联失败→每帧新建轨迹×TTL3s=障碍重影拖尾
 
     min_cluster_points: 2   # 2026-07-29 1→2: 单格噪声不再成致命障碍(真沟在3~5m有11+束不受损)
 

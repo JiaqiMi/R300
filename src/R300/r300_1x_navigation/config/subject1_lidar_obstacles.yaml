@@ -40,7 +40,9 @@ neg_confirm: 3                   # 负障碍连续 3 帧确认（高程图 10Hz 
 pos_confirm: 2
 
 # ---- 虚拟扫描布局（对齐 vision_obstacle_layer_node 输出契约）----
-scan_fov_deg: 120.0              # ±60°（视觉链只有 ±27°）
+scan_fov_deg: 360.0              # 2026-07-29 120→360: MID360物理覆盖≈前向±100°且高程图带记忆,
+                                 #  ±60°是自设瓶颈——切掉了侧向实时数据和侧后地图记忆,
+                                 #  转弯/倒车失忆一半源于此。放开360°=把记忆当"软后雷达"用
 scan_angle_increment_deg: 0.5
 scan_range_min_m: 0.20
 scan_range_max_m: 10.5
