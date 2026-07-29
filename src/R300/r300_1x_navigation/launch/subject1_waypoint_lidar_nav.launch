@@ -58,7 +58,7 @@
   <arg name="dwa_yaw_rate_deadband_radps" default="0.015"/>
   <arg name="dwa_forward_filter_tau_s" default="0.10"/>
   <arg name="dwa_yaw_rate_filter_tau_s" default="0.15"/>
-  <arg name="dwa_max_yaw_rate_radps" default="0.85"/> <!-- 2026-07-30 随 max_vel_theta 0.85 同步(历史0.70→0.75→0.85): 反馈削顶低于指令上限会让顶格转向闭环失真 -->
+  <arg name="dwa_max_yaw_rate_radps" default="0.75"/> <!-- 2026-07-30 0.70→0.75 与 DWA max_vel_theta 对齐: 反馈削顶低于指令上限会让顶格转向闭环失真 -->
 
   <include file="$(find r300_1x_navigation)/launch/subject1_waypoint_nav.launch">
     <arg name="can_port" value="$(arg can_port)"/>
