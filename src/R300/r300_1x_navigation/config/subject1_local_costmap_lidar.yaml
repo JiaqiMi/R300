@@ -3,7 +3,8 @@ local_costmap:
   robot_base_frame: base_link
 
   update_frequency: 10.0  # 2026-07-30 7→10 对齐 scan 10Hz(2m/s全链账, 平均省0.04s=8cm)
-  publish_frequency: 1.0
+  publish_frequency: 5.0  # 2026-07-30 1→5: 仅影响 rviz 渲染——控制内部一直是 update 10Hz,
+                          #  1Hz 显示造成"障碍到膨胀出现很久"的假象(实际链路无此延迟)
   transform_tolerance: 0.5
   always_send_full_costmap: false
 

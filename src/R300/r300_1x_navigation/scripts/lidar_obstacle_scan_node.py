@@ -98,6 +98,18 @@ class LidarObstacleScan:
         # 每帧命中率仅~50%, 原"未命中-1"衰减使计数器 +1,-1,+1,-1 永远到不了阈值
         # ——确认被结构性推迟到近处。未命中改衰减0.5: 50%命中率~0.5s内可确认。
         self.confirm_miss_decay = float(rospy.get_param('~confirm_miss_decay', 0.5))
+        # ---- 快反层(2026-07-30, 2m/s"发现晚"终极杠杆) ----
+        # /cloud_registered_body 单帧点云直通, 与高程图通道【并联】逐束取最小值:
+        # 正障碍获得单帧级首现延迟(~0.15s, 绕过卡尔曼收敛+去抖确认)与 9m 探测距离
+        # (点云不受高程图 16m 地图限制, 零 GPU 代价)。负障碍/坡度/记忆/地面验证
+        # 仍由高程图通道全权负责——负障碍物理上不可单帧判定, 本层不碰。
+        self.fast_enable = bool(rospy.get_param('~fast_layer_enable', True))
+        self.fast_cloud_topic = rospy.get_param('~fast_cloud_topic', '/cloud_registered_body')
+        self.fast_min_h = float(rospy.get_param('~fast_min_height', 0.30))
+        self.fast_min_pts = int(rospy.get_param('~fast_min_points', 3))
+        self.fast_max_range = float(rospy.get_param('~fast_max_range', 9.0))
+        self.fast_cloud_timeout = float(rospy.get_param('~fast_cloud_timeout_s', 0.3))
+        self._fast_cloud = None
         # 数据接缝伪障守卫：高程图数据前沿 3~4 格是"少点数不可靠带"（掠射单点建格），
         # 会产生环状伪坡/伪正障碍（2026-07-29 实测：侵蚀3层伪坡-59%、伪正障碍-91%）。
         # 障碍判定只在"边界侵蚀 N 层后的可靠区"内做，代价是障碍轮廓缩 N*4cm（核心保留）。
@@ -163,6 +175,9 @@ class LidarObstacleScan:
         self.pub_vlimit = rospy.Publisher('/r300_lidar/ground_speed_limit', Float32, queue_size=1)
         rospy.Subscriber(self.elevation_topic, GridMap, self.cb, queue_size=1,
                          buff_size=64 * 1024 * 1024)
+        if self.fast_enable:
+            rospy.Subscriber(self.fast_cloud_topic, PointCloud2, self._cloud_cb,
+                             queue_size=1, buff_size=4 * 1024 * 1024)
         self.pub_cmd = rospy.Publisher('/subject1/cmd_vel_raw', Twist, queue_size=1)
         rospy.Subscriber('/move_base/status', GoalStatusArray, self._mb_status_cb, queue_size=2)
         rospy.Timer(rospy.Duration(1.0), self._watchdog)
@@ -293,6 +308,29 @@ class LidarObstacleScan:
             if tn - t0 >= 1.2:
                 return math.hypot(xn - x0, yn - y0) < 0.05
         return False
+
+    def _cloud_cb(self, msg):
+        self._fast_cloud = msg  # 单引用原子替换
+
+    @staticmethod
+    def _cloud_xyz(msg):
+        """PointCloud2 → (N,3) float32, 按 point_step 通用解析(x/y/z 在偏移 0/4/8)。"""
+        n = msg.width * msg.height
+        if n == 0:
+            return None
+        arr = np.frombuffer(msg.data, dtype=np.uint8)
+        if arr.size < n * msg.point_step:
+            return None
+        arr = arr[:n * msg.point_step].reshape(n, msg.point_step)
+        return arr[:, :12].copy().view(np.float32).reshape(n, 3)
+
+    @staticmethod
+    def _quat_mat(q):
+        x, y, z, w = q.x, q.y, q.z, q.w
+        return np.array([
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
 
     @staticmethod
     def _layer_matrix(msg, name):
@@ -452,6 +490,49 @@ class LidarObstacleScan:
                    (r >= self.range_min) & (r <= self.range_max)
             np.minimum.at(ranges, idx[keep], r[keep].astype(np.float32))
 
+        # 5.5) 快反层: 单帧点云直通(仅正障碍), 与高程图束并联取最小值。
+        # 密度门槛 fast_min_points(角度束×0.25m距离桶内≥N点)防雨尘/草尖单点噪声。
+        fast_dbg = None
+        if self.fast_enable and self._fast_cloud is not None:
+            cmsg = self._fast_cloud
+            if (rospy.Time.now() - cmsg.header.stamp).to_sec() <= self.fast_cloud_timeout:
+                pts = self._cloud_xyz(cmsg)
+                if pts is not None and len(pts):
+                    R = self._quat_mat(t.transform.rotation)
+                    pw = pts @ R.T
+                    pw[:, 0] += t.transform.translation.x
+                    pw[:, 1] += t.transform.translation.y
+                    pw[:, 2] += t.transform.translation.z
+                    hzp = pw[:, 2] - ground
+                    sel = (hzp > self.fast_min_h) & (hzp < self.max_h)
+                    if sel.any():
+                        cf, sf = math.cos(-heading), math.sin(-heading)
+                        dxf = pw[sel, 0] - bx
+                        dyf = pw[sel, 1] - by
+                        fxf = cf * dxf - sf * dyf
+                        fyf = sf * dxf + cf * dyf
+                        rf = np.hypot(fxf, fyf)
+                        angf = np.arctan2(fyf, fxf)
+                        idxf = np.round((angf - self.angle_min) / self.angle_inc).astype(np.int64)
+                        keepf = ((idxf >= 0) & (idxf < self.n_beams)
+                                 & (rf >= self.min_range) & (rf <= self.fast_max_range))
+                        if keepf.any():
+                            idxk, rk = idxf[keepf], rf[keepf]
+                            key = idxk * 100 + (rk / 0.25).astype(np.int64)
+                            _, inv, cnt = np.unique(key, return_inverse=True,
+                                                    return_counts=True)
+                            good = cnt[inv] >= self.fast_min_pts
+                            if good.any():
+                                np.minimum.at(
+                                    ranges, idxk[good],
+                                    (rk[good] - self.safety_margin).astype(np.float32))
+                                fast_dbg = np.column_stack(
+                                    [fxf[keepf][good], fyf[keepf][good],
+                                     hzp[sel][keepf][good]]).astype(np.float32)
+                                rospy.loginfo_throttle(
+                                    10.0, 'lidar_obstacle_scan: 快反层 %d 点入束(最远 %.1fm)',
+                                    int(good.sum()), float(rk[good].max()))
+
         # 2026-07-30 旋转判撞修复: stamp 必须=位姿采样时刻(回调入口 TF 的时间), 不能用 now()。
         # 此前 now() 比 TF 采样晚 0.1~0.2s(numpy 处理耗时+消息龄), 下游快照层按 stamp 查
         # 1X 树 TF 把点反变换回世界系——旋转 0.75rad/s 时两次采样差=4~9° 切向错位
@@ -532,6 +613,8 @@ class LidarObstacleScan:
                 return np.column_stack([c * dx - s * dy, s * dx + c * dy, z])
 
             pts = np.vstack([cloud(pos_mask), cloud(neg_mask, 0.5)])
+            if fast_dbg is not None:
+                pts = np.vstack([pts, fast_dbg])  # 快反层点也进橙色调试云
             self.pub_cloud.publish(pcl2.create_cloud(
                 Header(stamp=stamp, frame_id=self.output_frame), CLOUD_FIELDS, pts.tolist()))
 
