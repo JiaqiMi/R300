@@ -225,6 +225,6 @@
     <param name="/move_base/global_costmap/lidar_snapshot_layer/publish_active_scan" value="false"/>
     <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
     <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="1.0"/> <!-- 2026-07-30 深夜 1.3→1.0 与局部同步(操作员实测膨胀太大; 快反层已承担提前减速) -->
-    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="2.0"/>
+    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="1.5"/> <!-- 2026-07-30 2.0→1.5 与局部同步("太贴近"修正: 半径1.0不动, 靠衰减放缓+occdist加权拉开让距) -->
   </group>
 </launch>
