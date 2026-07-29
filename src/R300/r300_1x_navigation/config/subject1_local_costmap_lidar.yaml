@@ -32,8 +32,9 @@ local_costmap:
                         # 3.0=原设计值, 覆盖近盲区; 代价是行人拖尾~3s
 
     # 保持逻辑由每个障碍自己的 TTL 负责，不因短时断流提前清空。
-    expected_update_rate_s: 0.0
-    stop_on_stale: false
+    expected_update_rate_s: 1.0  # 2026-07-29审计: 0=断流保险彻底关闭(源码证实stop_on_stale只标current_不清图)
+    stop_on_stale: true          # 适配节点整个挂死时: scan断流1s→current_=false→move_base停车,
+                                 # 否则TTL 3s后障碍全清+车按最后限速2.0盲开(审计发现的真隐患)
 
     max_message_age_s: 0.5
     transform_timeout_s: 0.10
@@ -61,7 +62,8 @@ local_costmap:
 
   inflation_layer:
     enabled: true
-    inflation_radius: 0.65  # 室外基准。硬下限=内切半径0.35(车半宽): 低于它连"必撞环"都画不全,
+    inflation_radius: 1.0   # 2026-07-29审计: 0.65时车角(外接圆0.57)外软代价带仅8cm且边缘138跳崖到0;
+                            # 1.0边缘代价69渐变, 2m/s制动包络1.4m覆盖率翻倍  # 室外基准。硬下限=内切半径0.35(车半宽): 低于它连"必撞环"都画不全,
                             # 细障碍会从footprint采样缝漏过(现场曾设0.25已纠正)。室内档在launch里覆盖为0.45
     cost_scaling_factor: 2.0  # 2026-07-29 3.0→2.0: 膨胀衰减放缓, 外圈软代价更高,
                               # DWA更不愿切入膨胀区(补偿致命标记天生偏小: 4cm格+侵蚀缩边)

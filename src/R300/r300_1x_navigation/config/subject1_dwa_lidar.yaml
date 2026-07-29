@@ -7,14 +7,14 @@ DWAPlannerROS:
 
   # ---------------- 速度限制 ----------------
   # 仅作为开阔区域最高速度。
-  max_vel_x: 2.00
+  max_vel_x: 1.50   # 静态值=适配节点挂死时的最后防线(运行时由限速器接管提到v_max)
   min_vel_x: -0.20  # 2026-07-29 0→-0.20: 自救倒车。实测死锁: 车头footprint进致命区+
                     # 禁倒车=零可行轨迹, 给任何目标都不动。允许低速倒车DWA可自行退出死角
 
   max_vel_y: 0.00
   min_vel_y: 0.00
 
-  max_vel_trans: 2.00
+  max_vel_trans: 1.50
   min_vel_trans: 0.05
 
   # 只有实车可以稳定达到时才使用0.45。
@@ -43,8 +43,8 @@ DWAPlannerROS:
   # ---------------- 轨迹预测 ----------------
   # 不再单纯通过超长预测距离承担制动安全。
   sim_time: 2.20
-  sim_granularity: 0.03
-  angular_sim_granularity: 0.03
+  sim_granularity: 0.06        # 0.03相对0.1m格是3倍过采样(36万次footprint评估/s纯浪费)
+  angular_sim_granularity: 0.06
 
   # 适合8～10Hz，降低计算负担。
   vx_samples: 12
@@ -55,7 +55,9 @@ DWAPlannerROS:
   # 允许更明显地离开穿过障碍的全局直线路径。
   path_distance_bias: 30.0
   goal_distance_bias: 18.0
-  occdist_scale: 0.05
+  occdist_scale: 0.15  # 2026-07-29审计【主杠杆】: DWA只按轨迹终点footprint代价计分,
+                       # 0.05时贴内切区(253)仅等价0.84m偏航→数学上必选擦边而非绕行
+                       # ——"膨胀层太窄"观感的行为学本质; 0.15时等价2.5m, 绕行才赢
 
   # 保留少量前视引导，但避免0.30造成过度回正。
   forward_point_distance: 0.30  # 2026-07-29 0.15→0.30(审查P1-5): 前视杆臂加倍, 旋转方向梯度×2
