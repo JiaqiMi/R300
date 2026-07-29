@@ -2,7 +2,11 @@ recovery_behavior_enabled: false
 shutdown_costmaps: false
 
 controller_frequency: 5.0
-planner_frequency: 1.0   # 2026-07-29 0→1.0: 障碍堵住直线后全局路径自动重算, 根治"DWA failed to produce path"卡死(recovery已禁用无自救)
+planner_frequency: 1.0   # 2026-07-29 0→1.0。诚实修正(对抗性审查): 全局图是空白静态图且无障碍层,
+                         # 重规划恒得"起点前移后的同一条直线"——真实收益仅是刷新 DWA 的 MapGrid
+                         # 播种(旧计划格落进内切区时所有轨迹被判死, 1Hz重锚可解); 并不能让全局
+                         # 路径绕障。rviz 里绿线"绕弯"是重规划起点跟随车移动的视觉伪象。
+                         # 真绕障需给全局 costmap 加障碍层+膨胀(待决策)。
 
 planner_patience: 8.0
 controller_patience: 8.0

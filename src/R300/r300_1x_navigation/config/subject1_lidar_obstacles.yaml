@@ -65,7 +65,8 @@ speed_limit_v_max: 2.0           # 放开上限(2026-07-28 1.5→2.5)。开阔�
                                  # 关掉本功能即回落 1.5。GR3D/10Hz/水坑三关验收仍需在实车完成
 speed_limit_v_min: 0.3           # 下限: 保证起步能建图、感知失效时的爬行速度
 speed_limit_brake_acc: 1.0       # 制动加速度, 与 subject1_dwa_lidar 的 acc_lim_x 一致
-speed_limit_react_time: 0.3      # 指令生效延迟预算 s（DWA 8Hz + 底盘响应）
+speed_limit_react_time: 0.5      # 2026-07-29 0.3→0.5(审查P0-3): 0.3按"DWA 8Hz"预算, 实际
+                                 # controller 5Hz(周期0.2s)+costmap 7Hz+底盘响应, 0.3不够
 speed_limit_margin: 1.45         # 停车余量 = 车头 0.45 + 缓冲 0.3
 corridor_half_width: 0.45        # 走廊半宽 = footprint 半宽 0.35 + 0.10
 corridor_start: 0.7              # 验证起点(距 base_link, ≥高程图 min_range 0.6)

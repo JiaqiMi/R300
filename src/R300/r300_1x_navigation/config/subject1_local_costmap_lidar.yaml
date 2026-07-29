@@ -49,7 +49,10 @@ local_costmap:
     association_distance_m: 0.50  # 2026-07-29 回退0.30→0.50: 2m/s×(1/7.6Hz)=0.26m/帧≈0.30上限,
                                   # 提速即关联失败→每帧新建轨迹×TTL3s=障碍重影拖尾
 
-    min_cluster_points: 2   # 2026-07-29 1→2: 单格噪声不再成致命障碍(真沟在3~5m有11+束不受损)
+    min_cluster_points: 1   # 2026-07-29 深夜回退 2→1(对抗性审查 P0-2): 单高程格(4cm)障碍的所有
+                            # 束命中同一格心, dedup 0.05 后只剩 1 点, =2 会把 ≤12cm 细障碍
+                            # (钢筋/标桩/凳腿)整簇丢弃→全链盲; 噪声已有 pos_confirm=2 +
+                            # edge_erosion=3 双保险, 三重过滤属冗余
 
     publish_active_scan: true
     active_scan_topic: /r300_lidar/active_obstacle_scan

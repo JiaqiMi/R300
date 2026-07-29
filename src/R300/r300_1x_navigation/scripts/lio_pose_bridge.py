@@ -44,12 +44,14 @@ ALPHA = 0.35  # twist 一阶低通
 
 def tick(_):
     try:
-        tr = buf.lookup_transform(lio_map, lio_body, rospy.Time(0),
-                                  rospy.Duration(0.05)).transform
+        tr_full = buf.lookup_transform(lio_map, lio_body, rospy.Time(0),
+                                       rospy.Duration(0.05))
     except tf2_ros.TransformException:
         rospy.logwarn_throttle(5.0, 'lio_pose_bridge: FAST-LIO TF(%s->%s) 不可用，桥暂停',
                                lio_map, lio_body)
         return
+    tr = tr_full.transform
+    tf_stamp = tr_full.header.stamp.to_sec()
     q = tr.rotation
     yaw_body = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
     yaw = yaw_body - ext_yaw
@@ -59,15 +61,20 @@ def tick(_):
     z = tr.translation.z - sensor_h
 
     now = rospy.Time.now()
-    t = now.to_sec()
-    if state['t'] is not None and t > state['t']:
-        dt = t - state['t']
+    # 2026-07-29 修复(对抗性审查 P0-1): 差分必须以 TF 时戳为准, 且只在 TF 真正更新
+    # (~10Hz)时进行。旧实现按 50Hz 定时器差分——4/5 个 tick 得 0、1/5 得 5 倍真速,
+    # 低通后速度估计在 0.35~2 倍真值间振荡, DWA 加速度采样窗被垃圾锚点带偏,
+    # 是室内 "failed to produce path"×45 与掉头爬行的头号放大器。
+    if state['t'] is None:
+        state.update(t=tf_stamp, x=x, y=y, yaw=yaw)
+    elif tf_stamp > state['t'] + 1e-6:
+        dt = tf_stamp - state['t']
         dyaw = (yaw - state['yaw'] + math.pi) % (2 * math.pi) - math.pi
         vx = ((x - state['x']) * c + (y - state['y']) * s) / dt
         w = dyaw / dt
         state['v'] += ALPHA * (vx - state['v'])
         state['w'] += ALPHA * (w - state['w'])
-    state.update(t=t, x=x, y=y, yaw=yaw)
+        state.update(t=tf_stamp, x=x, y=y, yaw=yaw)
 
     tfm = TransformStamped()
     tfm.header.stamp = now
