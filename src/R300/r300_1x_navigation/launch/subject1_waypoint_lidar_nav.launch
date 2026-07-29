@@ -93,7 +93,7 @@
 
   <!-- 2026-07-29: 雷达避障模式开启全局重规划(原0=只规划一次直线, 遇障后DWA被拽着撞线;
        mevius2 同款栈一直是 1.0)。声明于此覆盖 subject1_move_base.yaml 的 0 -->
-  <param name="/move_base/planner_frequency" value="2.0"/> <!-- 2026-07-30 1→2Hz: 2m/s下1Hz重规划间隔车走2m, DWA跟陈旧弧线导致过障切近; 40m滚动窗navfn毫秒级 -->
+  <param name="/move_base/planner_frequency" value="1.0"/>
 
   <include file="$(find r300_1x_navigation)/launch/subject1_lidar_avoidance.launch">
     <arg name="config_file" value="$(arg lidar_config_file)"/>
@@ -224,7 +224,7 @@
     <param name="/move_base/global_costmap/lidar_snapshot_layer/association_distance_m" value="0.50"/>
     <param name="/move_base/global_costmap/lidar_snapshot_layer/publish_active_scan" value="false"/>
     <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
-    <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="1.8"/> <!-- 2026-07-30 1.5→1.8 与局部同步(对齐后仍偏近, 零代价边界外推) -->
-    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="1.2"/> <!-- 2026-07-30 与局部统一1.2 -->
+    <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="1.5"/> <!-- 2026-07-30 rviz实锤: navfn 的绿线永远骑在"代价归零边界"=膨胀半径上, 调 scaling/occdist 无法把线推远——半径即路线让距。全局 1.5(线离障碍1.5m), 局部保持 1.0(DWA近障机动手感不变), 两诉求解耦 -->
+    <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="1.5"/>
   </group>
 </launch>
