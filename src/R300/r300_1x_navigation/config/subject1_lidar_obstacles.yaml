@@ -44,7 +44,9 @@ scan_fov_deg: 120.0              # ±60°（视觉链只有 ±27°）
 scan_angle_increment_deg: 0.5
 scan_range_min_m: 0.20
 scan_range_max_m: 10.5
-range_safety_margin_m: 0.15      # 束距离前移安全余量（视觉链为 0.2）
+range_safety_margin_m: 0.05      # 2026-07-29 0.15→0.05: 近距离时15cm前移等于把致命格
+                                 #  塞进车头footprint(实测0.62m障碍标到0.47m→车头进内切区死锁);
+                                 #  缓冲交给膨胀层(0.65m)负责
 input_timeout_s: 2.0             # 高程图断流告警阈值（断流即停发, 下游 TTL 清空 + 限速压至下限）
 
 # ---- 第三招：地面确认限速（不要开得比验证过的地面更快）----
