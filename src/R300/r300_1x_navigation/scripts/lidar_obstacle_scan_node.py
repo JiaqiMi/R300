@@ -94,6 +94,10 @@ class LidarObstacleScan:
         self.sensor_height = float(rospy.get_param('~sensor_height_above_ground', 0.48))
         self.neg_confirm = int(rospy.get_param('~neg_confirm', 3))
         self.pos_confirm = int(rospy.get_param('~pos_confirm', 2))
+        # 2026-07-30 室外2m/s实测"发现晚"根因之二: MID360非重复扫描下远处4cm格
+        # 每帧命中率仅~50%, 原"未命中-1"衰减使计数器 +1,-1,+1,-1 永远到不了阈值
+        # ——确认被结构性推迟到近处。未命中改衰减0.5: 50%命中率~0.5s内可确认。
+        self.confirm_miss_decay = float(rospy.get_param('~confirm_miss_decay', 0.5))
         # 数据接缝伪障守卫：高程图数据前沿 3~4 格是"少点数不可靠带"（掠射单点建格），
         # 会产生环状伪坡/伪正障碍（2026-07-29 实测：侵蚀3层伪坡-59%、伪正障碍-91%）。
         # 障碍判定只在"边界侵蚀 N 层后的可靠区"内做，代价是障碍轮廓缩 N*4cm（核心保留）。
@@ -413,7 +417,7 @@ class LidarObstacleScan:
                 if kk in keys:
                     hist[kk] = min(hist[kk] + 1, need + 2)
                 else:
-                    hist[kk] -= 1
+                    hist[kk] -= self.confirm_miss_decay
                     if hist[kk] <= 0:
                         del hist[kk]
             for kk in keys:

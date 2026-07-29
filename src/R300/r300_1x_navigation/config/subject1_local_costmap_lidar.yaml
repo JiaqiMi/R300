@@ -2,7 +2,7 @@ local_costmap:
   global_frame: odom
   robot_base_frame: base_link
 
-  update_frequency: 7.0   # 2026-07-27 5→10: 配合高程图 10Hz 发布, 全链延迟 -0.1s
+  update_frequency: 10.0  # 2026-07-30 7→10 对齐 scan 10Hz(2m/s全链账, 平均省0.04s=8cm)
   publish_frequency: 1.0
   transform_tolerance: 0.5
   always_send_full_costmap: false
@@ -65,8 +65,9 @@ local_costmap:
 
   inflation_layer:
     enabled: true
-    inflation_radius: 1.0   # 2026-07-29审计: 0.65时车角(外接圆0.57)外软代价带仅8cm且边缘138跳崖到0;
-                            # 1.0边缘代价69渐变, 2m/s制动包络1.4m覆盖率翻倍  # 室外基准。硬下限=内切半径0.35(车半宽): 低于它连"必撞环"都画不全,
-                            # 细障碍会从footprint采样缝漏过(现场曾设0.25已纠正)。室内档在launch里覆盖为0.45
+    inflation_radius: 1.3   # 2026-07-30 1.0→1.3(室外2m/s实测"刹不住"): 关限速器后减速全靠 DWA
+                            # 的软代价梯度, 2.0急停包络=制动1.0m+反应0.6m≈1.6m, 1.3+内切0.36
+                            # 恰好盖住——DWA 提前~1.3m 开始避让/减速。室外基准;
+                            # 硬下限=内切0.36; 室内档在 launch 里覆盖为 0.40 不受影响
     cost_scaling_factor: 2.0  # 2026-07-29 3.0→2.0: 膨胀衰减放缓, 外圈软代价更高,
                               # DWA更不愿切入膨胀区(补偿致命标记天生偏小: 4cm格+侵蚀缩边)
