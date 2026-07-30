@@ -24,7 +24,7 @@
     </group>
 
     <!-- 2. 双YOLO检测与深度定位 -->
-    <include file="$(find r300_yolo_detector)/launch/dual_yolo_depth.launch">
+    <include file="$(find r300_yolo_detector)/launch/dual_yolo_depth_independent.launch">
         <arg name="model1_path" value="$(arg model1_path)"/>
         <arg name="model2_path" value="$(arg model2_path)"/>
     </include>
