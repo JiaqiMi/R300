@@ -205,9 +205,12 @@ class WaypointExecutor(object):
         self.on_failure = rospy.get_param("~on_failure", "retry_then_skip")
         self.failure_retry_limit = int(rospy.get_param("~failure_retry_limit", 1))
         self.failure_retry_delay_s = float(rospy.get_param(
-            "~failure_retry_delay_s", 8.0))  # 脱困反射: 静止判定~1.2s+倒车1.6s+复核, 8s 够整个反射走完
+            "~failure_retry_delay_s", 8.0))  # 脱困反射: 静止判定~1.2s+倒车3.2s+复核, 8s 够整个反射走完
         self.skip_fuse_limit = int(rospy.get_param(
-            "~consecutive_skip_fuse", 3))    # 连续跳过≥N 判系统性故障转 FAILED(如 TF 断/被围死)
+            "~consecutive_skip_fuse", 99))   # 2026-07-30 3→99(比赛档等效禁用): FAILED=全任务永久
+                                             # 停摆, 三个连续航点恰好被障碍群罩住就自杀——比赛哲学:
+                                             # 跳过再多点车还在跑, 都比原地宣布失败强。系统性故障
+                                             # (TF断)另有 stop_on_stale 硬停兜底, 不靠这根保险丝
 
         self.origin = None
         self.latest_odom = None
