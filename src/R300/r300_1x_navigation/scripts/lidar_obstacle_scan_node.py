@@ -131,6 +131,10 @@ class LidarObstacleScan:
         # 墙全权交给 DWA+快反层(实测 2m/s 满足), 只有 负障碍/陡坡(neg_mask) 与
         # 无数据空洞(水坑/坑影=未验证地面) 触发减速。false=旧语义(墙也减速, 室内档用)。
         self.sl_ignore_positive = bool(rospy.get_param('~speed_limit_ignore_positive', False))
+        # 2026-07-30 操作员定: 减速只认"满足负障碍判定条件"的确认格。走廊内
+        # "地面格不足(NaN空洞)"默认【不再】截断 D——缓坡/转弯扫掠/建图前沿的
+        # 空洞曾造成大量假减速。代价: 水坑(无回波)暂时无保护, 待统一调阈值后再开
+        self.sl_hole_cut = bool(rospy.get_param('~speed_limit_hole_cut', False))
         self.sl_v_max = float(rospy.get_param('~speed_limit_v_max', 1.5))
         self.sl_v_min = float(rospy.get_param('~speed_limit_v_min', 0.3))
         self.sl_acc = max(0.1, float(rospy.get_param('~speed_limit_brake_acc', 1.0)))
@@ -163,7 +167,7 @@ class LidarObstacleScan:
         self._dr_retry_after = 0.0
         self._last_sent_v = None
         self._last_hb = 0.0
-        # 限速"降快升慢"状态: 降速立即生效, 回升需持续 0.5s(防绕障时车头扫掠
+        # 限速"降快升慢"状态: 降速立即生效, 回升需持续 0.2s(防绕障时车头扫掠
         # 造成 墙(不限)/空洞(限) 交替 → 限速值高频抖动反复改写 DWA)
         self._v_out = self.sl_v_max
         self._v_raise_since = None
@@ -439,8 +443,32 @@ class LidarObstacleScan:
                        & p[:-2, :-2] & p[:-2, 2:] & p[2:, :-2] & p[2:, 2:])
 
         # 3) 三通道地形判定（v3 语义 + 可靠区守卫）
+        # 2026-07-30 负障碍去趋势(现场实锤: 缓下坡≈9°时 1.6m 外地面即低于 drop 0.25,
+        # 整段坡被当"坑沿", 限速 D 恒卡 1.5m 爬行 50s): 对类地面格最小二乘拟合
+        # 地形平面 h≈a·Δx+b·Δy+c(一次离群修剪防坑/墙拉偏), 判坑改用残差 h_dt——
+        # 缓坡被平面精确吸收不再误报, 真坑是残差离群点照常检出(坡上的坑也认)。
+        # 注: 曾试"距离环带中位数"方案, 对方向性坡度无效(前低后高同环带抵消), 废弃。
+        # 拟合坡度>tan25° 视为异常退回不去趋势; 正障碍通道保持绝对阈值不动。
+        h_dt = h
+        src = rel & rng & (np.abs(h) <= 1.5)
+        n_src = int(src.sum())
+        if n_src >= 200:
+            step = max(1, n_src // 4000)  # 采样≤4000点, 10Hz 下 lstsq 亚毫秒
+            sx = (X[src] - bx)[::step]
+            sy = (Y[src] - by)[::step]
+            sh = h[src][::step]
+            A = np.column_stack([sx, sy, np.ones_like(sx)])
+            try:
+                coef = np.linalg.lstsq(A, sh, rcond=None)[0]
+                keep = np.abs(sh - A @ coef) < 0.3  # 修剪离群(坑/矮障碍残差)再拟一次
+                if int(keep.sum()) >= 100:
+                    coef = np.linalg.lstsq(A[keep], sh[keep], rcond=None)[0]
+                if math.hypot(coef[0], coef[1]) <= 0.47:
+                    h_dt = h - (coef[0] * (X - bx) + coef[1] * (Y - by) + coef[2])
+            except np.linalg.LinAlgError:
+                pass
         pos_mask = rel & (h > self.pos) & (h < self.max_h) & rng
-        neg_mask = rel & (h < -self.drop) & rng
+        neg_mask = rel & (h_dt < -self.drop) & rng
         k = 3  # 24cm 基线中心差分，抗单格噪声
         gx = np.full_like(elev, np.nan)
         gy = np.full_like(elev, np.nan)
@@ -578,7 +606,9 @@ class LidarObstacleScan:
         csl, ssl = math.cos(-heading), math.sin(-heading)
         fxa = csl * (X - bx) - ssl * (Y - by)
         fya = ssl * (X - bx) + csl * (Y - by)
-        ground_ok = rel & (h > -self.drop) & (h < self.pos)  # 可靠区内±阈值=已验证地面
+        # 负向用去趋势高度(缓坡上的远处地面也算"已验证", 否则下坡时限速走廊
+        # 2~3m 处永远地面不足); 正向保持绝对阈值与 pos_mask 一致
+        ground_ok = rel & (h_dt > -self.drop) & (h < self.pos)
         bad = neg_mask | pos_mask                            # 已去抖的障碍
         # —— 自动脱困素材（1Hz watchdog 消费）——
         in_rear = (np.abs(fya) <= self.cor_half_w) & (fxa <= -0.42) & (fxa >= -1.7)
@@ -613,14 +643,16 @@ class LidarObstacleScan:
             D = self.cor_start
             wall_first = False
             for i in range(n_bins):
-                need = max(self.cor_min_cells, self.cor_frac * cnt_all[i])
                 if cnt_neg[i] > 0:
-                    break                 # 坑/陡坡: 无论模式都截断 → 限速
+                    break                 # 已确认负障碍(判定条件+N帧去抖): 截断 → 限速
                 if cnt_pos[i] > 0:
                     wall_first = self.sl_ignore_positive
                     break                 # 墙: 新模式不限速, 旧模式截断
-                if cnt_gnd[i] < need:
-                    break                 # 无数据空洞: 未验证地面 → 限速
+                if self.sl_hole_cut and cnt_gnd[i] < max(
+                        self.cor_min_cells, self.cor_frac * cnt_all[i]):
+                    break                 # 空洞记账(2026-07-30 操作员定默认关:
+                                          # 只有满足负障碍判定条件才减速; 水坑
+                                          # 保护待后期统一调阈值时再启用)
                 D = self.cor_start + (i + 1) * self.cor_bin
             if wall_first:
                 v = self.sl_v_max         # 最近风险是墙 → 交给 DWA, 不压速
@@ -630,7 +662,7 @@ class LidarObstacleScan:
                 at = self.sl_acc * self.sl_react
                 v = -at + math.sqrt(at * at + 2.0 * self.sl_acc * usable)
                 v = max(self.sl_v_min, min(self.sl_v_max, v))
-            # 降快升慢: 降速立即生效, 回升需高于当前值持续 0.5s
+            # 降快升慢: 降速立即生效, 回升需高于当前值持续 0.2s(2026-07-30 现场: 提速要快, 空洞记账默认关后抖动源已除)
             tnow_sl = rospy.get_time()
             if v < self._v_out - 1e-6:
                 self._v_out = v
@@ -638,7 +670,7 @@ class LidarObstacleScan:
             elif v > self._v_out + 0.05:
                 if self._v_raise_since is None:
                     self._v_raise_since = tnow_sl
-                elif tnow_sl - self._v_raise_since >= 0.5:
+                elif tnow_sl - self._v_raise_since >= 0.2:
                     self._v_out = v
                     self._v_raise_since = None
             else:
