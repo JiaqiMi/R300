@@ -48,7 +48,7 @@ DETECTIONS_TOPIC="${DETECTIONS_TOPIC:-/r300_vision/detections}"
 SIGN_CONFIG_FILE="${SIGN_CONFIG_FILE:-}"
 
 LAUNCH_BASE="${LAUNCH_BASE:-true}"
-LAUNCH_RVIZ="${LAUNCH_RVIZ:-true}"
+LAUNCH_RVIZ="${LAUNCH_RVIZ:-false}"
 ODOM_PATH="${ODOM_PATH:-true}"
 SETUP_CAN="${SETUP_CAN:-true}"
 AUTO_RUN="${AUTO_RUN:-false}"
@@ -78,7 +78,8 @@ usage() {
 
 选项：
   --run                    全链路就绪后立即启动航点
-  --no-rviz                不启动 RViz
+  --rviz                   启动 RViz（默认不启动）
+  --no-rviz                不启动 RViz（默认）
   --no-base                不启动底盘，适合台架检查
   --no-path                不启动 /one_x/path 辅助节点
   --setup-can              启动前重新配置 CAN（默认）
@@ -111,6 +112,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --run)
       AUTO_RUN="true"; shift ;;
+    --rviz)
+      LAUNCH_RVIZ="true"; shift ;;
     --no-rviz)
       LAUNCH_RVIZ="false"; shift ;;
     --no-base)
@@ -401,10 +404,35 @@ if ! timeout "$READY_TIMEOUT" rostopic echo -n 1 /one_x/origin >/dev/null 2>&1; 
   error "设置原点后未收到 /one_x/origin"
   exit 1
 fi
+echo -n "origin: "
+timeout 5 rostopic echo -n 1 /one_x/origin 2>/dev/null | \
+  grep -E "latitude|longitude" | head -2 | tr "\n" " " || true
+echo
 if ! timeout "$READY_TIMEOUT" rostopic echo -n 1 /one_x/odom >/dev/null 2>&1; then
   error "设置原点后未收到 /one_x/odom"
   exit 1
 fi
+
+# 与 od2.sh 一致：导航 launch 前采集 3 秒 /one_x/odom，确认有数据并显示极差。
+python3 - <<'PY_ODOM_GATE'
+import rospy
+from nav_msgs.msg import Odometry
+
+rospy.init_node("gatepre", anonymous=True)
+xs = []
+
+def cb(msg):
+    xs.append((msg.pose.pose.position.x, msg.pose.pose.position.y))
+
+rospy.Subscriber("/one_x/odom", Odometry, cb)
+rospy.sleep(3.0)
+if not xs:
+    print("!! /one_x/odom 无数据")
+    raise SystemExit(1)
+ptp = max(abs(x - xs[0][0]) + abs(y - xs[0][1]) for x, y in xs)
+state = "(有正常噪声, 门检会过)" if ptp > 0 else "!! 冻结"
+print("odom %d 帧, 3s极差=%.4fm %s" % (len(xs), ptp, state))
+PY_ODOM_GATE
 
 TF_CHECK="$(mktemp)"
 timeout 4 rosrun tf tf_echo odom base_link >"$TF_CHECK" 2>&1 || true
@@ -500,6 +528,12 @@ else
   info "雷达快照层保持时间：自动读取 YAML 实际加载值"
 fi
 info "日志文件：$LOG_FILE"
+
+# 与 od2.sh 一致：启动正式雷达 RViz 前先清理旧实例，避免节点名/显示冲突。
+if [[ "$LAUNCH_RVIZ" == "true" ]]; then
+  pkill -x rviz 2>/dev/null || true
+  sleep 1
+fi
 
 roslaunch "${ROSLAUNCH_ARGS[@]}" > >(tee "$LOG_FILE") 2>&1 &
 ROSLAUNCH_PID=$!
@@ -740,6 +774,61 @@ info "DWA 最大前进速度：$DWA_MAX_VEL m/s"
 info "move_base 控制频率：$CONTROLLER_FREQUENCY Hz"
 info "局部地图膨胀半径：$INFLATION_RADIUS m"
 info "最大航点距离：${WAYPOINT_MAX_DIST:-unknown} m"
+
+# 复现 od2.sh 对室外雷达导航关键结果的验收。
+GLOBAL_WIDTH="$(rosparam get /move_base/global_costmap/width 2>/dev/null || true)"
+GLOBAL_INFLATION="$(
+  rosparam get /move_base/global_costmap/inflation_layer/inflation_radius \
+    2>/dev/null || true
+)"
+SPEED_LIMIT_LOADED="$(
+  rosparam get /lidar_obstacle_scan_node/speed_limit_apply_to_dwa \
+    2>/dev/null || true
+)"
+[[ "$GLOBAL_WIDTH" == "40.0" || "$GLOBAL_WIDTH" == "40" ]] || {
+  error "室外全局代价地图宽度错误：${GLOBAL_WIDTH:-<空>}，期望 40m"
+  exit 1
+}
+[[ "$GLOBAL_INFLATION" == "1.5" ]] || {
+  error "室外全局膨胀半径错误：${GLOBAL_INFLATION:-<空>}，期望 1.5m"
+  exit 1
+}
+[[ "$SPEED_LIMIT_LOADED" == "$SPEED_LIMIT_APPLY" ]] || {
+  error "限速执行开关加载不一致：${SPEED_LIMIT_LOADED:-<空>}，期望 $SPEED_LIMIT_APPLY"
+  exit 1
+}
+ok "室外全局窗 40m、全局膨胀 1.5m、限速开关均已正确加载"
+
+if [[ "$LAUNCH_BASE" == "true" ]]; then
+  REQUIRED_NODE_COUNT="$(
+    rosnode list 2>/dev/null | \
+      grep -cE '^/(one_x_alignment_gate|move_base|scout_base_node|lidar_obstacle_scan_node|waypoint_executor)$' || true
+  )"
+  [[ "$REQUIRED_NODE_COUNT" == "5" ]] || {
+    error "雷达导航关键节点未达到 5/5，当前 ${REQUIRED_NODE_COUNT:-0}/5"
+    rosnode list 2>/dev/null | \
+      grep -E 'one_x_alignment_gate|/move_base$|scout_base_node|lidar_obstacle_scan_node|waypoint_executor' \
+      >&2 || true
+    exit 1
+  }
+  ok "雷达导航关键节点 5/5 已就绪"
+fi
+
+if [[ "$LAUNCH_RVIZ" == "true" ]]; then
+  pgrep -x rviz >/dev/null || {
+    error "RViz 未成功启动，请查看：$LOG_FILE"
+    exit 1
+  }
+  ok "RViz 已按 subject1_lidar_nav.rviz 启动"
+fi
+
+wait_message /subject1/waypoint_markers "航点 RViz markers"
+check_topic_type /subject1/waypoint_markers visualization_msgs/MarkerArray \
+  "航点 RViz markers"
+wait_message /r300_lidar/ground_speed_limit "雷达地面限速观测"
+check_topic_type /r300_lidar/ground_speed_limit std_msgs/Float32 \
+  "雷达地面限速观测"
+
 info "当前航点状态："
 rostopic echo -n 1 /subject1/waypoint_status 2>/dev/null || true
 if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then

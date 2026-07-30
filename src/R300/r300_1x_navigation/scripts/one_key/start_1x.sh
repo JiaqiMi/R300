@@ -113,6 +113,9 @@ rosservice list 2>/dev/null | grep -qx '/one_x/set_current_origin' || {
 }
 
 ok "1X 原始解析已就绪"
+echo "当前 GPS / INS 状态："
+timeout 6 rostopic echo -n 1 /one_x/ins_fix 2>/dev/null | \
+  grep -E "latitude|longitude|status" | head -4 || true
 if [[ "$ORIGIN_MODE" == "deferred" ]]; then
   warn "当前尚未建立导航原点；这是正常状态。"
   echo "启动视觉导航或实车导航时，会自动调用："

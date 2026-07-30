@@ -18,9 +18,14 @@ LOG_FILE="$LOG_DIR/web_start_lidar_elevation.log"
   echo "ROS_MASTER_URI=$ROS_MASTER_URI"
   echo "检查 single_lidar_elevation 包..."
   rospack find single_lidar_elevation
-  echo "启动：MID-360 + FAST-LIO + GPU高程计算（不启动RViz、不向Web传输点云/高程）"
-  echo "需要浏览器显示时，请单独点击‘显示点云 / 高程’。"
-  exec roslaunch r300_web_dashboard r300_lidar_web.launch \
-    start_sensor_stack:=true \
-    start_web_adapter:=false
+  LIDAR_SCRIPT="$HOME/r300_ws/scripts/start_single_lidar_elevation.sh"
+  if [[ ! -f "$LIDAR_SCRIPT" ]]; then
+    echo "未找到正式雷达启动脚本：$LIDAR_SCRIPT"
+    exit 1
+  fi
+  [[ -x "$LIDAR_SCRIPT" ]] || chmod +x "$LIDAR_SCRIPT"
+
+  echo "启动：MID-360 + FAST-LIO + GPU高程计算（自动查找持有192.168.1.50的网口）"
+  echo "不启动RViz、不向Web传输点云/高程；需要显示时请单独点击‘显示点云 / 高程’。"
+  exec env RVIZ=0 RESTART_EXISTING=1 bash "$LIDAR_SCRIPT"
 } 2>&1 | tee -a "$LOG_FILE"

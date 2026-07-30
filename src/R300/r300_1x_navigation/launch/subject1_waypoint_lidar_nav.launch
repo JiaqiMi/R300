@@ -70,7 +70,8 @@
     <arg name="waypoint_file" value="$(arg waypoint_file)"/>
     <arg name="launch_base" value="$(arg launch_base)"/>
     <arg name="launch_lidar" value="false"/>
-    <arg name="launch_rviz" value="$(arg launch_rviz)"/>
+    <!-- 雷达模式的 RViz 在本 launch 末尾按固定配置单独启动。 -->
+    <arg name="launch_rviz" value="false"/>
     <arg name="auto_start" value="$(arg auto_start)"/>
     <arg name="max_goal_distance_from_origin_m"
          value="$(arg max_goal_distance_from_origin_m)"/>
@@ -232,5 +233,11 @@
     <param name="/move_base/global_costmap/inflation_layer/enabled" value="true"/>
     <param name="/move_base/global_costmap/inflation_layer/inflation_radius" value="1.5"/> <!-- 2026-07-30 rviz实锤: navfn 的绿线永远骑在"代价归零边界"=膨胀半径上, 调 scaling/occdist 无法把线推远——半径即路线让距。全局 1.5(线离障碍1.5m), 局部保持 1.0(DWA近障机动手感不变), 两诉求解耦 -->
     <param name="/move_base/global_costmap/inflation_layer/cost_scaling_factor" value="1.5"/>
+  </group>
+
+  <!-- RViz 默认关闭；仅在 launch_rviz:=true 时加载正式雷达导航布局。 -->
+  <group if="$(arg launch_rviz)">
+    <node pkg="rviz" type="rviz" name="rviz" output="screen"
+          args="-d $(find r300_1x_navigation)/config/subject1_lidar_nav.rviz"/>
   </group>
 </launch>
