@@ -80,11 +80,11 @@ min_occupied_confidence: 0.30
 occupied_conflict_distance_m: 0.60
 
 # parking_empty：高置信 + 连续10帧 + 位置不跳变。
-min_empty_confidence: 0.60
+min_empty_confidence: 0.20
 stable_required_frames: 10
 max_frame_gap_s: 0.60
-max_target_jump_m: 0.25
-max_target_spread_m: 0.25
+max_target_jump_m: 1.5
+max_target_spread_m: 1.5
 min_target_depth_m: 0.40
 max_target_depth_m: 15.0
 min_goal_distance_m: 0.35
