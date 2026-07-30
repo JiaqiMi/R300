@@ -88,5 +88,26 @@ trap cleanup EXIT INT TERM
   fi
 
   echo "说明：不会自动执行航点；就绪后在网页点击‘开始航点’。"
+
+  # 2026-07-30 操作员需求：Web 启动导航后在板载屏幕同步拉起 rviz(雷达导航配置)。
+  # 后台等 /move_base 注册(至多150s)再起，rviz 用 setsid 脱离进程组——
+  # Web 的进程组清理只影响导航本体，rviz 由 web_stop_lidar_nav.sh 显式关闭。
+  RVIZ_CONFIG="$WS/src/R300/r300_1x_navigation/config/subject1_lidar_nav.rviz"
+  (
+    for _ in $(seq 1 150); do
+      rosnode list 2>/dev/null | grep -qx /move_base && break
+      sleep 1
+    done
+    if rosnode list 2>/dev/null | grep -qx /move_base; then
+      pkill -x rviz 2>/dev/null || true
+      sleep 1
+      echo "[$(date '+%F %T')] /move_base 已就绪，板载屏幕拉起 rviz"
+      setsid env DISPLAY="${RVIZ_DISPLAY:-:0}" DISABLE_ROS1_EOL_WARNINGS=1 \
+        rviz -d "$RVIZ_CONFIG" >>"$LOG_DIR/web_rviz.log" 2>&1 </dev/null &
+    else
+      echo "[$(date '+%F %T')] 150s 内未见 /move_base，本次不拉起 rviz"
+    fi
+  ) &
+
   exec "$NAV_SCRIPT" "${NAV_ARGS[@]}"
 } 2>&1 | tee -p -a "$LOG_FILE"

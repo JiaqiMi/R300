@@ -608,10 +608,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             with PROC_LOCK:
                 real_running = _is_running(PROCS.get("real_nav"))
                 visual_running = _is_running(PROCS.get("costmap"))
+                ins_proc_running = _is_running(PROCS.get("ins"))
             if real_running:
                 ok, msg = False, "纯实车导航正在运行，请先停止后再启动雷达避障导航。"
             elif visual_running:
                 ok, msg = False, "视觉避障导航/代价地图正在运行，请先停止后再启动雷达避障导航。"
+            elif not ins_proc_running and not _runtime_running("ins"):
+                # 2026-07-30: 1X 完全没启动时直接拦下并给出指引；
+                # "刚点了启动1X还在注册中"的窗口由导航脚本的等待循环兜住。
+                ok, msg = False, (
+                    "1X（惯导）未启动。请先点击“启动1X”，"
+                    "稍候片刻再启动雷达避障导航。"
+                )
             elif sign_guidance and not _runtime_running("camera"):
                 ok, msg = False, (
                     "已勾选视觉指示牌临时转向，但相机/YOLO未运行。"

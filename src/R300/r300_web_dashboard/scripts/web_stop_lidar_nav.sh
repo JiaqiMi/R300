@@ -27,5 +27,7 @@ WS="${R300_WS:-$HOME/r300_ws}"
 
   echo "停止雷达避障导航：$STOP_SCRIPT"
   "$STOP_SCRIPT"
-  echo "雷达避障导航停止完成；1X 和雷达高程感知保持运行。"
+  # 2026-07-30: Web 启动导航时会在板载屏幕同步拉起 rviz，停止时一并关闭。
+  pkill -x rviz 2>/dev/null || true
+  echo "雷达避障导航停止完成；1X 和雷达高程感知保持运行（rviz 已关闭）。"
 } 2>&1 | tee -a "$LOG_FILE"

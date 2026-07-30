@@ -306,10 +306,20 @@ if ! rosnode list >/dev/null 2>&1; then
   exit 1
 fi
 
+# 2026-07-30 修复"未发现1X节点"偶发: 原一次性检查零等待, 而 1X 刚点启动时
+# roslaunch 前置盘检查(日志目录大/冷缓存时可达30s+)会推迟节点注册——
+# Web 连续点"启动1X→导航"必踩。改为与 set_current_origin 同款等待循环。
+info "等待 /one_x_serial_driver 注册(至多 ${READY_TIMEOUT}s)……"
+for _ in $(seq 1 "$(awk -v t="$READY_TIMEOUT" 'BEGIN {print int(t * 2)}')"); do
+  rosnode list 2>/dev/null | grep -qx '/one_x_serial_driver' && break
+  sleep 0.5
+done
 rosnode list 2>/dev/null | grep -qx '/one_x_serial_driver' || {
-  error "未发现 /one_x_serial_driver。请先在另一终端运行：./start_1x.sh"
+  error "等待 ${READY_TIMEOUT}s 后仍未发现 /one_x_serial_driver。"
+  error "请确认已启动 1X（Web'启动1X'按钮或 ./start_1x.sh），再重试本步骤。"
   exit 1
 }
+ok "/one_x_serial_driver 已注册"
 
 if rosnode list 2>/dev/null | grep -qx '/move_base'; then
   error "检测到已有 /move_base。请先停止纯实车、视觉或旧雷达导航。"

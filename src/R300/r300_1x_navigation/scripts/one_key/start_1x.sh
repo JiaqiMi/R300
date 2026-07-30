@@ -16,7 +16,10 @@ INS_BAUD="${INS_BAUD:-230400}"
 FULL_ATT="${FULL_ATT:-false}"
 ORIGIN_MODE="${ORIGIN_MODE:-deferred}"
 ORIGIN_MAX_AGE="${ORIGIN_MAX_AGE:-0.50}"
-READY_TIMEOUT="${READY_TIMEOUT:-30}"
+READY_TIMEOUT="${READY_TIMEOUT:-90}"  # 2026-07-30 30→90: 实测重启后冷缓存下
+                                      # roslaunch 前置盘检查(~/.ros/log 1.5GB/3647项)
+                                      # 可吃掉整整30s——驱动毫秒级就绪却被30s整点
+                                      # 误杀(见 web_start_ins.log 2026-07-30 11:08 案例)
 LOG_DIR="${LOG_DIR:-$WS/log/one_x}"
 
 info()  { printf '\033[1;34m[INFO]\033[0m %s\n' "$*"; }
@@ -46,6 +49,16 @@ fi
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/one_x_$(date +%Y%m%d_%H%M%S).log"
 ROSLAUNCH_PID=""
+
+# 2026-07-30 根因治理: roslaunch 启动前会扫描 ~/.ros/log 做磁盘用量检查,
+# 目录过大+冷缓存时该步可达30s+, 是"节点迟迟不注册→被超时误杀"的元凶。
+# 每次启动顺手清理7天前的旧运行目录(绝不动 latest 指向的活动目录), 保持盘检查毫秒级。
+ACTIVE_LOG_DIR="$(readlink -f "$HOME/.ros/log/latest" 2>/dev/null || true)"
+find "$HOME/.ros/log" -mindepth 1 -maxdepth 1 -type d -mtime +7 2>/dev/null |
+  while read -r d; do
+    [[ -n "$ACTIVE_LOG_DIR" && "$d" == "$ACTIVE_LOG_DIR" ]] && continue
+    rm -rf "$d"
+  done || true
 
 cleanup() {
   local rc=$?
