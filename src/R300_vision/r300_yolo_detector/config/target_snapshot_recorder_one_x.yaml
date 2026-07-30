@@ -1,0 +1,90 @@
+# ============================================================
+# 目标截图与真实经纬度记录参数
+# ============================================================
+
+# 检测节点输出
+image_topic: /r300_vision/annotated_image
+detections_topic: /r300_vision/detections
+
+# 1X导航驱动输出
+# /one_x/fix: sensor_msgs/NavSatFix
+# /one_x/heading_deg: std_msgs/Float64
+# 航向定义已经在项目 one_x_serial_driver 中确认：
+# 北=0°，东=90°，顺时针增加。
+gps_topic: /one_x/fix
+heading_topic: /one_x/heading_deg
+
+# 导航数据超过该时间未更新时，视为失效。
+max_gps_age_s: 1.0
+max_heading_age_s: 1.0
+
+# 航向安装/标定偏差：
+# effective_heading = /one_x/heading_deg + heading_offset_deg
+heading_offset_deg: 0.0
+
+# 本地保存目录
+# candidate_records/：候选记录库
+# submit_results/：自动筛选后的全局Top结果
+output_dir: /home/explorer/r300_target_records
+
+# 保持原有筛选逻辑
+candidate_max_per_target: 20
+candidate_max_total: 500
+submit_max: 10
+min_target_distance_m: 5.0
+
+# 记录最低置信度，可按类别覆盖
+minimum_confidence: 0.25
+class_conf_thresholds: {}
+# 示例：
+# class_conf_thresholds:
+#   tire: 0.30
+#   vehicle: 0.45
+#   person: 0.40
+#   "12": 0.25
+
+jpeg_quality: 95
+
+# false：GPS、航向无效或超时则不保存，防止生成(0,0)伪坐标。
+# 当前 /one_x/fix 样帧若仍为 latitude=0、longitude=0，记录器会等待有效定位。
+save_when_gps_invalid: false
+
+# 只有目标深度和相机三维坐标有效时才保存
+require_depth_valid: true
+
+# 标注图和检测数组同步参数
+sync_queue_size: 10
+sync_slop: 0.05
+
+# 尚未收到有效导航数据时的占位值
+default_latitude: 0.0
+default_longitude: 0.0
+default_heading_deg: 0.0
+
+# ============================================================
+# 相机外参
+# ============================================================
+# 相机光学坐标系：X右、Y下、Z前
+# 车辆FRD坐标系： X前、Y右、Z下
+#
+# Xb = Zc
+# Yb = Xc
+# Zb = Yc
+camera_to_body_rotation:
+  - 0.0
+  - 0.0
+  - 1.0
+  - 1.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+  - 0.0
+
+# 这里的车辆原点应与 /one_x/fix 对应的定位参考点一致。
+# 暂定相机位于该参考点前方0.30 m、上方0.10 m。
+# FRD坐标系Z向下，因此上方0.10 m记为-0.10。
+camera_in_body_translation_m:
+  - 0.30
+  - 0.00
+  - -0.10

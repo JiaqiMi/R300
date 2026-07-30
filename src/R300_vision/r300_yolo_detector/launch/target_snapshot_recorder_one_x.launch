@@ -1,0 +1,39 @@
+<launch>
+    <!-- 默认配置文件 -->
+    <arg
+        name="config_file"
+        default="$(find r300_yolo_detector)/config/target_snapshot_recorder_one_x.yaml"
+    />
+
+    <!-- 可在命令行直接覆盖的关键参数 -->
+    <arg name="gps_topic" default="/one_x/fix"/>
+    <arg name="heading_topic" default="/one_x/heading_deg"/>
+    <arg name="output_dir" default="/home/explorer/r300_target_records"/>
+    <arg name="heading_offset_deg" default="0.0"/>
+    <arg name="max_gps_age_s" default="1.0"/>
+    <arg name="max_heading_age_s" default="1.0"/>
+
+    <node
+        pkg="r300_yolo_detector"
+        type="target_snapshot_recorder_one_x.py"
+        name="r300_target_snapshot_recorder"
+        output="screen"
+        respawn="true"
+        respawn_delay="3.0"
+        required="false"
+    >
+        <!-- 先加载完整YAML -->
+        <rosparam
+            command="load"
+            file="$(arg config_file)"
+        />
+
+        <!-- 再由launch参数覆盖关键值 -->
+        <param name="gps_topic" value="$(arg gps_topic)"/>
+        <param name="heading_topic" value="$(arg heading_topic)"/>
+        <param name="output_dir" value="$(arg output_dir)"/>
+        <param name="heading_offset_deg" value="$(arg heading_offset_deg)"/>
+        <param name="max_gps_age_s" value="$(arg max_gps_age_s)"/>
+        <param name="max_heading_age_s" value="$(arg max_heading_age_s)"/>
+    </node>
+</launch>
