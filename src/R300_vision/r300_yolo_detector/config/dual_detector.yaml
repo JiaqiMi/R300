@@ -42,7 +42,7 @@ model2_iou_threshold: 0.45
     # 5: 12,  # crater
 model1_class_conf_thresholds:
   vehicle: 0.25
-  smoke: 0.25
+  smoke: 0.98
   trench: 0.25
   person: 0.25
   park: 0.20
@@ -54,7 +54,8 @@ model2_class_conf_thresholds:
   barrel: 0.25
   puddle: 0.25
   rockfall: 0.25
-  park: 0.20
+  chevro_left: 0.20
+  chevro_right: 0.20
   sandbag: 0.25
 
 # 模型2框与模型1框重叠时，由模型2覆盖模型1，避免同一目标同时

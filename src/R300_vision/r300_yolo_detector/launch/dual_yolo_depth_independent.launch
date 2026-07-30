@@ -1,0 +1,39 @@
+<launch>
+    <arg
+        name="model1_path"
+        default="$(find r300_yolo_detector)/models/model_c6_260727.pt"
+    />
+
+    <arg
+        name="model2_path"
+        default="$(find r300_yolo_detector)/models/model_c7_260727.pt"
+    />
+
+    <arg
+        name="config_file"
+        default="$(find r300_yolo_detector)/config/dual_detector.yaml"
+    />
+
+    <node
+        pkg="r300_yolo_detector"
+        type="dual_yolo_depth_node_independent.py"
+        name="r300_dual_yolo_depth_node"
+        output="screen"
+        required="true"
+    >
+        <env
+            name="LD_PRELOAD"
+            value="/usr/lib/aarch64-linux-gnu/libgomp.so.1"
+        />
+
+        <!-- 先加载公共参数和每类别置信度阈值 -->
+        <rosparam
+            command="load"
+            file="$(arg config_file)"
+        />
+
+        <!-- launch参数优先覆盖YAML中的模型路径 -->
+        <param name="model1_path" value="$(arg model1_path)"/>
+        <param name="model2_path" value="$(arg model2_path)"/>
+    </node>
+</launch>

@@ -1,0 +1,82 @@
+# ============================================================
+# 自主泊车双模型配置
+# ============================================================
+# 模型1复用现有6类模型：
+#   local 0 vehicle, 1 smoke, 2 trench, 3 person, 4 park, 5 crater
+# 本节点只运行 local_id=4，即 park。
+#
+# 模型2为3分类停车框模型：
+#   local_id=0 -> parking_occupied（停车框被占据）
+#   local_id=1 -> parking_empty（停车框空闲）
+#   local_id=2 -> 忽略
+#
+# 对外统一编号：
+#   park=8
+#   parking_occupied=13
+#   parking_empty=14
+# ============================================================
+model1_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model_c6_260727.pt
+model2_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/parking_status_c3.pt
+
+# ============================================================
+# 输入/输出话题
+# 与原双模型节点保持相同消息类型和话题名称。
+# ============================================================
+rgb_topic: /camera/color/image_raw
+depth_topic: /camera/aligned_depth_to_color/image_raw
+camera_info_topic: /camera/color/camera_info
+
+annotated_topic: /r300_vision/annotated_image
+detections_topic: /r300_vision/detections
+target_point_topic: /r300_vision/target_point
+
+# ============================================================
+# 通用推理参数
+# ============================================================
+device: "0"
+imgsz: 640
+max_det: 100
+
+# 两个模型顺序处理同一帧。建议先从4 Hz开始。
+infer_hz: 4.0
+
+# ============================================================
+# 模型1：仅park
+# ============================================================
+model1_conf_threshold: 0.15
+model1_iou_threshold: 0.45
+
+model1_class_conf_thresholds:
+  park: 0.30
+
+# ============================================================
+# 模型2：停车框占用状态
+# ============================================================
+model2_conf_threshold: 0.15
+model2_iou_threshold: 0.45
+
+model2_class_conf_thresholds:
+  parking_occupied: 0.30
+  parking_empty: 0.30
+
+# 标注图显示来源：[PARK] 或 [SLOT]
+show_model_source: true
+
+# ============================================================
+# RGB/Depth同步和深度定位
+# ============================================================
+sync_queue_size: 8
+sync_slop: 0.08
+
+depth_window_radius: 4
+min_valid_depth_pixels: 5
+depth_scale_16u: 0.001
+min_depth_m: 0.15
+max_depth_m: 20.0
+
+# 自主泊车默认只从空闲停车框中选择控制目标。
+target_classes:
+  - parking_empty
+
+# nearest 或 highest_confidence
+target_policy: nearest
