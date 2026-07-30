@@ -155,21 +155,6 @@ class LidarObstacleScan:
         # → 自动低速倒车 0.4m（DWA 在 footprint 陷入致命区后连倒车轨迹都会拒绝, 见死锁分析）
         self.enable_auto_unstick = bool(rospy.get_param('~enable_auto_unstick', True))
         self.unstick_cooldown = float(rospy.get_param('~unstick_cooldown_s', 15.0))
-        # 2026-07-30 比赛档加量 0.4→0.8: 车尾走廊实际验证到 -1.7m, footprint 尾部
-        # -0.40, 倒 0.8 后尾部 -1.2 仍在验证区内; 每目标一次×executor重试链=可累计
-        self.unstick_reverse_m = float(rospy.get_param('~unstick_reverse_m', 0.8))
-        self.unstick_beats = max(30, int(self.unstick_reverse_m * 75))  # 0.25m/s@10Hz 1.9×裕度
-        # 盲区兜底(P1-2): 车尾无法验证时正常脱困拒绝出手, footprint 又陷致命区
-        # = 永久冻结。冻结超时后半速盲倒(知情风险: 慢速小碰撞 < 比赛卡死)
-        self.blind_after = float(rospy.get_param('~unstick_blind_after_s', 60.0))
-        self.blind_reverse_m = float(rospy.get_param('~unstick_blind_reverse_m', 0.5))
-        self.blind_beats = max(30, int(self.blind_reverse_m * 120))    # 0.15m/s@10Hz 1.8×裕度
-        # 水坑/无回波空洞→虚拟障碍(P0-1): 参数详见 yaml
-        self.hole_enable = bool(rospy.get_param('~hole_as_obstacle', True))
-        self.hole_confirm = int(rospy.get_param('~hole_confirm_frames', 8))
-        self.hole_max_range = float(rospy.get_param('~hole_max_range_m', 4.0))
-        self.hole_sector = math.radians(float(rospy.get_param('~hole_sector_half_deg', 75.0)))
-        self.hole_ttl = float(rospy.get_param('~hole_memory_ttl_s', 60.0))
 
         self._neg_hist = {}
         self._pos_hist = {}
@@ -184,10 +169,6 @@ class LidarObstacleScan:
         self._v_raise_since = None
         self._last_abort = 0.0
         self._last_unstick = 0.0
-        self._last_blind = 0.0
-        self._frozen_ref = None   # (t, x, y) 长时冻结跟踪: 位移>0.3m 即刷新
-        self._hole_hist = {}      # 世界格 → 连续无效帧计数
-        self._hole_mem = {}       # 世界格 → (最后无效时刻, wx, wy) 已确认空洞
         self._abort_goal_id = None
         self._handled_goal_id = None
         self._mb_active = False
@@ -242,66 +223,45 @@ class LidarObstacleScan:
                 and self._rear_free and self._stationary()):
             goal_id = self._abort_goal_id
             self._handled_goal_id = goal_id
+            start = self._pose_hist[-1]
             rospy.logwarn('lidar_obstacle_scan: 【自动脱困】DWA已放弃(角卡/围困), '
-                          '车尾走廊(至-1.7m)已验证干净 → 倒车%.2fm', self.unstick_reverse_m)
+                          '车尾1.3m走廊已验证干净 → 倒车0.4m')
             self._last_unstick = now
-            # 2026-07-30 -0.15→-0.25(死区0.2上方); 闭环按实测位移倒足目标距离。
-            # 同日 0.4→0.8(比赛档): 尾部 -0.40 倒 0.8 后到 -1.2, 仍在验证走廊内
-            self._do_reverse(0.25, self.unstick_reverse_m, self.unstick_beats, '自动脱困')
-            return
-        # —— 盲区兜底脱困(2026-07-30 P1-2, 最后手段): 车尾走廊无法验证时上面的
-        # 正常脱困永远拒绝出手; 若 footprint 同时陷在致命区, DWA 连原地旋转都
-        # 拒绝 = 永久冻结, 比赛直接归零。冻结(位移<0.3m)超过 blind_after 秒且
-        # move_base 仍在反复放弃时, 以半速(0.15)盲倒 blind_reverse_m——
-        # 知情风险: 尾后可能有未观测细障碍, 慢速小碰撞 < 卡死的确定损失。
-        if (self.enable_auto_unstick
-                and not self._rear_free
-                and self._frozen_ref is not None
-                and now - self._frozen_ref[0] > self.blind_after
-                and now - self._last_abort < 30.0
-                and not self._mb_active
-                and now - self._last_blind > max(60.0, self.unstick_cooldown)
-                and self._pose_hist and now - self._pose_hist[-1][0] < 1.0
-                and self._stationary()):
-            rospy.logwarn('lidar_obstacle_scan: 【盲倒兜底】冻结 %.0fs 且车尾无法验证, '
-                          '半速盲倒 %.2fm(知情风险)',
-                          now - self._frozen_ref[0], self.blind_reverse_m)
-            self._last_blind = now
-            self._do_reverse(0.15, self.blind_reverse_m, self.blind_beats, '盲倒兜底')
-
-    def _do_reverse(self, speed, target_m, n_beats, label):
-        """闭环倒车公共例程: 按 _pose_hist 实测位移倒足 target_m, 拍数硬上限,
-        途中出现新 ACTIVE 目标立即让位(防与 DWA 在 cmd_vel_raw 上争抢)。"""
-        start = self._pose_hist[-1]
-        tw = Twist()
-        tw.linear.x = -abs(speed)
-        for _ in range(n_beats):
-            if rospy.is_shutdown():
-                break
-            if self._mb_active:
-                rospy.logwarn('lidar_obstacle_scan: 【%s】倒车中检测到新导航目标, 提前让位停车', label)
-                break
-            self.pub_cmd.publish(tw)
-            rospy.sleep(0.1)
-            if self._pose_hist:
-                p = self._pose_hist[-1]
-                if math.hypot(p[1] - start[1], p[2] - start[2]) >= target_m:
-                    break  # 实测位移已足, 闭环停
-        self.pub_cmd.publish(Twist())
-        rospy.sleep(0.3)  # 等 cb 线程刷入倒车后的位姿
-        # 位移复核(仅用于告警, 不重试): 终点位姿必须比倒车开始时刻新才可信
-        end = self._pose_hist[-1] if self._pose_hist else None
-        if end is not None and end[0] > start[0] + 0.5:
-            moved = math.hypot(end[1] - start[1], end[2] - start[2])
-            if moved >= 0.10:
-                rospy.logwarn('lidar_obstacle_scan: 【%s】完成(实际倒车 %.2fm), '
-                              '请重新下发目标', label, moved)
+            tw = Twist()
+            # 2026-07-30 -0.15→-0.25(死区0.2上方); 同日改闭环: 开环16拍在固件坡道下
+            # 实际只倒 0.25~0.35m, 真车 footprint+标记侵入时可能没退出致命区——
+            # 改按 _pose_hist 实测位移倒足 0.4m, 硬上限 3s(30拍), 全程仍在已验证
+            # 的车尾走廊(1.3m)内。
+            tw.linear.x = -0.25
+            for _ in range(30):
+                if rospy.is_shutdown():
+                    break
+                if self._mb_active:
+                    # 审查P1: 倒车中途出现新 ACTIVE 目标(executor 重试/跳过后发出),
+                    # 立即让位停车, 避免与 DWA 前进指令在 cmd_vel_raw 上 10Hz/5Hz 交替争抢
+                    rospy.logwarn('lidar_obstacle_scan: 【自动脱困】倒车中检测到新导航目标, 提前让位停车')
+                    break
+                self.pub_cmd.publish(tw)
+                rospy.sleep(0.1)
+                if self._pose_hist:
+                    p = self._pose_hist[-1]
+                    if math.hypot(p[1] - start[1], p[2] - start[2]) >= 0.40:
+                        break  # 实测位移已足 0.4m, 闭环停
+            self.pub_cmd.publish(Twist())
+            rospy.sleep(0.3)  # 等 cb 线程刷入倒车后的位姿
+            # 位移复核(仅用于告警, 不重试): 终点位姿必须比倒车开始时刻新才可信
+            end = self._pose_hist[-1] if self._pose_hist else None
+            if end is not None and end[0] > start[0] + 0.5:
+                moved = math.hypot(end[1] - start[1], end[2] - start[2])
+                if moved >= 0.10:
+                    rospy.logwarn('lidar_obstacle_scan: 【自动脱困】完成(实际倒车 %.2fm), '
+                                  '请重新下发目标', moved)
+                else:
+                    rospy.logerr('lidar_obstacle_scan: 【自动脱困】指令已发但位移仅 %.2fm'
+                                 '——疑似急停/被顶住/底盘未使能, 本目标不再自动重试, 请人工处理',
+                                 moved)
             else:
-                rospy.logerr('lidar_obstacle_scan: 【%s】指令已发但位移仅 %.2fm'
-                             '——疑似急停/被顶住/底盘未使能, 不自动重试, 请人工关注',
-                             label, moved)
-        else:
-            rospy.logwarn('lidar_obstacle_scan: 【%s】已执行, 但位姿流中断无法复核位移, 请人工确认', label)
+                rospy.logwarn('lidar_obstacle_scan: 【自动脱困】已执行, 但位姿流中断无法复核位移, 请人工确认')
 
     def _fail_safe_slow(self, reason):
         """感知不可信时把限速压到下限（地面无法验证 = 不允许快跑）。"""
@@ -590,80 +550,6 @@ class LidarObstacleScan:
                                     10.0, 'lidar_obstacle_scan: 快反层 %d 点入束(最远 %.1fm)',
                                     int(good.sum()), float(rk[good].max()))
 
-        # 5.6) 水坑/无回波空洞 → 虚拟障碍(2026-07-30 P0-1): 负障碍通道只能标"看得见
-        # 的深", 水面无回波是全盲; 限速器只减速不禁止, 车会以 0.3 爬进水坑。
-        # 从严四条件: 前方±hole_sector扇区、min_range~hole_max_range、该束更近处
-        # 无已知障碍(墙的阴影不算洞)、世界格连续 hole_confirm 帧无效才确认。
-        # 确认格按负障碍语义入束 + hole_ttl 记忆(水坑不会走); 一旦格被真实观测
-        # (变有效)立即除名——真地面几帧内就会填格, 只有水面/强吸收面驻留。
-        hole_dbg = None
-        if self.hole_enable:
-            hnow = rospy.get_time()
-            chh, shh = math.cos(-heading), math.sin(-heading)
-            fxh = chh * (X - bx) - shh * (Y - by)
-            fyh = shh * (X - bx) + chh * (Y - by)
-            rhh = np.hypot(fxh, fyh)
-            angh = np.arctan2(fyh, fxh)
-            cand = ((~rel) & (rhh >= self.min_range) & (rhh <= self.hole_max_range)
-                    & (np.abs(angh) <= self.hole_sector))
-            if cand.any():
-                rc, ac = rhh[cand], angh[cand]
-                idxc = np.round((ac - self.angle_min) / self.angle_inc).astype(np.int64)
-                okc = (idxc >= 0) & (idxc < self.n_beams)
-                # 阴影检查用±2束邻域最小值(±1°窗): 障碍格间距4cm在2m处≈1.15°/束宽0.5°,
-                # 墙在束阵里有缝, 单束比对会让缝后的无效格漏判成洞(合成测试实锤)
-                rs = ranges.copy()
-                for sh2 in (-2, -1, 1, 2):
-                    rs = np.minimum(rs, np.roll(ranges, sh2))
-                sub = okc.copy()
-                sub[okc] = rs[idxc[okc]] > (rc[okc] - 0.1)  # 邻域内更近有障碍=阴影, 排除
-                if sub.any():
-                    wx, wy = X[cand][sub], Y[cand][sub]
-                    kk = ((wx / res).astype(np.int64) * 1000000
-                          + (wy / res).astype(np.int64))
-                    for j in range(len(kk)):
-                        k = int(kk[j])
-                        c2 = self._hole_hist.get(k, 0) + 1
-                        self._hole_hist[k] = c2
-                        if c2 >= self.hole_confirm:
-                            self._hole_mem[k] = (hnow, float(wx[j]), float(wy[j]))
-            # 已被真实观测到的格立即除名(hist+mem)
-            if self._hole_hist:
-                nearv = rel & (rhh <= self.hole_max_range + 2.0)
-                if nearv.any():
-                    vk = ((X[nearv] / res).astype(np.int64) * 1000000
-                          + (Y[nearv] / res).astype(np.int64))
-                    mk = np.fromiter(self._hole_hist.keys(), dtype=np.int64,
-                                     count=len(self._hole_hist))
-                    for k in mk[np.isin(mk, vk)]:
-                        self._hole_hist.pop(int(k), None)
-                        self._hole_mem.pop(int(k), None)
-                if len(self._hole_hist) > 60000:  # 防膨胀粗保险: 只留已确认格
-                    self._hole_hist = {k: c for k, c in self._hole_hist.items()
-                                       if k in self._hole_mem}
-            # TTL 过期 + 入束(记忆格离开扇区仍持续入束, 与负障碍记忆同语义)
-            if self._hole_mem:
-                self._hole_mem = {k: v for k, v in self._hole_mem.items()
-                                  if hnow - v[0] < self.hole_ttl}
-            if self._hole_mem:
-                hv = np.array([(v[1], v[2]) for v in self._hole_mem.values()],
-                              dtype=np.float64)
-                fxm = chh * (hv[:, 0] - bx) - shh * (hv[:, 1] - by)
-                fym = shh * (hv[:, 0] - bx) + chh * (hv[:, 1] - by)
-                rm = np.hypot(fxm, fym) - self.safety_margin
-                am = np.arctan2(fym, fxm)
-                im = np.round((am - self.angle_min) / self.angle_inc).astype(np.int64)
-                keepm = ((im >= 0) & (im < self.n_beams)
-                         & (rm >= self.range_min) & (rm <= self.range_max))
-                if keepm.any():
-                    np.minimum.at(ranges, im[keepm], rm[keepm].astype(np.float32))
-                    hole_dbg = np.column_stack(
-                        [fxm[keepm], fym[keepm],
-                         np.full(int(keepm.sum()), -0.15)]).astype(np.float32)
-                    rospy.logwarn_throttle(
-                        10.0, 'lidar_obstacle_scan: 无回波空洞虚拟障碍 %d 格入束(疑似水坑/强吸收面)',
-                        int(keepm.sum()))
-
         # 2026-07-30 旋转判撞修复: stamp 必须=位姿采样时刻(回调入口 TF 的时间), 不能用 now()。
         # 此前 now() 比 TF 采样晚 0.1~0.2s(numpy 处理耗时+消息龄), 下游快照层按 stamp 查
         # 1X 树 TF 把点反变换回世界系——旋转 0.75rad/s 时两次采样差=4~9° 切向错位
@@ -704,10 +590,6 @@ class LidarObstacleScan:
         tnow = rospy.get_time()
         self._pose_hist.append((tnow, bx, by))
         self._pose_hist = [p for p in self._pose_hist if tnow - p[0] < 3.0]
-        # 长时冻结跟踪(盲倒兜底用): 位移超 0.3m 即刷新参考点
-        if (self._frozen_ref is None
-                or math.hypot(bx - self._frozen_ref[1], by - self._frozen_ref[2]) > 0.3):
-            self._frozen_ref = (tnow, bx, by)
 
         # ---- 第三招：地面确认限速（不要开得比验证过的地面更快）----
         # 车前走廊按纵向切片得到连续验证距离 D。两种记账模式:
@@ -780,8 +662,6 @@ class LidarObstacleScan:
             pts = np.vstack([cloud(pos_mask), cloud(neg_mask, 0.5)])
             if fast_dbg is not None:
                 pts = np.vstack([pts, fast_dbg])  # 快反层点也进橙色调试云
-            if hole_dbg is not None:
-                pts = np.vstack([pts, hole_dbg])  # 空洞虚拟障碍(z=-0.15 沉于地面下, rviz 可辨)
             self.pub_cloud.publish(pcl2.create_cloud(
                 Header(stamp=stamp, frame_id=self.output_frame), CLOUD_FIELDS, pts.tolist()))
 
