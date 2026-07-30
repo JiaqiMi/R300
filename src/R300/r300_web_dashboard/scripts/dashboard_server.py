@@ -658,6 +658,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/stop_ins":
+            # 2026-07-30 顺序护栏: 导航运行中抽走 1X = odom/TF 冻结, 车会被安全链
+            # 硬停但导航栈残留半死状态——必须先停导航再停 1X。
+            if _runtime_running("lidar_nav") or _runtime_running("costmap"):
+                self._send_json({
+                    "ok": False,
+                    "message": "导航正在运行。请先点击“停止导航”，再停止 1X。",
+                    "processes": _process_status()})
+                return
             ok, msg = _run_stop_script(
                 "ins",
                 "~/r300_ws/src/R300/r300_web_dashboard/scripts/web_stop_ins.sh",
@@ -691,6 +699,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
         if path == "/api/stop_lidar":
+            # 2026-07-30 顺序护栏: 导航运行中抽走感知 = scan 断流, stop_on_stale
+            # 会把车硬停, 但导航栈残留——先停导航。
+            if _runtime_running("lidar_nav") or _runtime_running("costmap"):
+                self._send_json({
+                    "ok": False,
+                    "message": "导航正在运行。请先点击“停止导航”，再停止雷达感知。",
+                    "processes": _process_status()})
+                return
             ok, msg = _stop_process("lidar")
             self._send_json({"ok": ok, "message": msg, "processes": _process_status()})
             return
