@@ -1,0 +1,21 @@
+<launch>
+  <arg name="config_file" default="$(find r300_autonomous_parking)/config/autonomous_parking.yaml"/>
+  <arg name="perception_config" default="$(find r300_autonomous_parking)/config/parking_perception.yaml"/>
+  <arg name="model1_path" default="$(find r300_yolo_detector)/models/model_c6_260723.pt"/>
+  <arg name="model2_path" default="$(find r300_yolo_detector)/models/parking_status_c3.pt"/>
+  <arg name="auto_start_after_waypoints" default="false"/>
+
+  <node
+    pkg="r300_autonomous_parking"
+    type="autonomous_parking_node.py"
+    name="r300_autonomous_parking"
+    output="screen"
+    required="true">
+
+    <rosparam command="load" file="$(arg config_file)"/>
+    <param name="auto_start_after_waypoints" value="$(arg auto_start_after_waypoints)"/>
+    <param name="parking_detector_config" value="$(arg perception_config)"/>
+    <param name="model1_path" value="$(arg model1_path)"/>
+    <param name="model2_path" value="$(arg model2_path)"/>
+  </node>
+</launch>
