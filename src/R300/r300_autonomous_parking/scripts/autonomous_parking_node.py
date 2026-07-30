@@ -11,8 +11,9 @@ lidar, or vision source code. It coordinates already existing ROS interfaces:
 * uses the exact parking classes ``park``, ``parking_occupied`` and ``parking_empty``;
 * confirms ``park`` first, rejects occupied bays, and only parks into ``parking_empty``;
 * requires ten consecutive non-jumping detections before freezing a target;
-* transforms the camera-space target into ``map``;
-* converts the ENU target into WGS-84 latitude/longitude and publishes it;
+* reads the current vehicle latitude/longitude from ``/one_x/fix`` and heading from ``/one_x/heading_deg``;
+* converts the stable camera optical-frame centre directly into an absolute WGS-84 target;
+* publishes one strongly typed target message containing latitude, longitude and ``park=1``;
 * sends the corresponding ``move_base`` goal;
 * never publishes ``cmd_vel`` directly.
 
@@ -35,19 +36,20 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import actionlib
 import rospy
-import tf2_geometry_msgs  # noqa: F401 - registers PointStamped transforms
 import tf2_ros
 import tf.transformations as tft
 
 from actionlib_msgs.msg import GoalStatus
 from dynamic_reconfigure.client import Client as DynamicReconfigureClient
-from geometry_msgs.msg import PointStamped, PoseStamped
+from geometry_msgs.msg import PoseStamped
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from nav_msgs.msg import Odometry
 from r300_vision_msgs.msg import DetectedObjectArray
 from sensor_msgs.msg import CameraInfo, Image, NavSatFix
-from std_msgs.msg import Bool, Int32, String
+from std_msgs.msg import Bool, Float64, Int32, String
 from std_srvs.srv import Empty, Trigger, TriggerResponse
+
+from r300_autonomous_parking.msg import ParkingTarget
 
 
 WGS84_A = 6378137.0
@@ -140,8 +142,53 @@ def enu_to_geodetic(
     return ecef_to_geodetic(x0 + dx, y0 + dy, z0 + dz)
 
 
+def circular_mean_deg(values: Sequence[float]) -> float:
+    """Circular mean for headings in degrees, returned in [0, 360)."""
+    if not values:
+        return 0.0
+    sin_sum = sum(math.sin(math.radians(value)) for value in values)
+    cos_sum = sum(math.cos(math.radians(value)) for value in values)
+    return math.degrees(math.atan2(sin_sum, cos_sum)) % 360.0
+
+
+def optical_to_body_frd(
+    x_right_m: float,
+    y_down_m: float,
+    z_forward_m: float,
+    roll_error_rad: float,
+    pitch_error_rad: float,
+    yaw_error_rad: float,
+) -> Tuple[float, float, float]:
+    """Camera optical XYZ -> vehicle FRD, then apply mounting-error RPY.
+
+    Camera optical convention: x right, y down, z forward.
+    Vehicle FRD convention: x forward, y right, z down.
+    With all mounting errors set to zero this is only the fixed axis reorder:
+    forward=z, right=x, down=y.
+    """
+    forward = z_forward_m
+    right = x_right_m
+    down = y_down_m
+
+    cr, sr = math.cos(roll_error_rad), math.sin(roll_error_rad)
+    cp, sp = math.cos(pitch_error_rad), math.sin(pitch_error_rad)
+    cy, sy = math.cos(yaw_error_rad), math.sin(yaw_error_rad)
+
+    x1 = forward
+    y1 = cr * right - sr * down
+    z1 = sr * right + cr * down
+    x2 = cp * x1 + sp * z1
+    y2 = y1
+    z2 = -sp * x1 + cp * z1
+    x3 = cy * x2 - sy * y2
+    y3 = sy * x2 + cy * y2
+    z3 = z2
+    return x3, y3, z3
+
+
 @dataclass
 class StableSample:
+    # move_base target in goal_frame
     x: float
     y: float
     z: float
@@ -150,6 +197,26 @@ class StableSample:
     center_u: int
     center_v: int
     wall_time: float
+
+    # Original white-frame centre in camera optical coordinates.
+    camera_x_right_m: float
+    camera_y_down_m: float
+    camera_z_forward_m: float
+
+    # Horizontal displacement from vehicle to parking target in local ENU.
+    east_offset_m: float
+    north_offset_m: float
+
+    # Vehicle navigation sample used for this visual frame.
+    vehicle_latitude: float
+    vehicle_longitude: float
+    vehicle_altitude: float
+    heading_deg: float
+
+    # Absolute parking target.
+    target_latitude: float
+    target_longitude: float
+    target_altitude: float
 
 
 class AutonomousParkingNode:
@@ -178,7 +245,12 @@ class AutonomousParkingNode:
         self.base_frame = str(rospy.get_param("~base_frame", "base_link"))
         self.move_base_action = str(rospy.get_param("~move_base_action", "/move_base"))
         self.odom_topic = str(rospy.get_param("~odom_topic", "/subject1/dwa_odom"))
-        self.origin_topic = str(rospy.get_param("~origin_topic", "/one_x/origin"))
+        self.fix_topic = str(rospy.get_param("~fix_topic", "/one_x/fix"))
+        self.heading_topic = str(rospy.get_param("~heading_topic", "/one_x/heading_deg"))
+        self.navigation_data_freshness_s = float(
+            rospy.get_param("~navigation_data_freshness_s", 0.75)
+        )
+        self.reject_zero_fix = bool(rospy.get_param("~reject_zero_fix", True))
         self.waypoint_status_topic = str(
             rospy.get_param("~waypoint_status_topic", "/subject1/waypoint_status")
         )
@@ -284,6 +356,27 @@ class AutonomousParkingNode:
         self.max_goal_distance_m = float(rospy.get_param("~max_goal_distance_m", 20.0))
         self.candidate_policy = str(rospy.get_param("~candidate_policy", "nearest"))
 
+        # ---------- camera/INS installation ----------
+        # Requested configuration: all installation errors and lever arms are zero.
+        self.camera_mount_roll_error_rad = math.radians(
+            float(rospy.get_param("~camera_mount_roll_error_deg", 0.0))
+        )
+        self.camera_mount_pitch_error_rad = math.radians(
+            float(rospy.get_param("~camera_mount_pitch_error_deg", 0.0))
+        )
+        self.camera_mount_yaw_error_rad = math.radians(
+            float(rospy.get_param("~camera_mount_yaw_error_deg", 0.0))
+        )
+        self.camera_lever_forward_m = float(
+            rospy.get_param("~camera_lever_forward_m", 0.0)
+        )
+        self.camera_lever_right_m = float(
+            rospy.get_param("~camera_lever_right_m", 0.0)
+        )
+        self.camera_lever_down_m = float(
+            rospy.get_param("~camera_lever_down_m", 0.0)
+        )
+
         # ---------- search ----------
         self.search_enabled = bool(rospy.get_param("~search_enabled", True))
         self.search_direction = 1 if int(rospy.get_param("~search_direction", 1)) >= 0 else -1
@@ -364,7 +457,10 @@ class AutonomousParkingNode:
         self.last_detections_wall = 0.0
         self.last_detection_stamp = None
         self.latest_odom: Optional[Odometry] = None
-        self.origin: Optional[NavSatFix] = None
+        self.latest_fix: Optional[NavSatFix] = None
+        self.latest_heading_deg: Optional[float] = None
+        self.last_fix_wall = 0.0
+        self.last_heading_wall = 0.0
         self.waypoint_status = ""
         self.saw_waypoint_running = False
         self.paused_waypoints_by_us = False
@@ -405,13 +501,20 @@ class AutonomousParkingNode:
         self.target_pose_pub = rospy.Publisher(
             "/subject1/autonomous_parking/target_pose", PoseStamped, queue_size=2, latch=True
         )
+        self.parking_target_pub = rospy.Publisher(
+            "/subject1/autonomous_parking/parking_target",
+            ParkingTarget,
+            queue_size=2,
+            latch=True,
+        )
 
         rospy.Subscriber(self.rgb_topic, Image, self._rgb_cb, queue_size=1)
         rospy.Subscriber(self.depth_topic, Image, self._depth_cb, queue_size=1)
         rospy.Subscriber(self.camera_info_topic, CameraInfo, self._camera_info_cb, queue_size=1)
         rospy.Subscriber(self.detections_topic, DetectedObjectArray, self._detections_cb, queue_size=5)
         rospy.Subscriber(self.odom_topic, Odometry, self._odom_cb, queue_size=20)
-        rospy.Subscriber(self.origin_topic, NavSatFix, self._origin_cb, queue_size=2)
+        rospy.Subscriber(self.fix_topic, NavSatFix, self._fix_cb, queue_size=20)
+        rospy.Subscriber(self.heading_topic, Float64, self._heading_cb, queue_size=20)
         rospy.Subscriber(self.waypoint_status_topic, String, self._waypoint_status_cb, queue_size=10)
 
         rospy.Service(
@@ -485,15 +588,34 @@ class AutonomousParkingNode:
         with self.lock:
             self.latest_odom = msg
 
-    def _origin_cb(self, msg: NavSatFix) -> None:
-        if (
+    def _fix_cb(self, msg: NavSatFix) -> None:
+        valid = (
             math.isfinite(msg.latitude)
             and math.isfinite(msg.longitude)
             and abs(msg.latitude) <= 90.0
             and abs(msg.longitude) <= 180.0
-        ):
-            with self.lock:
-                self.origin = msg
+        )
+        if self.reject_zero_fix and abs(msg.latitude) < 1.0e-9 and abs(msg.longitude) < 1.0e-9:
+            valid = False
+        if not valid:
+            rospy.logwarn_throttle(
+                2.0,
+                "Ignoring invalid /one_x/fix latitude=%.10f longitude=%.10f",
+                float(msg.latitude),
+                float(msg.longitude),
+            )
+            return
+        with self.lock:
+            self.latest_fix = msg
+            self.last_fix_wall = time.monotonic()
+
+    def _heading_cb(self, msg: Float64) -> None:
+        heading = float(msg.data)
+        if not math.isfinite(heading):
+            return
+        with self.lock:
+            self.latest_heading_deg = heading % 360.0
+            self.last_heading_wall = time.monotonic()
 
     def _waypoint_status_cb(self, msg: String) -> None:
         data = msg.data or ""
@@ -562,28 +684,8 @@ class AutonomousParkingNode:
             if not self.min_target_depth_m <= float(obj.depth_m) <= self.max_target_depth_m:
                 continue
 
-            point = PointStamped()
-            point.header = obj.header if obj.header.frame_id else msg.header
-            if not point.header.frame_id:
-                rospy.logwarn_throttle(2.0, "parking detection has empty frame_id")
-                continue
-            point.point = obj.position
-
-            transformed = self._transform_point_to_goal_frame(point)
-            if transformed is None:
-                continue
-
-            sample = StableSample(
-                x=float(transformed.point.x),
-                y=float(transformed.point.y),
-                z=float(transformed.point.z),
-                confidence=confidence,
-                depth_m=float(obj.depth_m),
-                center_u=int(obj.center_u),
-                center_v=int(obj.center_v),
-                wall_time=now,
-            )
-            if not all(math.isfinite(value) for value in (sample.x, sample.y, sample.z)):
+            sample = self._detection_to_sample(obj, confidence, now)
+            if sample is None:
                 continue
             if is_empty:
                 empty_candidates.append(sample)
@@ -710,30 +812,114 @@ class AutonomousParkingNode:
     # ------------------------------------------------------------------
     # stable target helpers
     # ------------------------------------------------------------------
-    def _transform_point_to_goal_frame(self, point: PointStamped) -> Optional[PointStamped]:
-        try:
-            return self.tf_buffer.transform(
-                point, self.goal_frame, timeout=rospy.Duration(0.20)
+    def _navigation_snapshot(
+        self,
+    ) -> Optional[Tuple[NavSatFix, float, Tuple[float, float, float]]]:
+        now = time.monotonic()
+        with self.lock:
+            fix = self.latest_fix
+            heading_deg = self.latest_heading_deg
+            fix_age = now - self.last_fix_wall
+            heading_age = now - self.last_heading_wall
+        if fix is None or heading_deg is None:
+            return None
+        if fix_age > self.navigation_data_freshness_s or heading_age > self.navigation_data_freshness_s:
+            rospy.logwarn_throttle(
+                2.0,
+                "1X navigation data stale: fix_age=%.3fs heading_age=%.3fs limit=%.3fs",
+                fix_age,
+                heading_age,
+                self.navigation_data_freshness_s,
             )
-        except Exception as exact_exc:
-            try:
-                latest_point = PointStamped()
-                latest_point.header.frame_id = point.header.frame_id
-                latest_point.header.stamp = rospy.Time(0)
-                latest_point.point = point.point
-                return self.tf_buffer.transform(
-                    latest_point, self.goal_frame, timeout=rospy.Duration(0.20)
-                )
-            except Exception as latest_exc:
-                rospy.logwarn_throttle(
-                    2.0,
-                    "parking target TF %s->%s failed: exact=%s latest=%s",
-                    point.header.frame_id,
-                    self.goal_frame,
-                    exact_exc,
-                    latest_exc,
-                )
-                return None
+            return None
+        pose = self._current_pose_in_map(timeout_s=0.05)
+        if pose is None:
+            return None
+        return fix, heading_deg, pose
+
+    def _detection_to_sample(
+        self,
+        obj,
+        confidence: float,
+        now: float,
+    ) -> Optional[StableSample]:
+        """Convert one camera optical-frame centre to map and absolute WGS-84.
+
+        The parking vision node publishes optical coordinates as:
+          x = right, y = down, z = forward.
+        Requested installation settings are all zero; the parameters remain
+        explicit so later calibration does not require touching control code.
+        """
+        x_right = float(obj.position.x)
+        y_down = float(obj.position.y)
+        z_forward = float(obj.position.z)
+        if not all(math.isfinite(v) for v in (x_right, y_down, z_forward)):
+            return None
+
+        snapshot = self._navigation_snapshot()
+        if snapshot is None:
+            rospy.logwarn_throttle(
+                2.0,
+                "Cannot geolocate parking_empty: waiting for fresh /one_x/fix, "
+                "/one_x/heading_deg and map->base_link",
+            )
+            return None
+        fix, heading_deg, pose = snapshot
+
+        forward, right, down = optical_to_body_frd(
+            x_right,
+            y_down,
+            z_forward,
+            self.camera_mount_roll_error_rad,
+            self.camera_mount_pitch_error_rad,
+            self.camera_mount_yaw_error_rad,
+        )
+        forward += self.camera_lever_forward_m
+        right += self.camera_lever_right_m
+        down += self.camera_lever_down_m
+
+        heading_rad = math.radians(heading_deg)
+        east_offset = forward * math.sin(heading_rad) + right * math.cos(heading_rad)
+        north_offset = forward * math.cos(heading_rad) - right * math.sin(heading_rad)
+        up_offset = -down
+
+        vehicle_alt = float(fix.altitude) if math.isfinite(float(fix.altitude)) else 0.0
+        target_lat, target_lon, target_alt = enu_to_geodetic(
+            east_offset,
+            north_offset,
+            up_offset,
+            float(fix.latitude),
+            float(fix.longitude),
+            vehicle_alt,
+        )
+
+        map_x, map_y, map_yaw = pose
+        left = -right
+        delta_map_x = math.cos(map_yaw) * forward - math.sin(map_yaw) * left
+        delta_map_y = math.sin(map_yaw) * forward + math.cos(map_yaw) * left
+
+        return StableSample(
+            x=map_x + delta_map_x,
+            y=map_y + delta_map_y,
+            z=0.0,
+            confidence=confidence,
+            depth_m=float(obj.depth_m),
+            center_u=int(obj.center_u),
+            center_v=int(obj.center_v),
+            wall_time=now,
+            camera_x_right_m=x_right,
+            camera_y_down_m=y_down,
+            camera_z_forward_m=z_forward,
+            east_offset_m=east_offset,
+            north_offset_m=north_offset,
+            vehicle_latitude=float(fix.latitude),
+            vehicle_longitude=float(fix.longitude),
+            vehicle_altitude=vehicle_alt,
+            heading_deg=heading_deg,
+            target_latitude=target_lat,
+            target_longitude=target_lon,
+            target_altitude=target_alt,
+        )
 
     def _select_candidate(
         self,
@@ -799,6 +985,18 @@ class AutonomousParkingNode:
             center_u=int(round(statistics.median(sample.center_u for sample in self.samples))),
             center_v=int(round(statistics.median(sample.center_v for sample in self.samples))),
             wall_time=time.monotonic(),
+            camera_x_right_m=statistics.median(sample.camera_x_right_m for sample in self.samples),
+            camera_y_down_m=statistics.median(sample.camera_y_down_m for sample in self.samples),
+            camera_z_forward_m=statistics.median(sample.camera_z_forward_m for sample in self.samples),
+            east_offset_m=statistics.median(sample.east_offset_m for sample in self.samples),
+            north_offset_m=statistics.median(sample.north_offset_m for sample in self.samples),
+            vehicle_latitude=statistics.median(sample.vehicle_latitude for sample in self.samples),
+            vehicle_longitude=statistics.median(sample.vehicle_longitude for sample in self.samples),
+            vehicle_altitude=statistics.median(sample.vehicle_altitude for sample in self.samples),
+            heading_deg=circular_mean_deg([sample.heading_deg for sample in self.samples]),
+            target_latitude=statistics.median(sample.target_latitude for sample in self.samples),
+            target_longitude=statistics.median(sample.target_longitude for sample in self.samples),
+            target_altitude=statistics.median(sample.target_altitude for sample in self.samples),
         )
 
     def _reset_samples(self, reason: str) -> None:
@@ -1179,19 +1377,24 @@ class AutonomousParkingNode:
     # search / motion
     # ------------------------------------------------------------------
     def _wait_for_navigation_prerequisites(self) -> None:
-        self._set_state(self.PREPARING, "waiting for origin, TF, odom and move_base")
+        self._set_state(
+            self.PREPARING,
+            "waiting for /one_x/fix, /one_x/heading_deg, TF, odom and move_base",
+        )
         deadline = time.monotonic() + 15.0
         while time.monotonic() < deadline and not rospy.is_shutdown():
             self._check_cancelled()
             with self.lock:
-                origin_ok = self.origin is not None
                 odom_ok = self.latest_odom is not None
-            pose_ok = self._current_pose_in_map(timeout_s=0.05) is not None
+            navigation_ok = self._navigation_snapshot() is not None
             server_ok = self.move_base.wait_for_server(rospy.Duration(0.05))
-            if origin_ok and odom_ok and pose_ok and server_ok:
+            if navigation_ok and odom_ok and server_ok:
                 return
             rospy.sleep(0.10)
-        raise RuntimeError("navigation prerequisites not ready (origin/odom/map TF/move_base)")
+        raise RuntimeError(
+            "navigation prerequisites not ready "
+            "(/one_x/fix, /one_x/heading_deg, odom, map TF or move_base)"
+        )
 
     def _search_for_confirmed_park(self) -> bool:
         self._apply_dwa_profile(self.search_dwa, "search_park")
@@ -1432,23 +1635,24 @@ class AutonomousParkingNode:
             center_u=target.center_u,
             center_v=target.center_v,
             wall_time=target.wall_time,
+            camera_x_right_m=target.camera_x_right_m,
+            camera_y_down_m=target.camera_y_down_m,
+            camera_z_forward_m=target.camera_z_forward_m,
+            east_offset_m=target.east_offset_m,
+            north_offset_m=target.north_offset_m,
+            vehicle_latitude=target.vehicle_latitude,
+            vehicle_longitude=target.vehicle_longitude,
+            vehicle_altitude=target.vehicle_altitude,
+            heading_deg=target.heading_deg,
+            target_latitude=target.target_latitude,
+            target_longitude=target.target_longitude,
+            target_altitude=target.target_altitude,
         )
 
     def _publish_target(self, target: StableSample) -> None:
-        with self.lock:
-            origin = self.origin
-        if origin is None:
-            raise RuntimeError("1X origin unavailable for target lat/lon conversion")
-
-        origin_alt = float(origin.altitude) if math.isfinite(origin.altitude) else 0.0
-        lat, lon, alt = enu_to_geodetic(
-            target.x,
-            target.y,
-            0.0,
-            float(origin.latitude),
-            float(origin.longitude),
-            origin_alt,
-        )
+        lat = target.target_latitude
+        lon = target.target_longitude
+        alt = target.target_altitude
 
         pose = self._current_pose_in_map(timeout_s=0.20)
         yaw = 0.0
@@ -1472,10 +1676,30 @@ class AutonomousParkingNode:
         fix.altitude = alt
         self.target_fix_pub.publish(fix)
 
+        parking_target = ParkingTarget()
+        parking_target.header.stamp = pose_msg.header.stamp
+        parking_target.header.frame_id = "wgs84"
+        parking_target.park = 1
+        parking_target.latitude = lat
+        parking_target.longitude = lon
+        parking_target.altitude = alt
+        parking_target.confidence = target.confidence
+        parking_target.stable_frames = self.stable_required_frames
+        parking_target.camera_x_right_m = target.camera_x_right_m
+        parking_target.camera_y_down_m = target.camera_y_down_m
+        parking_target.camera_z_forward_m = target.camera_z_forward_m
+        parking_target.east_offset_m = target.east_offset_m
+        parking_target.north_offset_m = target.north_offset_m
+        self.parking_target_pub.publish(parking_target)
+
         rospy.logwarn(
-            "Stable parking_empty target: map=(%.3f, %.3f), WGS84=(%.10f, %.10f), conf=%.3f",
-            target.x,
-            target.y,
+            "Stable parking_empty target: camera=(right=%.3f,down=%.3f,forward=%.3f), "
+            "ENU=(east=%.3f,north=%.3f), WGS84=(%.10f, %.10f), park=1 conf=%.3f",
+            target.camera_x_right_m,
+            target.camera_y_down_m,
+            target.camera_z_forward_m,
+            target.east_offset_m,
+            target.north_offset_m,
             lat,
             lon,
             target.confidence,

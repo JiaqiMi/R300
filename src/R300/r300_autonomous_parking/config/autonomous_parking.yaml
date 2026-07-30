@@ -1,6 +1,8 @@
 # ============================================================
 # R300 独立自主泊车配置
-# 只新增 r300_autonomous_parking 包，不修改既有控制、雷达、视觉源码。
+# 只新增/修改 r300_autonomous_parking 包，不修改既有控制、雷达、视觉源码。
+# parking_empty连续10帧稳定后，使用/one_x/fix和/one_x/heading_deg
+# 将相机中心点转换为绝对经纬度并发布park=1。
 # ============================================================
 
 # ---------- ROS接口 ----------
@@ -8,7 +10,12 @@ goal_frame: map
 base_frame: base_link
 move_base_action: /move_base
 odom_topic: /subject1/dwa_odom
-origin_topic: /one_x/origin
+# 当前车辆绝对位置与航向，直接来自1X。
+fix_topic: /one_x/fix
+heading_topic: /one_x/heading_deg
+navigation_data_freshness_s: 0.75
+# 现场不在(0°,0°)，因此拒绝惯导未出数时的全零样帧。
+reject_zero_fix: true
 waypoint_status_topic: /subject1/waypoint_status
 pause_waypoints_service: /subject1/pause_waypoints
 resume_waypoints_service: /subject1/resume_waypoints
@@ -85,6 +92,18 @@ max_goal_distance_m: 20.0
 
 # nearest：首帧选择车辆最近的empty；后续优先关联到已有轨迹。
 candidate_policy: nearest
+
+
+# ---------- 相机与惯导安装参数 ----------
+# 相机检测节点输出光学坐标：x向右、y向下、z向前。
+# 这里的安装误差是在完成“光学系 -> 车体FRD”固定轴变换后施加。
+# 按当前要求，安装角误差和杆臂全部设置为0。
+camera_mount_roll_error_deg: 0.0
+camera_mount_pitch_error_deg: 0.0
+camera_mount_yaw_error_deg: 0.0
+camera_lever_forward_m: 0.0
+camera_lever_right_m: 0.0
+camera_lever_down_m: 0.0
 
 # ---------- 旋转搜索 ----------
 # 先旋转搜索 park，确认后继续旋转搜索 parking_empty。

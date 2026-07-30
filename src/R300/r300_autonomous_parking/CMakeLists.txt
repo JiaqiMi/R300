@@ -8,6 +8,7 @@ find_package(catkin REQUIRED COMPONENTS
   dynamic_reconfigure
   geometry_msgs
   message_filters
+  message_generation
   move_base_msgs
   nav_msgs
   r300_vision_msgs
@@ -16,11 +17,36 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   std_srvs
   tf
-  tf2_geometry_msgs
   tf2_ros
 )
 
-catkin_package()
+add_message_files(
+  FILES
+    ParkingTarget.msg
+)
+
+generate_messages(
+  DEPENDENCIES
+    std_msgs
+)
+
+catkin_package(
+  CATKIN_DEPENDS
+    actionlib
+    actionlib_msgs
+    dynamic_reconfigure
+    geometry_msgs
+    message_runtime
+    move_base_msgs
+    nav_msgs
+    r300_vision_msgs
+    rospy
+    sensor_msgs
+    std_msgs
+    std_srvs
+    tf
+    tf2_ros
+)
 
 catkin_install_python(
   PROGRAMS

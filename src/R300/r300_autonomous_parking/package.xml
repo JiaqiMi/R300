@@ -1,13 +1,15 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>r300_autonomous_parking</name>
-  <version>0.2.0</version>
-  <description>Independent autonomous parking perception and orchestration for the R300.</description>
+  <version>0.3.0</version>
+  <description>Independent autonomous parking perception, geolocation and orchestration for the R300.</description>
 
   <maintainer email="kl@example.invalid">R300 Challenge Team</maintainer>
   <license>BSD-3-Clause</license>
 
   <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>message_generation</build_depend>
 
   <depend>actionlib</depend>
   <depend>actionlib_msgs</depend>
@@ -23,9 +25,9 @@
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>tf</depend>
-  <depend>tf2_geometry_msgs</depend>
   <depend>tf2_ros</depend>
 
+  <exec_depend>message_runtime</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>r300_yolo_detector</exec_depend>
 </package>

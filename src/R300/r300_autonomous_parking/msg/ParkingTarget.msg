@@ -1,0 +1,12 @@
+std_msgs/Header header
+uint8 park
+float64 latitude
+float64 longitude
+float64 altitude
+float64 confidence
+uint32 stable_frames
+float64 camera_x_right_m
+float64 camera_y_down_m
+float64 camera_z_forward_m
+float64 east_offset_m
+float64 north_offset_m
