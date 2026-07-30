@@ -49,7 +49,7 @@ import tf2_ros
 from grid_map_msgs.msg import GridMap
 from sensor_msgs.msg import LaserScan, PointCloud2, PointField
 import sensor_msgs.point_cloud2 as pcl2
-from std_msgs.msg import Float32, Header
+from std_msgs.msg import Bool, Float32, Header
 from geometry_msgs.msg import Twist
 from actionlib_msgs.msg import GoalStatusArray
 
@@ -186,6 +186,10 @@ class LidarObstacleScan:
         self._abort_goal_id = None
         self._handled_goal_id = None
         self._mb_active = False
+        # Parking search temporarily owns /subject1/cmd_vel_raw for positive
+        # in-place rotation. Suppress the independent reverse-unstick reflex
+        # during that short interval so the two raw controllers cannot fight.
+        self._parking_search_active = False
         self._rear_free = False
         self._pose_hist = []
         self._time_layer_warned = False
@@ -202,6 +206,12 @@ class LidarObstacleScan:
                              queue_size=1, buff_size=4 * 1024 * 1024)
         self.pub_cmd = rospy.Publisher('/subject1/cmd_vel_raw', Twist, queue_size=1)
         rospy.Subscriber('/move_base/status', GoalStatusArray, self._mb_status_cb, queue_size=2)
+        rospy.Subscriber(
+            '/subject1/autonomous_parking/search_active',
+            Bool,
+            self._parking_search_cb,
+            queue_size=2,
+        )
         rospy.Timer(rospy.Duration(1.0), self._watchdog)
         rospy.loginfo(
             'lidar_obstacle_scan: %s -> %s | 负<-%.2f 正>+%.2f 坡>%.0f° | 视场±%.0f° 量程%.1fm | '
@@ -228,6 +238,7 @@ class LidarObstacleScan:
         # 下一目标的原地对位期与 DWA 抢 cmd_vel_raw(原地旋转也判"静止"); ③要求位姿流
         # 新鲜(<1s), 防 TF 异常期间拿冻结的"静止+车尾净"素材盲发倒车。
         if (self.enable_auto_unstick
+                and not self._parking_search_active
                 and self._abort_goal_id is not None
                 and self._abort_goal_id != self._handled_goal_id
                 and not self._mb_active
@@ -250,6 +261,7 @@ class LidarObstacleScan:
         # move_base 仍在反复放弃时, 以半速(0.15)盲倒 blind_reverse_m——
         # 知情风险: 尾后可能有未观测细障碍, 慢速小碰撞 < 卡死的确定损失。
         if (self.enable_auto_unstick
+                and not self._parking_search_active
                 and not self._rear_free
                 and self._frozen_ref is not None
                 and now - self._frozen_ref[0] > self.blind_after
@@ -340,6 +352,9 @@ class LidarObstacleScan:
             self._dr_client = None
             self._dr_retry_after = now + 5.0
             rospy.logwarn_throttle(10.0, 'lidar_obstacle_scan: 下发限速失败(%s)，重连中', exc)
+
+    def _parking_search_cb(self, msg):
+        self._parking_search_active = bool(msg.data)
 
     def _mb_status_cb(self, msg):
         active = False

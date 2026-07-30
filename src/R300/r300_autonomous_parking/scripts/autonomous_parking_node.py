@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Minimal, isolated autonomous parking controller for R300.
+"""Autonomous parking controller and end-of-route search coordinator for R300.
 
-Behaviour is deliberately simple and deterministic:
+Integrated radar-navigation behaviour:
 
-1. The node automatically prepares/reuses the RealSense camera and isolated
-   parking detector.
-2. It is armed immediately after startup; no waypoint status and no start
-   service are required.
-3. ``parking_empty`` with confidence >= 0.20 and valid depth must be present
-   for five consecutive unique detection frames.
-4. The median target of those five frames is published on the latched topics
-   ``parking_target``, ``target_fix`` and ``target_pose``.
-5. The existing move_base action receives the same map-frame target.
+1. Wait for ``/subject1/waypoint_status`` to report ``state=COMPLETED``.
+2. Reuse or start the RealSense camera, then start
+   ``R300_vision/r300_yolo_detector/parking_yolo_depth.launch``.
+3. Rotate only in the positive yaw direction in 30-degree steps, holding each
+   direction for five seconds.
+4. Accept one ``parking_empty`` target after five consecutive valid frames,
+   publish its WGS84/map representations, stop the search, and hand a single
+   new goal to the existing ``move_base`` action.
+5. Remain ``FINISHED`` after arrival; no automatic rearm or repeated parking
+   mission is performed.
 
-This package never publishes cmd_vel and never changes DWA/controller
-parameters. Existing control, lidar and vision source packages are untouched.
+The standalone launch keeps its historical immediate-detection behaviour by
+default; waypoint gating and active rotation are enabled only by the radar
+navigation integration arguments.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ import tf.transformations as tft
 import tf2_ros
 
 from actionlib_msgs.msg import GoalStatus
-from geometry_msgs.msg import PoseStamped, Quaternion
+from geometry_msgs.msg import PoseStamped, Quaternion, Twist
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from r300_autonomous_parking.msg import ParkingTarget
 from r300_vision_msgs.msg import DetectedObject, DetectedObjectArray
@@ -139,8 +141,10 @@ class ParkingSample:
 
 
 class ImmediateParkingNode:
+    WAITING_WAYPOINTS = "WAITING_WAYPOINTS"
     PREPARING = "PREPARING"
     ARMED = "ARMED"
+    SEARCHING = "SEARCHING"
     COUNTING = "COUNTING"
     TARGET_PUBLISHED = "TARGET_PUBLISHED"
     NAVIGATING = "NAVIGATING"
@@ -163,6 +167,38 @@ class ImmediateParkingNode:
         )
         self.pause_waypoints_service = str(
             rospy.get_param("~pause_waypoints_service", "/subject1/pause_waypoints")
+        )
+
+        # Mission orchestration.  In the integrated radar-navigation mode this
+        # node remains lightweight until the normal GPS waypoint executor
+        # reports state=COMPLETED.  Standalone launch can keep the historical
+        # immediate behaviour by setting wait_for_waypoint_completion=false.
+        self.wait_for_waypoint_completion = bool(
+            rospy.get_param("~wait_for_waypoint_completion", False)
+        )
+        self.waypoint_status_topic = str(
+            rospy.get_param("~waypoint_status_topic", "/subject1/waypoint_status")
+        )
+        self.search_enabled = bool(rospy.get_param("~search_enabled", False))
+        self.search_cmd_vel_topic = str(
+            rospy.get_param("~search_cmd_vel_topic", "/subject1/cmd_vel_raw")
+        )
+        self.search_step_deg = float(rospy.get_param("~search_step_deg", 30.0))
+        self.search_hold_s = float(rospy.get_param("~search_hold_s", 5.0))
+        self.search_cycles = max(1, int(rospy.get_param("~search_cycles", 1)))
+        self.search_angular_speed_radps = float(
+            rospy.get_param("~search_angular_speed_radps", 0.25)
+        )
+        self.search_min_angular_speed_radps = float(
+            rospy.get_param("~search_min_angular_speed_radps", 0.08)
+        )
+        self.search_yaw_kp = float(rospy.get_param("~search_yaw_kp", 1.2))
+        self.search_yaw_tolerance_deg = float(
+            rospy.get_param("~search_yaw_tolerance_deg", 2.0)
+        )
+        self.search_control_hz = float(rospy.get_param("~search_control_hz", 20.0))
+        self.search_step_timeout_s = float(
+            rospy.get_param("~search_step_timeout_s", 10.0)
         )
 
         # Exact requested trigger: conf >= 0.20 for five consecutive frames.
@@ -232,6 +268,8 @@ class ImmediateParkingNode:
         self.navigation_thread: Optional[threading.Thread] = None
         self.generation = 0
         self.prepare_thread: Optional[threading.Thread] = None
+        self.search_thread: Optional[threading.Thread] = None
+        self.mission_started = False
         self.camera_process: Optional[subprocess.Popen] = None
         self.detector_process: Optional[subprocess.Popen] = None
 
@@ -260,6 +298,15 @@ class ImmediateParkingNode:
             queue_size=2,
             latch=True,
         )
+        self.search_cmd_pub = rospy.Publisher(
+            self.search_cmd_vel_topic, Twist, queue_size=2
+        )
+        self.search_active_pub = rospy.Publisher(
+            "/subject1/autonomous_parking/search_active",
+            Bool,
+            queue_size=2,
+            latch=True,
+        )
 
         rospy.Subscriber(self.fix_topic, NavSatFix, self._fix_cb, queue_size=20)
         rospy.Subscriber(self.heading_topic, Float64, self._heading_cb, queue_size=20)
@@ -267,6 +314,9 @@ class ImmediateParkingNode:
         rospy.Subscriber(self.rgb_topic, Image, self._rgb_cb, queue_size=1)
         rospy.Subscriber(self.depth_topic, Image, self._depth_cb, queue_size=1)
         rospy.Subscriber(self.camera_info_topic, CameraInfo, self._camera_info_cb, queue_size=1)
+        rospy.Subscriber(
+            self.waypoint_status_topic, String, self._waypoint_status_cb, queue_size=10
+        )
 
         rospy.Service("/subject1/autonomous_parking/reset", Trigger, self._reset_service)
         rospy.Service("/subject1/autonomous_parking/rearm", Trigger, self._reset_service)
@@ -274,15 +324,16 @@ class ImmediateParkingNode:
         self.status_timer = rospy.Timer(rospy.Duration(0.5), self._status_timer_cb)
         rospy.on_shutdown(self._shutdown)
         self.active_pub.publish(Bool(data=False))
+        self.search_active_pub.publish(Bool(data=False))
         self._publish_count(0)
-        self._set_state(self.PREPARING, "checking camera and parking detector")
 
-        self.prepare_thread = threading.Thread(
-            target=self._prepare_and_arm,
-            name="r300_parking_prepare",
-            daemon=True,
-        )
-        self.prepare_thread.start()
+        if self.wait_for_waypoint_completion:
+            self._set_state(
+                self.WAITING_WAYPOINTS,
+                "waiting for normal waypoint task state=COMPLETED",
+            )
+        else:
+            self._start_parking_mission("standalone immediate start")
 
     def _validate_parameters(self) -> None:
         if not 0.0 <= self.min_confidence <= 1.0:
@@ -293,6 +344,48 @@ class ImmediateParkingNode:
             raise ValueError("frame gap and jump limits must be positive")
         if self.max_depth_m <= self.min_depth_m:
             raise ValueError("max_target_depth_m must exceed min_target_depth_m")
+        if not 0.0 < self.search_step_deg <= 180.0:
+            raise ValueError("search_step_deg must be in (0,180]")
+        if self.search_hold_s < 0.0:
+            raise ValueError("search_hold_s must be >= 0")
+        if self.search_angular_speed_radps <= 0.0:
+            raise ValueError("search_angular_speed_radps must be > 0")
+        if not 0.0 < self.search_min_angular_speed_radps <= self.search_angular_speed_radps:
+            raise ValueError("search_min_angular_speed_radps must be in (0,max]")
+        if self.search_yaw_tolerance_deg <= 0.0:
+            raise ValueError("search_yaw_tolerance_deg must be > 0")
+        if self.search_control_hz <= 0.0 or self.search_step_timeout_s <= 0.0:
+            raise ValueError("search control frequency and timeout must be > 0")
+
+    # ------------------------------------------------------------------
+    # Mission trigger and search odometry
+    # ------------------------------------------------------------------
+    def _waypoint_status_cb(self, msg: String) -> None:
+        if not self.wait_for_waypoint_completion:
+            return
+        fields = {}
+        for token in str(msg.data).split():
+            if "=" in token:
+                key, value = token.split("=", 1)
+                fields[key] = value
+        if fields.get("state") != "COMPLETED":
+            return
+        self._start_parking_mission("normal waypoint task completed")
+
+    def _start_parking_mission(self, reason: str) -> None:
+        with self.lock:
+            if self.mission_started:
+                return
+            self.mission_started = True
+        rospy.logwarn("Autonomous parking mission triggered: %s", reason)
+        self.active_pub.publish(Bool(data=True))
+        self._set_state(self.PREPARING, "preparing camera and parking detector")
+        self.prepare_thread = threading.Thread(
+            target=self._prepare_and_arm,
+            name="r300_parking_prepare",
+            daemon=True,
+        )
+        self.prepare_thread.start()
 
     # ------------------------------------------------------------------
     # Basic inputs
@@ -418,6 +511,19 @@ class ImmediateParkingNode:
 
         self._publish_status()
         if frozen is not None:
+            self.search_active_pub.publish(Bool(data=False))
+            self._publish_zero_search_cmd()
+            # Wait briefly for the positive-yaw search loop to observe
+            # triggered=true. This prevents a last raw angular command from
+            # racing with the newly submitted move_base parking goal.
+            search_thread = self.search_thread
+            if (
+                search_thread is not None
+                and search_thread.is_alive()
+                and search_thread is not threading.current_thread()
+            ):
+                search_thread.join(timeout=0.50)
+            self._publish_zero_search_cmd()
             self._publish_target(frozen)
             self.navigation_thread = threading.Thread(
                 target=self._send_move_base_goal,
@@ -671,13 +777,152 @@ class ImmediateParkingNode:
                 self.triggered = False
                 self.armed = True
             self._publish_count(0)
-            self._set_state(
-                self.ARMED,
-                "waiting automatically for parking_empty conf>=0.20, 5 consecutive frames",
-            )
+            if self.search_enabled:
+                self._set_state(
+                    self.ARMED,
+                    "parking detector ready; starting positive 30deg search",
+                )
+                self.search_thread = threading.Thread(
+                    target=self._run_positive_search,
+                    name="r300_parking_search",
+                    daemon=True,
+                )
+                self.search_thread.start()
+            else:
+                self._set_state(
+                    self.ARMED,
+                    "waiting automatically for parking_empty conf>=0.20, 5 consecutive frames",
+                )
         except Exception as exc:
+            self._publish_zero_search_cmd()
+            self.active_pub.publish(Bool(data=False))
             rospy.logerr("Autonomous parking preparation failed: %s", exc)
             self._set_state(self.ERROR, str(exc))
+
+    def _publish_zero_search_cmd(self) -> None:
+        try:
+            self.search_cmd_pub.publish(Twist())
+        except Exception:
+            pass
+
+    def _search_cancelled(self) -> bool:
+        with self.lock:
+            return self.triggered or not self.armed
+
+    def _wait_for_search_yaw(self, timeout_s: float) -> float:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline and not rospy.is_shutdown():
+            pose = self._current_map_pose(timeout_s=0.05)
+            if pose is not None:
+                return float(pose[2])
+            rospy.sleep(0.05)
+        raise RuntimeError(
+            "no search pose from TF %s -> %s" % (self.goal_frame, self.base_frame)
+        )
+
+    def _hold_search_heading(self, seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
+        rate = rospy.Rate(max(2.0, self.search_control_hz / 2.0))
+        while time.monotonic() < deadline and not rospy.is_shutdown():
+            if self._search_cancelled():
+                return False
+            self._publish_zero_search_cmd()
+            rate.sleep()
+        return not self._search_cancelled()
+
+    def _run_positive_search(self) -> None:
+        self.search_active_pub.publish(Bool(data=True))
+        try:
+            # Waypoint executor has already reached COMPLETED, but cancel any
+            # stale action goal before taking temporary cmd_vel ownership.
+            self.move_base.cancel_all_goals()
+            start_yaw = self._wait_for_search_yaw(5.0)
+            previous_yaw = start_yaw
+            current_yaw_unwrapped = start_yaw
+            step_rad = math.radians(self.search_step_deg)
+            tolerance_rad = math.radians(self.search_yaw_tolerance_deg)
+            directions_per_cycle = max(1, int(round(360.0 / self.search_step_deg)))
+            total_steps = directions_per_cycle * self.search_cycles
+            rate = rospy.Rate(self.search_control_hz)
+
+            for step_index in range(total_steps):
+                if rospy.is_shutdown() or self._search_cancelled():
+                    return
+
+                target_yaw = start_yaw + (step_index + 1) * step_rad
+                self._set_state(
+                    self.SEARCHING,
+                    "positive scan direction=%d/%d target_step=%.1fdeg hold=%.1fs" % (
+                        step_index + 1, total_steps, self.search_step_deg, self.search_hold_s
+                    ),
+                )
+                deadline = time.monotonic() + self.search_step_timeout_s
+
+                while not rospy.is_shutdown():
+                    if self._search_cancelled():
+                        return
+                    pose = self._current_map_pose(timeout_s=0.05)
+                    if pose is None:
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError(
+                                "search pose unavailable from TF %s -> %s" % (
+                                    self.goal_frame, self.base_frame
+                                )
+                            )
+                        rate.sleep()
+                        continue
+                    wrapped_yaw = float(pose[2])
+                    delta = math.atan2(
+                        math.sin(wrapped_yaw - previous_yaw),
+                        math.cos(wrapped_yaw - previous_yaw),
+                    )
+                    current_yaw_unwrapped += delta
+                    previous_yaw = wrapped_yaw
+                    error = target_yaw - current_yaw_unwrapped
+                    if error <= tolerance_rad:
+                        break
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError(
+                            "timeout rotating to search direction %d/%d" % (
+                                step_index + 1, total_steps
+                            )
+                        )
+
+                    cmd = Twist()
+                    omega = min(
+                        self.search_angular_speed_radps,
+                        max(self.search_min_angular_speed_radps, self.search_yaw_kp * error),
+                    )
+                    cmd.angular.z = max(0.0, omega)
+                    self.search_cmd_pub.publish(cmd)
+                    rate.sleep()
+
+                self._publish_zero_search_cmd()
+                if not self._hold_search_heading(self.search_hold_s):
+                    return
+
+            self._publish_zero_search_cmd()
+            if not self._search_cancelled():
+                self._set_state(
+                    self.ARMED,
+                    "one full positive scan completed; detector remains armed",
+                )
+                rospy.logwarn(
+                    "Parking search completed %d direction(s) without a fixed target; "
+                    "vehicle stopped and detector remains armed",
+                    total_steps,
+                )
+        except Exception as exc:
+            self._publish_zero_search_cmd()
+            with self.lock:
+                triggered = self.triggered
+            if not triggered:
+                self.active_pub.publish(Bool(data=False))
+                rospy.logerr("Parking search failed: %s", exc)
+                self._set_state(self.ERROR, str(exc))
+        finally:
+            self.search_active_pub.publish(Bool(data=False))
+            self._publish_zero_search_cmd()
 
     def _camera_ready(self) -> bool:
         now = time.monotonic()
@@ -752,17 +997,17 @@ class ImmediateParkingNode:
             if not path or not Path(path).is_file():
                 raise RuntimeError("%s does not exist: %s" % (label, path))
 
+        # Use the official parking detector launch from R300_vision.  The
+        # camera has already been prepared/reused above, so this launch only
+        # starts the parking YOLO+depth node and publishes to the isolated
+        # topics from parking_perception.yaml.
         command = [
-            "roslaunch", "r300_autonomous_parking", "parking_perception_isolated.launch",
+            "roslaunch", "r300_yolo_detector", "parking_yolo_depth.launch",
+            "enable_camera:=false",
+            "enable_web:=false",
             "model1_path:=%s" % self.model1_path,
             "model2_path:=%s" % self.model2_path,
             "config_file:=%s" % self.detector_config,
-            "rgb_topic:=%s" % self.rgb_topic,
-            "depth_topic:=%s" % self.depth_topic,
-            "camera_info_topic:=%s" % self.camera_info_topic,
-            "detections_topic:=%s" % self.detections_topic,
-            "annotated_topic:=%s" % self.annotated_topic,
-            "target_point_topic:=%s" % self.target_point_topic,
         ]
         self._start_owned_process("detector", command)
         self._wait_until(
@@ -838,6 +1083,8 @@ class ImmediateParkingNode:
     # ------------------------------------------------------------------
     def _reset_service(self, _req) -> TriggerResponse:
         self.move_base.cancel_all_goals()
+        self.search_active_pub.publish(Bool(data=False))
+        self._publish_zero_search_cmd()
         with self.lock:
             self.generation += 1
             self.samples = []
@@ -845,12 +1092,13 @@ class ImmediateParkingNode:
             self.last_frame_key = None
             self.triggered = False
             self.armed = True
+        self.active_pub.publish(Bool(data=True))
         self._publish_count(0)
         self._set_state(
             self.ARMED,
-            "rearmed; waiting for parking_empty conf>=0.20, 5 consecutive frames",
+            "manually rearmed; waiting for parking_empty conf>=0.20, 5 consecutive frames",
         )
-        return TriggerResponse(success=True, message="parking cancelled and rearmed")
+        return TriggerResponse(success=True, message="parking cancelled and manually rearmed")
 
     def _publish_count(self, count: int) -> None:
         self.stable_count_pub.publish(Int32(data=int(count)))
@@ -877,6 +1125,8 @@ class ImmediateParkingNode:
         self._publish_status()
 
     def _shutdown(self) -> None:
+        self.search_active_pub.publish(Bool(data=False))
+        self._publish_zero_search_cmd()
         try:
             self.move_base.cancel_all_goals()
         except Exception:

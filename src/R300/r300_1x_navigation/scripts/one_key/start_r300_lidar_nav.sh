@@ -47,6 +47,10 @@ SIGN_GUIDANCE_ENABLED="${SIGN_GUIDANCE_ENABLED:-true}"
 DETECTIONS_TOPIC="${DETECTIONS_TOPIC:-/r300_vision/detections}"
 SIGN_CONFIG_FILE="${SIGN_CONFIG_FILE:-}"
 
+# 全部GPS航点完成后，自动执行一次停车巡视并将唯一停车点交给 move_base。
+# 默认开启；使用 --no-auto-parking 可恢复到修改前行为。
+AUTO_PARKING_ENABLED="${AUTO_PARKING_ENABLED:-true}"
+
 LAUNCH_BASE="${LAUNCH_BASE:-true}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-false}"
 ODOM_PATH="${ODOM_PATH:-true}"
@@ -91,6 +95,8 @@ usage() {
   --no-sign-guidance       关闭指示牌功能，保持原纯雷达导航
   --detections-topic NAME  指定视觉检测话题
   --sign-config PATH       指定指示牌临时目标参数 YAML
+  --auto-parking           航点完成后执行一次自主泊车（默认）
+  --no-auto-parking        关闭航点完成后的巡视/停车任务
   --lio-map-frame NAME     FAST-LIO 地图坐标系，默认 odom
   --lio-body-frame NAME    FAST-LIO 车体坐标系，默认 body
   --timeout SEC            单项检查超时，默认 60 秒
@@ -101,7 +107,8 @@ usage() {
   ELEVATION_TOPIC, OBSTACLE_SCAN_TOPIC,
   DEBUG_CLOUD_TOPIC, LIO_MAP_FRAME, LIO_BODY_FRAME,
   SIGN_GUIDANCE_ENABLED, DETECTIONS_TOPIC, SIGN_CONFIG_FILE,
-  SPEED_LIMIT_APPLY(默认 false, 不开启限速器),
+  AUTO_PARKING_ENABLED(默认 true),
+  SPEED_LIMIT_APPLY(默认 true),
   READY_TIMEOUT, LIDAR_HOLD_TIME_S,
   LAUNCH_RVIZ, LAUNCH_BASE, ODOM_PATH, SETUP_CAN, AUTO_RUN
 USAGE
@@ -143,6 +150,10 @@ while [[ $# -gt 0 ]]; do
     --sign-config)
       [[ $# -ge 2 ]] || { error "--sign-config 后缺少路径"; exit 2; }
       SIGN_CONFIG_FILE="$2"; shift 2 ;;
+    --auto-parking)
+      AUTO_PARKING_ENABLED="true"; shift ;;
+    --no-auto-parking)
+      AUTO_PARKING_ENABLED="false"; shift ;;
     --lio-map-frame)
       [[ $# -ge 2 ]] || { error "--lio-map-frame 后缺少坐标系名称"; exit 2; }
       LIO_MAP_FRAME="$2"; shift 2 ;;
@@ -178,6 +189,11 @@ fi
 if [[ "$SPEED_LIMIT_APPLY" != "true" &&
       "$SPEED_LIMIT_APPLY" != "false" ]]; then
   error "SPEED_LIMIT_APPLY 只能是 true 或 false：$SPEED_LIMIT_APPLY"
+  exit 2
+fi
+if [[ "$AUTO_PARKING_ENABLED" != "true" &&
+      "$AUTO_PARKING_ENABLED" != "false" ]]; then
+  error "AUTO_PARKING_ENABLED 只能是 true 或 false：$AUTO_PARKING_ENABLED"
   exit 2
 fi
 
@@ -286,6 +302,13 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
   rospack find r300_vision_msgs >/dev/null 2>&1 || {
     error "开启指示牌功能时缺少 ROS 功能包：r300_vision_msgs"; exit 1;
   }
+fi
+if [[ "$AUTO_PARKING_ENABLED" == "true" ]]; then
+  for dependency in r300_autonomous_parking r300_yolo_detector r300_vision_msgs; do
+    rospack find "$dependency" >/dev/null 2>&1 || {
+      error "开启自主泊车时缺少 ROS 功能包：$dependency"; exit 1;
+    }
+  done
 fi
 python3 - <<'PY' >/dev/null 2>&1 || {
 import numpy
@@ -496,6 +519,7 @@ ROSLAUNCH_ARGS=(
   "lio_body_frame:=$LIO_BODY_FRAME"
   "sign_guidance_enabled:=$SIGN_GUIDANCE_ENABLED"
   "detections_topic:=$DETECTIONS_TOPIC"
+  "autonomous_parking_enabled:=$AUTO_PARKING_ENABLED"
   "speed_limit_apply_to_dwa:=$SPEED_LIMIT_APPLY"
   "auto_start:=false"
   "max_goal_distance_from_origin_m:=$MAX_GOAL_DIST"
@@ -521,6 +545,11 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
   info "指示牌参数：$SIGN_CONFIG_FILE"
 else
   info "视觉指示牌临时目标：关闭"
+fi
+if [[ "$AUTO_PARKING_ENABLED" == "true" ]]; then
+  info "航点完成后自主泊车：开启（30°/方向，保持5s，一次性执行）"
+else
+  info "航点完成后自主泊车：关闭（行为与旧版一致）"
 fi
 if [[ -n "$LIDAR_HOLD_TIME_S" ]]; then
   info "雷达快照层期望保持时间：${LIDAR_HOLD_TIME_S}s"
@@ -656,6 +685,17 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
     exit 1
   fi
   ok "视觉指示牌临时目标节点已就绪"
+fi
+
+if [[ "$AUTO_PARKING_ENABLED" == "true" ]]; then
+  wait_message /subject1/autonomous_parking/state "自主泊车等待状态"
+  check_topic_type /subject1/autonomous_parking/state std_msgs/String \
+    "自主泊车等待状态"
+  if ! rosnode list 2>/dev/null | grep -qx '/r300_autonomous_parking'; then
+    error "自主泊车协调节点未运行：/r300_autonomous_parking"
+    exit 1
+  fi
+  ok "自主泊车协调节点已就绪，停车YOLO将在全部航点完成后再启动"
 fi
 
 # ------------------------------ 参数一致性 -----------------------------------
@@ -835,6 +875,10 @@ if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
   info "当前指示牌状态："
   rostopic echo -n 1 /subject1/direction_sign/state 2>/dev/null || true
 fi
+if [[ "$AUTO_PARKING_ENABLED" == "true" ]]; then
+  info "当前自主泊车状态："
+  rostopic echo -n 1 /subject1/autonomous_parking/state 2>/dev/null || true
+fi
 
 # ------------------------------ 是否开始运动 ---------------------------------
 if [[ "$AUTO_RUN" == "true" ]]; then
@@ -856,6 +900,10 @@ echo "取消：rosservice call /subject1/cancel_waypoints \"{}\""
 if [[ "$SIGN_GUIDANCE_ENABLED" == "true" ]]; then
   echo "指示牌状态：rostopic echo /subject1/direction_sign/state"
   echo "重置单次识别：rosservice call /subject1/direction_sign/reset \"{}\""
+fi
+if [[ "$AUTO_PARKING_ENABLED" == "true" ]]; then
+  echo "泊车状态：rostopic echo /subject1/autonomous_parking/state"
+  echo "停车目标：rostopic echo /subject1/autonomous_parking/parking_target"
 fi
 echo "停止导航：在本终端按 Ctrl+C"
 echo "说明：停止本脚本不会停止独立 1X 和雷达高程感知栈。"

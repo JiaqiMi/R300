@@ -1,15 +1,15 @@
 # ============================================================
-# R300 即时自主泊车
+# R300 航点完成后自主泊车
 #
-# 唯一触发条件：
-#   parking_empty 置信度 >= 0.20，连续 5 个不同检测帧有效。
-# 第 5 帧后立即：
-#   1. 发布 parking_target / target_fix / target_pose；
-#   2. 取消旧 move_base 目标；
-#   3. 将停车点直接交给 move_base。
+# 集成到雷达导航时：
+#   1. 等待 /subject1/waypoint_status 中 state=COMPLETED；
+#   2. 复用/启动 D435i，并通过 R300_vision/parking_yolo_depth.launch
+#      启动独立停车框识别；
+#   3. 车辆仅正向原地旋转，每 30°停留 5s，共巡视一周；
+#   4. parking_empty 置信度 >=0.20 且连续5帧稳定后，发布唯一停车点；
+#   5. 立即停止巡视，并把同一停车点作为一次性 move_base 新目标。
 #
-# 不依赖 waypoint_status，不等待 park，不检查 occupied，不要求车辆静止，
-# 不旋转搜索，不修改 DWA 或其他控制参数。
+# 到达停车点后保持 FINISHED，不自动重新布防，不重复巡视。
 # ============================================================
 
 goal_frame: map
@@ -19,6 +19,23 @@ fix_topic: /one_x/fix
 heading_topic: /one_x/heading_deg
 parking_detections_topic: /r300_parking_vision/detections
 pause_waypoints_service: /subject1/pause_waypoints
+
+# 雷达导航通过 launch 覆盖为 true；独立启动保持 false，兼容原来的立即识别模式。
+wait_for_waypoint_completion: false
+waypoint_status_topic: /subject1/waypoint_status
+
+# 航点完成后的原地巡视。雷达导航 launch 覆盖为 true；独立泊车保持 false。
+search_enabled: false
+search_cmd_vel_topic: /subject1/cmd_vel_raw
+search_step_deg: 30.0
+search_hold_s: 5.0
+search_cycles: 1
+search_angular_speed_radps: 0.25
+search_min_angular_speed_radps: 0.08
+search_yaw_kp: 1.2
+search_yaw_tolerance_deg: 2.0
+search_control_hz: 20.0
+search_step_timeout_s: 10.0
 
 # 必须严格满足的触发条件。
 empty_class_name: parking_empty

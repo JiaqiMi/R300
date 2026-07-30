@@ -3,16 +3,24 @@
   <arg name="perception_config" default="$(find r300_autonomous_parking)/config/parking_perception.yaml"/>
   <arg name="model1_path" default="$(find r300_yolo_detector)/models/model_c6_260723.pt"/>
   <arg name="model2_path" default="$(find r300_yolo_detector)/models/parking_status_c3.pt"/>
+  <!-- 独立启动默认保持原来的立即模式；雷达导航集成时覆盖为 true。 -->
+  <arg name="wait_for_waypoint_completion" default="false"/>
+  <arg name="search_enabled" default="false"/>
+  <!-- 集成到主导航时设为 false，泊车节点异常不会带停 move_base/底盘。 -->
+  <arg name="required" default="true"/>
 
   <node
     pkg="r300_autonomous_parking"
     type="autonomous_parking_node.py"
     name="r300_autonomous_parking"
     output="screen"
-    required="true">
+    required="$(arg required)">
     <rosparam command="load" file="$(arg config_file)"/>
     <param name="parking_detector_config" value="$(arg perception_config)"/>
     <param name="model1_path" value="$(arg model1_path)"/>
     <param name="model2_path" value="$(arg model2_path)"/>
+    <param name="wait_for_waypoint_completion"
+           value="$(arg wait_for_waypoint_completion)"/>
+    <param name="search_enabled" value="$(arg search_enabled)"/>
   </node>
 </launch>

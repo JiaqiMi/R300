@@ -51,6 +51,13 @@
   <arg name="sign_config_file"
        default="$(find r300_1x_navigation)/config/subject1_direction_sign.yaml"/>
 
+  <!-- 航点全部完成后的一次性自主泊车任务。默认开启；关闭后行为与旧版一致。 -->
+  <arg name="autonomous_parking_enabled" default="true"/>
+  <arg name="autonomous_parking_config_file"
+       default="$(find r300_autonomous_parking)/config/autonomous_parking.yaml"/>
+  <arg name="parking_perception_config_file"
+       default="$(find r300_autonomous_parking)/config/parking_perception.yaml"/>
+
   <arg name="launch_base" default="true"/>
   <arg name="launch_rviz" default="false"/>
   <arg name="auto_start" default="false"/>
@@ -129,6 +136,18 @@
       <param name="resume_service" value="/subject1/resume_waypoints"/>
       <param name="waypoint_status_topic" value="/subject1/waypoint_status"/>
     </node>
+  </group>
+
+  <group if="$(arg autonomous_parking_enabled)">
+    <!-- 节点从导航启动时即注册，但只等待状态，航点完成前不加载停车YOLO。 -->
+    <include file="$(find r300_autonomous_parking)/launch/autonomous_parking.launch">
+      <arg name="config_file" value="$(arg autonomous_parking_config_file)"/>
+      <arg name="perception_config" value="$(arg parking_perception_config_file)"/>
+      <arg name="wait_for_waypoint_completion" value="true"/>
+      <arg name="search_enabled" value="true"/>
+      <!-- 泊车是赛程尾段附加功能，异常不得带停主雷达导航。 -->
+      <arg name="required" value="false"/>
+    </include>
   </group>
 
   <!-- 1X 对准门检(仅室外/正常模式): 位姿冻结 => exit(1) => required 拉倒整个 launch -->
