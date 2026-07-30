@@ -127,6 +127,10 @@ class LidarObstacleScan:
         # ---- 第三招：地面确认限速 ----
         self.enable_speed_limit = bool(rospy.get_param('~enable_ground_speed_limit', True))
         self.sl_apply = bool(rospy.get_param('~speed_limit_apply_to_dwa', True))
+        # 2026-07-30 选择性限速(操作员定): true 时正障碍(墙/桩)不截断走廊 D——
+        # 墙全权交给 DWA+快反层(实测 2m/s 满足), 只有 负障碍/陡坡(neg_mask) 与
+        # 无数据空洞(水坑/坑影=未验证地面) 触发减速。false=旧语义(墙也减速, 室内档用)。
+        self.sl_ignore_positive = bool(rospy.get_param('~speed_limit_ignore_positive', False))
         self.sl_v_max = float(rospy.get_param('~speed_limit_v_max', 1.5))
         self.sl_v_min = float(rospy.get_param('~speed_limit_v_min', 0.3))
         self.sl_acc = max(0.1, float(rospy.get_param('~speed_limit_brake_acc', 1.0)))
@@ -159,6 +163,10 @@ class LidarObstacleScan:
         self._dr_retry_after = 0.0
         self._last_sent_v = None
         self._last_hb = 0.0
+        # 限速"降快升慢"状态: 降速立即生效, 回升需持续 0.5s(防绕障时车头扫掠
+        # 造成 墙(不限)/空洞(限) 交替 → 限速值高频抖动反复改写 DWA)
+        self._v_out = self.sl_v_max
+        self._v_raise_since = None
         self._last_abort = 0.0
         self._last_unstick = 0.0
         self._abort_goal_id = None
@@ -259,6 +267,9 @@ class LidarObstacleScan:
         """感知不可信时把限速压到下限（地面无法验证 = 不允许快跑）。"""
         if not self.enable_speed_limit:
             return
+        # 同步降快升慢状态: 否则感知恢复后 cb 会拿旧的高 _v_out 瞬间跳回高速
+        self._v_out = self.sl_v_min
+        self._v_raise_since = None
         self.pub_vlimit.publish(Float32(data=self.sl_v_min))
         self._send_dwa_limit(self.sl_v_min, force=True)
         rospy.logwarn_throttle(5.0, 'lidar_obstacle_scan: %s，限速压至 %.1fm/s', reason, self.sl_v_min)
@@ -581,8 +592,14 @@ class LidarObstacleScan:
         self._pose_hist = [p for p in self._pose_hist if tnow - p[0] < 3.0]
 
         # ---- 第三招：地面确认限速（不要开得比验证过的地面更快）----
-        # 车前走廊按纵向切片，逐片要求"有效地面格达标且无障碍"，得到连续验证
-        # 距离 D；负障碍/陡坡/正障碍/无数据空洞任何一种都会截断 D。
+        # 车前走廊按纵向切片得到连续验证距离 D。两种记账模式:
+        #   ignore_positive=false(旧语义, 室内档): 负障碍/陡坡/正障碍/空洞都截断 D;
+        #   ignore_positive=true (室外 2026-07-30): 逐片优先级判定——
+        #     坑/陡坡 → 截断限速; 正障碍 → 墙优先, 不限速(DWA+快反层全权);
+        #     地面格不足 → 截断限速(水坑/坑影=未验证地面, 这是水坑唯一保护,
+        #     坑也因"无回波空洞"比负障碍确认早得多被减速, 不受 1.9×坑宽可见极限制约)。
+        #   已知代价: 走廊内的假正障碍(草噪, 已有 0.2 阈值+2帧世界格双去抖压制)
+        #   会临时短路其后方的空洞保护——换取"正障碍绝不减速"的硬保证。
         if self.enable_speed_limit:
             in_cor = (np.abs(fya) <= self.cor_half_w) & \
                      (fxa >= self.cor_start) & (fxa <= self.max_range)
@@ -591,22 +608,46 @@ class LidarObstacleScan:
                            0, n_bins - 1)
             cnt_all = np.bincount(bidx[in_cor], minlength=n_bins)
             cnt_gnd = np.bincount(bidx[in_cor & ground_ok], minlength=n_bins)
-            cnt_bad = np.bincount(bidx[in_cor & bad], minlength=n_bins)
+            cnt_neg = np.bincount(bidx[in_cor & neg_mask], minlength=n_bins)
+            cnt_pos = np.bincount(bidx[in_cor & pos_mask], minlength=n_bins)
             D = self.cor_start
+            wall_first = False
             for i in range(n_bins):
                 need = max(self.cor_min_cells, self.cor_frac * cnt_all[i])
-                if cnt_bad[i] > 0 or cnt_gnd[i] < need:
-                    break
+                if cnt_neg[i] > 0:
+                    break                 # 坑/陡坡: 无论模式都截断 → 限速
+                if cnt_pos[i] > 0:
+                    wall_first = self.sl_ignore_positive
+                    break                 # 墙: 新模式不限速, 旧模式截断
+                if cnt_gnd[i] < need:
+                    break                 # 无数据空洞: 未验证地面 → 限速
                 D = self.cor_start + (i + 1) * self.cor_bin
-            # 完整制动方程: v·t_r + v²/(2a) ≤ D - 余量  →  解 v
-            usable = max(0.0, D - self.sl_margin)
-            at = self.sl_acc * self.sl_react
-            v = -at + math.sqrt(at * at + 2.0 * self.sl_acc * usable)
-            v = max(self.sl_v_min, min(self.sl_v_max, v))
-            self.pub_vlimit.publish(Float32(data=v))
-            self._send_dwa_limit(v)
+            if wall_first:
+                v = self.sl_v_max         # 最近风险是墙 → 交给 DWA, 不压速
+            else:
+                # 完整制动方程: v·t_r + v²/(2a) ≤ D - 余量  →  解 v
+                usable = max(0.0, D - self.sl_margin)
+                at = self.sl_acc * self.sl_react
+                v = -at + math.sqrt(at * at + 2.0 * self.sl_acc * usable)
+                v = max(self.sl_v_min, min(self.sl_v_max, v))
+            # 降快升慢: 降速立即生效, 回升需高于当前值持续 0.5s
+            tnow_sl = rospy.get_time()
+            if v < self._v_out - 1e-6:
+                self._v_out = v
+                self._v_raise_since = None
+            elif v > self._v_out + 0.05:
+                if self._v_raise_since is None:
+                    self._v_raise_since = tnow_sl
+                elif tnow_sl - self._v_raise_since >= 0.5:
+                    self._v_out = v
+                    self._v_raise_since = None
+            else:
+                self._v_raise_since = None
+            self.pub_vlimit.publish(Float32(data=self._v_out))
+            self._send_dwa_limit(self._v_out)
             rospy.loginfo_throttle(
-                5.0, 'lidar_obstacle_scan: 验证地面 D=%.2fm → 限速 %.2fm/s', D, v)
+                5.0, 'lidar_obstacle_scan: 验证地面 D=%.2fm%s → 限速 %.2fm/s',
+                D, ' (墙优先不限)' if wall_first else '', self._v_out)
 
         if self.publish_debug_cloud:
             c, s = math.cos(-heading), math.sin(-heading)

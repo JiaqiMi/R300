@@ -28,6 +28,9 @@
        注意: false 时接近负障碍/未验证地面【不会】减速, 只有已标记的障碍
        会被 DWA 绕行/拦停; 感知断流的兜底停车链(stop_on_stale)不受影响 -->
   <arg name="speed_limit_apply_to_dwa" default="true"/>
+  <!-- 2026-07-30 选择性限速(操作员定): 室外正障碍不减速(DWA+快反层全权),
+       只对 坑/陡坡/无数据空洞(水坑) 减速。室内档强制保持旧语义 false。 -->
+  <arg name="speed_limit_ignore_positive" default="true"/>
 
   <arg name="lidar_config_file"
        default="$(find r300_1x_navigation)/config/subject1_lidar_obstacles.yaml"/>
@@ -106,6 +109,9 @@
   <!-- 声明在 include 之后覆盖 yaml 值(与室内档同机制) -->
   <param name="/lidar_obstacle_scan_node/speed_limit_apply_to_dwa"
          value="$(arg speed_limit_apply_to_dwa)"/>
+  <!-- 室外=arg(默认true), 室内档强制 false(墙前减速是室内防撞账的一部分) -->
+  <param name="/lidar_obstacle_scan_node/speed_limit_ignore_positive"
+         value="$(eval arg('speed_limit_ignore_positive') and not arg('indoor_test_mode'))"/>
 
   <group if="$(arg sign_guidance_enabled)">
     <node pkg="r300_1x_navigation"

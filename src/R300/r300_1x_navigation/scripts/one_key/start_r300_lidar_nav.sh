@@ -35,12 +35,11 @@ DEBUG_CLOUD_TOPIC="${DEBUG_CLOUD_TOPIC:-/r300_lidar/obstacle_points}"
 LIO_MAP_FRAME="${LIO_MAP_FRAME:-odom}"
 LIO_BODY_FRAME="${LIO_BODY_FRAME:-body}"
 
-# 地面确认限速的执行开关。2026-07-30 操作员定：室外测试不开启限速器，
-# 本脚本(含 Web 雷达导航按钮链)默认 false——限速器仍计算并发布
-# /r300_lidar/ground_speed_limit 观测话题，只是不压 DWA，车速走 DWA 静态上限。
-# 恢复限速执行：SPEED_LIMIT_APPLY=true。注意 launch 文件默认值仍为 true，
-# 室内档(indoor_test_mode 直接 roslaunch)依赖限速器 0.8 动态压速，不受本脚本影响。
-SPEED_LIMIT_APPLY="${SPEED_LIMIT_APPLY:-false}"
+# 地面确认限速的执行开关。2026-07-30 晚改回默认 true：限速器已升级为
+# "选择性记账"(launch 的 speed_limit_ignore_positive 室外默认 true)——
+# 正障碍(墙/桩)完全不减速(DWA+快反层全权, 2m/s 照跑), 只对 坑/陡坡/
+# 无数据空洞(水坑) 按制动方程减速。要退回纯观测影子模式: SPEED_LIMIT_APPLY=false。
+SPEED_LIMIT_APPLY="${SPEED_LIMIT_APPLY:-true}"
 
 # 摄像头左/右道路指示牌临时目标。默认开启；需要纯雷达模式时使用
 # --no-sign-guidance 或 SIGN_GUIDANCE_ENABLED=false。
