@@ -5,12 +5,10 @@ find_package(catkin REQUIRED COMPONENTS
   actionlib
   actionlib_msgs
   cv_bridge
-  dynamic_reconfigure
   geometry_msgs
   message_filters
   message_generation
   move_base_msgs
-  nav_msgs
   r300_vision_msgs
   rospy
   sensor_msgs
@@ -34,11 +32,11 @@ catkin_package(
   CATKIN_DEPENDS
     actionlib
     actionlib_msgs
-    dynamic_reconfigure
+    cv_bridge
     geometry_msgs
+    message_filters
     message_runtime
     move_base_msgs
-    nav_msgs
     r300_vision_msgs
     rospy
     sensor_msgs

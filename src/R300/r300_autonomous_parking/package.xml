@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>r300_autonomous_parking</name>
-  <version>0.3.0</version>
+  <version>0.4.0</version>
   <description>Independent autonomous parking perception, geolocation and orchestration for the R300.</description>
 
   <maintainer email="kl@example.invalid">R300 Challenge Team</maintainer>
@@ -14,11 +14,9 @@
   <depend>actionlib</depend>
   <depend>actionlib_msgs</depend>
   <depend>cv_bridge</depend>
-  <depend>dynamic_reconfigure</depend>
   <depend>geometry_msgs</depend>
   <depend>message_filters</depend>
   <depend>move_base_msgs</depend>
-  <depend>nav_msgs</depend>
   <depend>r300_vision_msgs</depend>
   <depend>rospy</depend>
   <depend>sensor_msgs</depend>

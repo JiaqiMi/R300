@@ -4,16 +4,20 @@ set -euo pipefail
 WS="${R300_WS:-$HOME/r300_ws}"
 MODEL1_PATH="${PARKING_MODEL1_PATH:-}"
 MODEL2_PATH="${PARKING_MODEL2_PATH:-}"
-AUTO_START="${PARKING_AUTO_START_AFTER_WAYPOINTS:-false}"
 
+# 若调用终端已经激活 conda yolo26，则保持当前环境。
+# 兼容原先通过 ~/venvs/yolo26 启动的部署方式。
 if [[ -f "$HOME/venvs/yolo26/bin/activate" ]]; then
-  # parking_manager启动的视觉子进程会继承该Python环境。
   source "$HOME/venvs/yolo26/bin/activate"
 fi
+
 source /opt/ros/noetic/setup.bash
 source "$WS/devel/setup.bash"
 
-ARGS=("auto_start_after_waypoints:=$AUTO_START")
+# ROS Noetic 系统 Python 包（如 PyKDL）在虚拟环境中仍然可见。
+export PYTHONPATH="/usr/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:$WS/devel/lib/python3/dist-packages:${PYTHONPATH:-}"
+
+ARGS=()
 [[ -n "$MODEL1_PATH" ]] && ARGS+=("model1_path:=$MODEL1_PATH")
 [[ -n "$MODEL2_PATH" ]] && ARGS+=("model2_path:=$MODEL2_PATH")
 

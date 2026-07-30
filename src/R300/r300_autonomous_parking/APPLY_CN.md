@@ -1,65 +1,103 @@
-# V3覆盖与编译
+# R300 即时自主泊车
 
-这个版本只覆盖：
+本包与现有导航、雷达、视觉和底盘代码隔离。它不发布 `cmd_vel`，不修改 DWA 参数，只把确认后的停车点交给现有 `/move_base`。
+
+## 唯一触发逻辑
+
+节点启动后自动进入 `ARMED`：
+
+1. 订阅 `/r300_parking_vision/detections`；
+2. 只接受 `class_name=parking_empty`；
+3. 每帧置信度必须 `>=0.20` 且深度有效；
+4. 连续 5 个不同检测帧均满足要求；
+5. 第 5 帧立即发布目标并发送 `move_base`。
+
+不再依赖：
+
+- `/subject1/waypoint_status`；
+- `park` 类确认；
+- `parking_occupied` 冲突门控；
+- 手动 `/start` 服务；
+- 车辆静止判断；
+- 旋转搜索；
+- dynamic_reconfigure 或泊车专用规划器参数。
+
+## 输出
+
+达到 5 帧后，以下三个话题均为锁存话题：
 
 ```text
-src/R300/r300_autonomous_parking/
+/subject1/autonomous_parking/parking_target
+/subject1/autonomous_parking/target_fix
+/subject1/autonomous_parking/target_pose
 ```
 
-## Windows覆盖
+`parking_target` 中：
 
-```powershell
-$repo = "D:\boshixiangmu\R300小车\支域\ZJY_Web_Obstacle_avoidance"
-$zip  = "D:\boshixiangmu\R300小车\支域\R300_independent_autonomous_parking_v3_overlay.zip"
-
-Expand-Archive -LiteralPath $zip -DestinationPath $repo -Force
-git -C $repo status --short
+```text
+park=1
+stable_frames=5
+confidence>=0.20
+latitude/longitude=停车位中心绝对经纬度
 ```
 
-加入Git：
-
-```powershell
-cd "D:\boshixiangmu\R300小车\支域\ZJY_Web_Obstacle_avoidance"
-git add src/R300/r300_autonomous_parking
-
-git update-index --chmod=+x src/R300/r300_autonomous_parking/scripts/autonomous_parking_node.py
-git update-index --chmod=+x src/R300/r300_autonomous_parking/scripts/parking_perception_node.py
-git update-index --chmod=+x src/R300/r300_autonomous_parking/scripts/start_autonomous_parking.sh
-git update-index --chmod=+x src/R300/r300_autonomous_parking/scripts/stop_autonomous_parking.sh
-```
-
-## 工控机编译
-
-本版本新增自定义消息，不能只运行旧的 `devel` 文件，必须重新编译：
+## 编译
 
 ```bash
 cd ~/r300_ws
 source /opt/ros/noetic/setup.bash
-chmod +x src/R300/r300_autonomous_parking/scripts/*.py
-chmod +x src/R300/r300_autonomous_parking/scripts/*.sh
 catkin_make --pkg r300_autonomous_parking
 source devel/setup.bash
 ```
 
-检查消息：
+新增/修改过 `ParkingTarget.msg` 时，必须重新编译。
+
+## 启动
 
 ```bash
-rosmsg show r300_autonomous_parking/ParkingTarget
+conda activate yolo26
+source /opt/ros/noetic/setup.bash
+source ~/r300_ws/devel/setup.bash
+rosrun r300_autonomous_parking start_autonomous_parking.sh
 ```
 
-## 启动和验证
+成功准备后状态应为：
+
+```text
+state=ARMED stable=0/5
+```
+
+识别过程：
+
+```text
+state=COUNTING stable=1/5
+...
+state=COUNTING stable=5/5
+state=TARGET_PUBLISHED
+state=NAVIGATING
+```
+
+观察：
 
 ```bash
-rosrun r300_autonomous_parking start_autonomous_parking.sh
-
-rostopic hz /one_x/fix
-rostopic hz /one_x/heading_deg
-
-rosservice call /subject1/autonomous_parking/prepare "{}"
-rosservice call /subject1/autonomous_parking/start_empty_search "{}"
-
+rostopic echo /subject1/autonomous_parking/state
 rostopic echo /subject1/autonomous_parking/stable_count
 rostopic echo /subject1/autonomous_parking/parking_target
+rostopic echo /move_base/goal
 ```
 
-注意：如果 `/one_x/fix` 仍为纬度0、经度0，节点会拒绝生成绝对停车坐标。
+取消并重新布防：
+
+```bash
+rosservice call /subject1/autonomous_parking/reset "{}"
+```
+
+## 必要运行条件
+
+- `/one_x/fix` 为非零有效经纬度；
+- `/one_x/heading_deg` 持续更新；
+- `map -> base_link` TF 可用；
+- `/move_base` action server 可用；
+- `parking_empty` 检测必须带有效深度与相机三维坐标。
+
+相机与惯导安装误差、杆臂均按 0 处理；只保留光学坐标系到车体坐标定义所必需的轴转换。

@@ -57,7 +57,7 @@ model2_iou_threshold: 0.45
 
 model2_class_conf_thresholds:
   parking_occupied: 0.30
-  parking_empty: 0.30
+  parking_empty: 0.20
 
 # 标注图显示来源：[PARK] 或 [SLOT]
 show_model_source: true

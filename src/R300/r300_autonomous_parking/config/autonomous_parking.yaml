@@ -1,38 +1,59 @@
 # ============================================================
-# R300 独立自主泊车配置
-# 只新增/修改 r300_autonomous_parking 包，不修改既有控制、雷达、视觉源码。
-# parking_empty连续10帧稳定后，使用/one_x/fix和/one_x/heading_deg
-# 将相机中心点转换为绝对经纬度并发布park=1。
+# R300 即时自主泊车
+#
+# 唯一触发条件：
+#   parking_empty 置信度 >= 0.20，连续 5 个不同检测帧有效。
+# 第 5 帧后立即：
+#   1. 发布 parking_target / target_fix / target_pose；
+#   2. 取消旧 move_base 目标；
+#   3. 将停车点直接交给 move_base。
+#
+# 不依赖 waypoint_status，不等待 park，不检查 occupied，不要求车辆静止，
+# 不旋转搜索，不修改 DWA 或其他控制参数。
 # ============================================================
 
-# ---------- ROS接口 ----------
 goal_frame: map
 base_frame: base_link
 move_base_action: /move_base
-odom_topic: /subject1/dwa_odom
-# 当前车辆绝对位置与航向，直接来自1X。
 fix_topic: /one_x/fix
 heading_topic: /one_x/heading_deg
-navigation_data_freshness_s: 0.75
-# 现场不在(0°,0°)，因此拒绝惯导未出数时的全零样帧。
-reject_zero_fix: true
-waypoint_status_topic: /subject1/waypoint_status
-pause_waypoints_service: /subject1/pause_waypoints
-resume_waypoints_service: /subject1/resume_waypoints
-clear_costmaps_service: /move_base/clear_costmaps
-
-# 独立泊车视觉话题，避免与原 /r300_vision/detections 混用。
 parking_detections_topic: /r300_parking_vision/detections
-parking_annotated_topic: /r300_parking_vision/annotated_image
-parking_target_point_topic: /r300_parking_vision/target_point
+pause_waypoints_service: /subject1/pause_waypoints
 
-# ---------- 相机在线检测与自动启动 ----------
+# 必须严格满足的触发条件。
+empty_class_name: parking_empty
+min_empty_confidence: 0.20
+required_frames: 5
+
+# “连续同一个目标”的最小保护。任一帧无有效 empty 会立即清零。
+max_frame_gap_s: 1.0
+max_target_jump_m: 1.5
+min_target_depth_m: 0.40
+max_target_depth_m: 15.0
+
+# /one_x/fix 和 /one_x/heading_deg 必须是新鲜有效数据。
+navigation_data_freshness_s: 1.5
+reject_zero_fix: true
+
+# 只负责把目标交给已有 move_base，不修改规划器参数。
+move_base_wait_s: 15.0
+parking_goal_timeout_s: 60.0
+
+# 相机/独立检测节点自动复用或自动启动。
 rgb_topic: /camera/color/image_raw
 depth_topic: /camera/aligned_depth_to_color/image_raw
 camera_info_topic: /camera/color/camera_info
+parking_annotated_topic: /r300_parking_vision/annotated_image
+parking_target_point_topic: /r300_parking_vision/target_point
+
 camera_freshness_s: 1.5
 camera_probe_s: 2.0
 camera_start_timeout_s: 20.0
+detector_start_timeout_s: 45.0
+detections_freshness_s: 1.0
+auto_start_camera: true
+auto_start_parking_detector: true
+
 camera_serial_no: ""
 camera_device_type: d435i
 camera_initial_reset: false
@@ -40,131 +61,10 @@ camera_width: 640
 camera_height: 480
 camera_fps: 30
 
-# 相机若完全未运行，泊车节点自动启动 rs_camera.launch。
-# 若只有部分话题存在（例如有RGB但无aligned depth），为避免同一设备被重复占用，
-# 节点会报错而不是强行启动第二个RealSense实例。
-auto_start_camera: true
-stop_owned_camera_on_shutdown: true
-stop_owned_camera_on_finish: false
-
-# ---------- 独立泊车视觉节点 ----------
-auto_start_parking_detector: true
-detector_start_timeout_s: 45.0
-detections_freshness_s: 1.0
-
-# 模型1用于 park；模型2为三分类停车状态模型。
-# model2_path 当前需替换成实际模型文件。
+# 仅独立检测进程自动启动时使用。已有检测话题时不会重复启动。
 model1_path: ""
 model2_path: ""
 parking_detector_config: ""
 
-# ---------- 三类泊车语义（与现有视觉节点完全一致） ----------
-# park=8：停车区域/P牌确认，只作为进入泊车搜索的门控。
-# parking_occupied=13：已占用车位，永远不能作为目标。
-# parking_empty=14：唯一允许生成停车目标的类别。
-park_class_names:
-  - park
-occupied_class_names:
-  - parking_occupied
-empty_class_names:
-  - parking_empty
-
-# 先连续确认 park，再搜索空车位。
-require_park_before_empty: true
-min_park_confidence: 0.30
-park_required_frames: 3
-
-# 若 parking_occupied 与候选 parking_empty 的 map 中心距离过近，
-# 认为分类冲突，立即清零 empty 的连续10帧计数。
-min_occupied_confidence: 0.30
-occupied_conflict_distance_m: 0.60
-
-# parking_empty：高置信 + 连续10帧 + 位置不跳变。
-min_empty_confidence: 0.20
-stable_required_frames: 10
-max_frame_gap_s: 0.60
-max_target_jump_m: 1.5
-max_target_spread_m: 1.5
-min_target_depth_m: 0.40
-max_target_depth_m: 15.0
-min_goal_distance_m: 0.35
-max_goal_distance_m: 20.0
-
-# nearest：首帧选择车辆最近的empty；后续优先关联到已有轨迹。
-candidate_policy: nearest
-
-
-# ---------- 相机与惯导安装参数 ----------
-# 相机检测节点输出光学坐标：x向右、y向下、z向前。
-# 这里的安装误差是在完成“光学系 -> 车体FRD”固定轴变换后施加。
-# 按当前要求，安装角误差和杆臂全部设置为0。
-camera_mount_roll_error_deg: 0.0
-camera_mount_pitch_error_deg: 0.0
-camera_mount_yaw_error_deg: 0.0
-camera_lever_forward_m: 0.0
-camera_lever_right_m: 0.0
-camera_lever_down_m: 0.0
-
-# ---------- 旋转搜索 ----------
-# 先旋转搜索 park，确认后继续旋转搜索 parking_empty。
-# 只通过 move_base 发送“当前位置+新航向”的目标，不直接发布cmd_vel。
-search_enabled: true
-search_direction: 1                 # 1左转，-1右转
-search_yaw_step_deg: 30.0
-search_max_rotation_deg: 360.0
-search_step_timeout_s: 8.0
-search_observe_s: 3.5               # 4Hz下足够收集10帧并留余量
-search_settle_s: 0.5
-search_total_timeout_s: 90.0
-stationary_linear_mps: 0.08
-stationary_angular_radps: 0.08
-
-# ---------- move_base泊车 ----------
-use_dynamic_reconfigure: true
-# 现有DWA的yaw_goal_tolerance=3.14；若不能临时改小，原地旋转目标会立即成功却不转。
-require_dwa_reconfigure_for_search: true
-dwa_namespace: /move_base/DWAPlannerROS
-
-search_dwa:
-  max_vel_x: 0.10
-  max_vel_trans: 0.10
-  max_vel_theta: 0.30
-  min_vel_x: 0.00
-  min_vel_trans: 0.00
-  min_vel_theta: 0.12
-  xy_goal_tolerance: 0.15
-  yaw_goal_tolerance: 0.10
-  latch_xy_goal_tolerance: false
-
-parking_dwa:
-  max_vel_x: 0.25
-  max_vel_trans: 0.25
-  max_vel_theta: 0.35
-  min_vel_x: 0.00
-  min_vel_trans: 0.20
-  min_vel_theta: 0.12
-  xy_goal_tolerance: 0.35
-  yaw_goal_tolerance: 3.14
-  latch_xy_goal_tolerance: true
-
-parking_goal_timeout_s: 45.0
-parking_retry_count: 1
-retry_delay_s: 1.0
-
-# 视觉得到的是停车empty中心，默认不再额外向前延伸。
-goal_extension_m: 0.0
-
-# ---------- 最终停车验证 ----------
-final_position_tolerance_m: 0.50
-final_linear_speed_tolerance_mps: 0.10
-final_angular_speed_tolerance_radps: 0.10
-final_stable_time_s: 1.0
-final_verify_timeout_s: 6.0
-
-# ---------- 与正常航点隔离 ----------
-# 手动启动泊车时若正常航点仍RUNNING，先调用pause服务，再取消当前move_base目标。
-pause_running_waypoints: true
-resume_waypoints_after_cancel: false
-
-# 航点完成后是否自动启动；默认关闭，先用服务单独测试。
-auto_start_after_waypoints: false
+# 相机与惯导安装误差及杆臂按要求固定为 0。
+# 控制节点只执行必要的坐标轴定义转换：光学系 x右/y下/z前 -> 车体前/右。
