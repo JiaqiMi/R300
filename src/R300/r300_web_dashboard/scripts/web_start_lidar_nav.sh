@@ -47,6 +47,10 @@ trap cleanup EXIT INT TERM
   echo "[$(date '+%F %T')] web_start_lidar_nav.sh"
   echo "说明：Web 仅调用 r300_1x_navigation 的正式雷达导航脚本。"
   echo "视觉指示牌临时转向：$SIGN_GUIDANCE_ENABLED"
+  # 2026-07-30 操作员定：Web 链与命令行(od2/nr_od)一致，默认不开启限速器执行。
+  # 由 start_r300_lidar_nav.sh 的 SPEED_LIMIT_APPLY 默认 false 实现；
+  # 需要恢复限速时以 SPEED_LIMIT_APPLY=true 环境变量启动本脚本。
+  echo "限速器执行：${SPEED_LIMIT_APPLY:-false}（默认关闭）"
 
   source /opt/ros/noetic/setup.bash
   source "$WS/devel/setup.bash"

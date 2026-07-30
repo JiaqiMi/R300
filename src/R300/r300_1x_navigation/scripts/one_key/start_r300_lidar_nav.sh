@@ -35,6 +35,13 @@ DEBUG_CLOUD_TOPIC="${DEBUG_CLOUD_TOPIC:-/r300_lidar/obstacle_points}"
 LIO_MAP_FRAME="${LIO_MAP_FRAME:-odom}"
 LIO_BODY_FRAME="${LIO_BODY_FRAME:-body}"
 
+# 地面确认限速的执行开关。2026-07-30 操作员定：室外测试不开启限速器，
+# 本脚本(含 Web 雷达导航按钮链)默认 false——限速器仍计算并发布
+# /r300_lidar/ground_speed_limit 观测话题，只是不压 DWA，车速走 DWA 静态上限。
+# 恢复限速执行：SPEED_LIMIT_APPLY=true。注意 launch 文件默认值仍为 true，
+# 室内档(indoor_test_mode 直接 roslaunch)依赖限速器 0.8 动态压速，不受本脚本影响。
+SPEED_LIMIT_APPLY="${SPEED_LIMIT_APPLY:-false}"
+
 # 摄像头左/右道路指示牌临时目标。默认开启；需要纯雷达模式时使用
 # --no-sign-guidance 或 SIGN_GUIDANCE_ENABLED=false。
 SIGN_GUIDANCE_ENABLED="${SIGN_GUIDANCE_ENABLED:-true}"
@@ -94,6 +101,7 @@ usage() {
   ELEVATION_TOPIC, OBSTACLE_SCAN_TOPIC,
   DEBUG_CLOUD_TOPIC, LIO_MAP_FRAME, LIO_BODY_FRAME,
   SIGN_GUIDANCE_ENABLED, DETECTIONS_TOPIC, SIGN_CONFIG_FILE,
+  SPEED_LIMIT_APPLY(默认 false, 不开启限速器),
   READY_TIMEOUT, LIDAR_HOLD_TIME_S,
   LAUNCH_RVIZ, LAUNCH_BASE, ODOM_PATH, SETUP_CAN, AUTO_RUN
 USAGE
@@ -163,6 +171,11 @@ fi
 if [[ "$SIGN_GUIDANCE_ENABLED" != "true" &&
       "$SIGN_GUIDANCE_ENABLED" != "false" ]]; then
   error "SIGN_GUIDANCE_ENABLED 只能是 true 或 false：$SIGN_GUIDANCE_ENABLED"
+  exit 2
+fi
+if [[ "$SPEED_LIMIT_APPLY" != "true" &&
+      "$SPEED_LIMIT_APPLY" != "false" ]]; then
+  error "SPEED_LIMIT_APPLY 只能是 true 或 false：$SPEED_LIMIT_APPLY"
   exit 2
 fi
 
@@ -446,6 +459,7 @@ ROSLAUNCH_ARGS=(
   "lio_body_frame:=$LIO_BODY_FRAME"
   "sign_guidance_enabled:=$SIGN_GUIDANCE_ENABLED"
   "detections_topic:=$DETECTIONS_TOPIC"
+  "speed_limit_apply_to_dwa:=$SPEED_LIMIT_APPLY"
   "auto_start:=false"
   "max_goal_distance_from_origin_m:=$MAX_GOAL_DIST"
 )
@@ -459,6 +473,7 @@ LOG_FILE="$LOG_DIR/r300_lidar_nav_$(date +%Y%m%d_%H%M%S).log"
 
 info "工作空间：$WS"
 info "启动入口：$PKG/$LAUNCH_FILE"
+info "限速器执行(speed_limit_apply_to_dwa)：$SPEED_LIMIT_APPLY"
 info "定位来源：外部已运行 /one_x_serial_driver"
 info "外部高程图：$ELEVATION_TOPIC"
 info "雷达障碍扫描：$OBSTACLE_SCAN_TOPIC"
