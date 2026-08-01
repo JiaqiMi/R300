@@ -39,6 +39,7 @@ import tf.transformations as tft
 import tf2_ros
 
 from actionlib_msgs.msg import GoalStatus
+from dynamic_reconfigure.client import Client as DynamicReconfigureClient
 from geometry_msgs.msg import PoseStamped, Quaternion, Twist
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from r300_autonomous_parking.msg import ParkingTarget
@@ -155,6 +156,7 @@ class ImmediateParkingNode:
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.process_lock = threading.RLock()
+        self.dwa_lock = threading.RLock()
 
         # Essential ROS interfaces.
         self.goal_frame = str(rospy.get_param("~goal_frame", "map"))
@@ -185,6 +187,10 @@ class ImmediateParkingNode:
         )
         self.search_step_deg = float(rospy.get_param("~search_step_deg", 30.0))
         self.search_hold_s = float(rospy.get_param("~search_hold_s", 5.0))
+        # Integrated parking keeps repeating the 30-degree scan indefinitely.
+        # search_cycles is retained only as a finite fallback for standalone tests
+        # when search_continuous is explicitly disabled.
+        self.search_continuous = bool(rospy.get_param("~search_continuous", True))
         self.search_cycles = max(1, int(rospy.get_param("~search_cycles", 1)))
         self.search_angular_speed_radps = float(
             rospy.get_param("~search_angular_speed_radps", 0.25)
@@ -213,6 +219,23 @@ class ImmediateParkingNode:
         self.reject_zero_fix = bool(rospy.get_param("~reject_zero_fix", True))
         self.move_base_wait_s = float(rospy.get_param("~move_base_wait_s", 15.0))
         self.goal_timeout_s = float(rospy.get_param("~parking_goal_timeout_s", 60.0))
+
+        # The normal GPS waypoint mission intentionally uses a loose tolerance,
+        # but the final parking goal requires precise arrival.  This node updates
+        # only the live DWA dynamic-reconfigure server for the parking goal and
+        # restores the previous value afterwards.
+        self.dwa_reconfigure_namespace = str(
+            rospy.get_param("~dwa_reconfigure_namespace", "/move_base/DWAPlannerROS")
+        )
+        self.parking_xy_goal_tolerance_m = float(
+            rospy.get_param("~parking_xy_goal_tolerance_m", 0.30)
+        )
+        self.dwa_reconfigure_timeout_s = float(
+            rospy.get_param("~dwa_reconfigure_timeout_s", 3.0)
+        )
+        self.restore_dwa_goal_tolerance = bool(
+            rospy.get_param("~restore_dwa_goal_tolerance_after_parking", True)
+        )
 
         # Camera/detector preparation retained, but it is automatic and has no
         # effect on the five-frame trigger once detections are already present.
@@ -248,6 +271,24 @@ class ImmediateParkingNode:
             str(rospy.get_param("~parking_detector_config", ""))
         )
 
+        # If start_r300.sh web was used, the D435i and the regular dual-YOLO
+        # detector share one parent roslaunch.  At parking transition we stop
+        # only the heavy regular detector node, not the parent launch, camera,
+        # target-feedback node, or web_video_server.  r300_system_dual.launch
+        # therefore launches this detector as non-required.
+        self.stop_regular_detector_before_parking = bool(
+            rospy.get_param("~stop_regular_detector_before_parking", True)
+        )
+        self.regular_detector_node = str(
+            rospy.get_param("~regular_detector_node", "/r300_dual_yolo_depth_node")
+        )
+        self.regular_detector_stop_timeout_s = float(
+            rospy.get_param("~regular_detector_stop_timeout_s", 6.0)
+        )
+        self.regular_detector_release_wait_s = float(
+            rospy.get_param("~regular_detector_release_wait_s", 1.0)
+        )
+
         self._validate_parameters()
 
         self.state = self.PREPARING
@@ -272,6 +313,9 @@ class ImmediateParkingNode:
         self.mission_started = False
         self.camera_process: Optional[subprocess.Popen] = None
         self.detector_process: Optional[subprocess.Popen] = None
+        self.dwa_client: Optional[DynamicReconfigureClient] = None
+        self.saved_xy_goal_tolerance: Optional[float] = None
+        self.parking_tolerance_applied = False
 
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(30.0))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -356,6 +400,14 @@ class ImmediateParkingNode:
             raise ValueError("search_yaw_tolerance_deg must be > 0")
         if self.search_control_hz <= 0.0 or self.search_step_timeout_s <= 0.0:
             raise ValueError("search control frequency and timeout must be > 0")
+        if self.parking_xy_goal_tolerance_m <= 0.0:
+            raise ValueError("parking_xy_goal_tolerance_m must be > 0")
+        if self.dwa_reconfigure_timeout_s <= 0.0:
+            raise ValueError("dwa_reconfigure_timeout_s must be > 0")
+        if self.regular_detector_stop_timeout_s <= 0.0:
+            raise ValueError("regular_detector_stop_timeout_s must be > 0")
+        if self.regular_detector_release_wait_s < 0.0:
+            raise ValueError("regular_detector_release_wait_s must be >= 0")
 
     # ------------------------------------------------------------------
     # Mission trigger and search odometry
@@ -720,6 +772,10 @@ class ImmediateParkingNode:
             if not self.move_base.wait_for_server(rospy.Duration(self.move_base_wait_s)):
                 raise RuntimeError("move_base action server is unavailable")
 
+            # The normal route keeps its original tolerance (typically 1.5 m).
+            # Only the final parking goal is tightened to 0.30 m.
+            self._apply_parking_goal_tolerance()
+
             pose = self._current_map_pose(timeout_s=0.50)
             if pose is None:
                 raise RuntimeError("map->base_link TF unavailable before move_base goal")
@@ -752,7 +808,72 @@ class ImmediateParkingNode:
             rospy.logerr("Immediate autonomous parking failed: %s", exc)
             self._set_state(self.ERROR, str(exc))
         finally:
+            self._restore_dwa_goal_tolerance()
             self.active_pub.publish(Bool(data=False))
+
+    def _apply_parking_goal_tolerance(self) -> None:
+        with self.dwa_lock:
+            if self.parking_tolerance_applied:
+                return
+            try:
+                client = DynamicReconfigureClient(
+                    self.dwa_reconfigure_namespace,
+                    timeout=self.dwa_reconfigure_timeout_s,
+                )
+                current = client.get_configuration(timeout=self.dwa_reconfigure_timeout_s)
+                if not current or "xy_goal_tolerance" not in current:
+                    raise RuntimeError("xy_goal_tolerance missing from DWA configuration")
+                previous = float(current["xy_goal_tolerance"])
+                # Save the old value before updating.  If the service call
+                # changes the server and then raises, the exception path can
+                # still restore the original tolerance.
+                self.dwa_client = client
+                self.saved_xy_goal_tolerance = previous
+                self.parking_tolerance_applied = True
+                try:
+                    updated = client.update_configuration(
+                        {"xy_goal_tolerance": self.parking_xy_goal_tolerance_m}
+                    )
+                    actual = float(updated.get("xy_goal_tolerance", float("nan")))
+                except Exception:
+                    self._restore_dwa_goal_tolerance()
+                    raise
+                if not math.isfinite(actual) or abs(actual - self.parking_xy_goal_tolerance_m) > 1.0e-3:
+                    self._restore_dwa_goal_tolerance()
+                    raise RuntimeError(
+                        "DWA rejected parking xy_goal_tolerance %.3f (actual=%s)"
+                        % (self.parking_xy_goal_tolerance_m, actual)
+                    )
+                rospy.logwarn(
+                    "Parking navigation temporarily changed %s/xy_goal_tolerance: %.3f -> %.3f m",
+                    self.dwa_reconfigure_namespace,
+                    previous,
+                    actual,
+                )
+            except Exception as exc:
+                raise RuntimeError("failed to set parking DWA goal tolerance: %s" % exc)
+
+    def _restore_dwa_goal_tolerance(self) -> None:
+        with self.dwa_lock:
+            if not self.parking_tolerance_applied:
+                return
+            client = self.dwa_client
+            previous = self.saved_xy_goal_tolerance
+            try:
+                if self.restore_dwa_goal_tolerance and client is not None and previous is not None:
+                    updated = client.update_configuration({"xy_goal_tolerance": previous})
+                    actual = float(updated.get("xy_goal_tolerance", previous))
+                    rospy.logwarn(
+                        "Restored %s/xy_goal_tolerance to %.3f m",
+                        self.dwa_reconfigure_namespace,
+                        actual,
+                    )
+            except Exception as exc:
+                rospy.logerr("Failed to restore DWA xy_goal_tolerance: %s", exc)
+            finally:
+                self.dwa_client = None
+                self.saved_xy_goal_tolerance = None
+                self.parking_tolerance_applied = False
 
     def _pause_waypoints_best_effort(self) -> None:
         try:
@@ -770,6 +891,11 @@ class ImmediateParkingNode:
     # ------------------------------------------------------------------
     def _prepare_and_arm(self) -> None:
         try:
+            # Release the regular dual-YOLO process before loading the parking
+            # models.  Camera verification is deliberately performed after the
+            # stop, so an old/incorrect required=true launch cannot leave the
+            # parking detector without images.
+            self._stop_regular_detector_for_parking()
             self._ensure_camera()
             self._ensure_detector()
             with self.lock:
@@ -842,20 +968,46 @@ class ImmediateParkingNode:
             step_rad = math.radians(self.search_step_deg)
             tolerance_rad = math.radians(self.search_yaw_tolerance_deg)
             directions_per_cycle = max(1, int(round(360.0 / self.search_step_deg)))
-            total_steps = directions_per_cycle * self.search_cycles
+            finite_total_steps = directions_per_cycle * self.search_cycles
             rate = rospy.Rate(self.search_control_hz)
+            step_index = 0
 
-            for step_index in range(total_steps):
-                if rospy.is_shutdown() or self._search_cancelled():
+            # In integrated mode this loop intentionally has no one-circle stop.
+            # _detections_cb sets triggered=true and armed=false as soon as the
+            # stable parking target is frozen; _search_cancelled() then stops the
+            # rotation/hold loop before the move_base parking goal is submitted.
+            while not rospy.is_shutdown():
+                if self._search_cancelled():
                     return
+                if not self.search_continuous and step_index >= finite_total_steps:
+                    break
 
+                direction_index = step_index % directions_per_cycle + 1
+                cycle_index = step_index // directions_per_cycle + 1
                 target_yaw = start_yaw + (step_index + 1) * step_rad
-                self._set_state(
-                    self.SEARCHING,
-                    "positive scan direction=%d/%d target_step=%.1fdeg hold=%.1fs" % (
-                        step_index + 1, total_steps, self.search_step_deg, self.search_hold_s
-                    ),
-                )
+                if self.search_continuous:
+                    detail = (
+                        "continuous positive scan cycle=%d direction=%d/%d "
+                        "target_step=%.1fdeg hold=%.1fs"
+                        % (
+                            cycle_index,
+                            direction_index,
+                            directions_per_cycle,
+                            self.search_step_deg,
+                            self.search_hold_s,
+                        )
+                    )
+                else:
+                    detail = (
+                        "positive scan direction=%d/%d target_step=%.1fdeg hold=%.1fs"
+                        % (
+                            step_index + 1,
+                            finite_total_steps,
+                            self.search_step_deg,
+                            self.search_hold_s,
+                        )
+                    )
+                self._set_state(self.SEARCHING, detail)
                 deadline = time.monotonic() + self.search_step_timeout_s
 
                 while not rospy.is_shutdown():
@@ -883,9 +1035,8 @@ class ImmediateParkingNode:
                         break
                     if time.monotonic() >= deadline:
                         raise RuntimeError(
-                            "timeout rotating to search direction %d/%d" % (
-                                step_index + 1, total_steps
-                            )
+                            "timeout rotating to parking scan cycle=%d direction=%d/%d"
+                            % (cycle_index, direction_index, directions_per_cycle)
                         )
 
                     cmd = Twist()
@@ -900,17 +1051,18 @@ class ImmediateParkingNode:
                 self._publish_zero_search_cmd()
                 if not self._hold_search_heading(self.search_hold_s):
                     return
+                step_index += 1
 
             self._publish_zero_search_cmd()
             if not self._search_cancelled():
                 self._set_state(
                     self.ARMED,
-                    "one full positive scan completed; detector remains armed",
+                    "configured finite parking scan completed; detector remains armed",
                 )
                 rospy.logwarn(
-                    "Parking search completed %d direction(s) without a fixed target; "
+                    "Parking search completed %d finite direction(s) without a fixed target; "
                     "vehicle stopped and detector remains armed",
-                    total_steps,
+                    finite_total_steps,
                 )
         except Exception as exc:
             self._publish_zero_search_cmd()
@@ -923,6 +1075,67 @@ class ImmediateParkingNode:
         finally:
             self.search_active_pub.publish(Bool(data=False))
             self._publish_zero_search_cmd()
+
+    def _ros_node_exists(self, node_name: str) -> bool:
+        try:
+            result = subprocess.run(
+                ["rosnode", "list"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=max(1.0, self.regular_detector_stop_timeout_s),
+                check=False,
+            )
+        except Exception as exc:
+            raise RuntimeError("failed to query ROS nodes: %s" % exc)
+        if result.returncode != 0:
+            raise RuntimeError("rosnode list failed: %s" % result.stdout.strip())
+        return node_name in {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+    def _stop_regular_detector_for_parking(self) -> None:
+        if not self.stop_regular_detector_before_parking:
+            rospy.loginfo("Regular detector shutdown before parking is disabled")
+            return
+        node_name = self.regular_detector_node.strip()
+        if not node_name:
+            rospy.loginfo("No regular_detector_node configured; nothing to stop")
+            return
+        if not node_name.startswith("/"):
+            node_name = "/" + node_name
+        if not self._ros_node_exists(node_name):
+            rospy.loginfo("Regular detector %s is not running; parking continues", node_name)
+            return
+
+        rospy.logwarn(
+            "Stopping regular detector %s before parking; D435i and web remain active",
+            node_name,
+        )
+        try:
+            result = subprocess.run(
+                ["rosnode", "kill", node_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=self.regular_detector_stop_timeout_s,
+                check=False,
+            )
+        except Exception as exc:
+            raise RuntimeError("failed to stop regular detector %s: %s" % (node_name, exc))
+
+        deadline = time.monotonic() + self.regular_detector_stop_timeout_s
+        while time.monotonic() < deadline and not rospy.is_shutdown():
+            if not self._ros_node_exists(node_name):
+                if self.regular_detector_release_wait_s > 0.0:
+                    rospy.sleep(self.regular_detector_release_wait_s)
+                rospy.logwarn(
+                    "Regular detector stopped; GPU is reserved for parking recognition"
+                )
+                return
+            rospy.sleep(0.10)
+        raise RuntimeError(
+            "regular detector did not stop within %.1fs: %s; rosnode output=%s"
+            % (self.regular_detector_stop_timeout_s, node_name, result.stdout.strip())
+        )
 
     def _camera_ready(self) -> bool:
         now = time.monotonic()
@@ -1083,6 +1296,7 @@ class ImmediateParkingNode:
     # ------------------------------------------------------------------
     def _reset_service(self, _req) -> TriggerResponse:
         self.move_base.cancel_all_goals()
+        self._restore_dwa_goal_tolerance()
         self.search_active_pub.publish(Bool(data=False))
         self._publish_zero_search_cmd()
         with self.lock:
@@ -1131,6 +1345,7 @@ class ImmediateParkingNode:
             self.move_base.cancel_all_goals()
         except Exception:
             pass
+        self._restore_dwa_goal_tolerance()
         self._stop_owned_process("detector")
         self._stop_owned_process("camera")
 

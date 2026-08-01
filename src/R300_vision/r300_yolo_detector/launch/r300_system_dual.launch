@@ -3,6 +3,8 @@
     <arg name="web_port" default="8080"/>
     <arg name="enable_camera" default="true"/>
     <arg name="enable_target_feedback" default="true"/>
+    <!-- false: 泊车阶段可只关闭双YOLO节点，不连带关闭D435i/Web。 -->
+    <arg name="dual_detector_required" default="false"/>
     <arg name="web_address" default="0.0.0.0"/>
 
     <arg
@@ -27,6 +29,7 @@
     <include file="$(find r300_yolo_detector)/launch/dual_yolo_depth_independent.launch">
         <arg name="model1_path" value="$(arg model1_path)"/>
         <arg name="model2_path" value="$(arg model2_path)"/>
+        <arg name="required" value="$(arg dual_detector_required)"/>
     </include>
 
     <!-- 3. 轻量目标坐标/经纬度实时回传（不订阅图像、不写文件） -->

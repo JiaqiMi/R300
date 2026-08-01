@@ -5,7 +5,7 @@
 #   1. 等待 /subject1/waypoint_status 中 state=COMPLETED；
 #   2. 复用/启动 D435i，并通过 R300_vision/parking_yolo_depth.launch
 #      启动独立停车框识别；
-#   3. 车辆仅正向原地旋转，每 30°停留 5s，共巡视一周；
+#   3. 车辆仅正向原地旋转，每 30°停留 5s，并持续循环巡视；
 #   4. parking_empty 置信度 >=0.20 且连续5帧稳定后，发布唯一停车点；
 #   5. 立即停止巡视，并把同一停车点作为一次性 move_base 新目标。
 #
@@ -29,6 +29,9 @@ search_enabled: false
 search_cmd_vel_topic: /subject1/cmd_vel_raw
 search_step_deg: 30.0
 search_hold_s: 5.0
+# true：不限圈数，直到 parking_empty 连续稳定并生成停车任务后才停止。
+# false：仅执行 search_cycles 圈，保留给台架/单元测试。
+search_continuous: true
 search_cycles: 1
 search_angular_speed_radps: 0.25
 search_min_angular_speed_radps: 0.08
@@ -52,9 +55,14 @@ max_target_depth_m: 15.0
 navigation_data_freshness_s: 1.5
 reject_zero_fix: true
 
-# 只负责把目标交给已有 move_base，不修改规划器参数。
+# 最终停车目标仍交给已有 move_base，但在该目标生命周期内临时收紧
+# DWA 的 xy_goal_tolerance；普通 GPS 航点阶段原有容差不受影响。
 move_base_wait_s: 15.0
 parking_goal_timeout_s: 60.0
+dwa_reconfigure_namespace: /move_base/DWAPlannerROS
+parking_xy_goal_tolerance_m: 0.30
+dwa_reconfigure_timeout_s: 3.0
+restore_dwa_goal_tolerance_after_parking: true
 
 # 相机/独立检测节点自动复用或自动启动。
 rgb_topic: /camera/color/image_raw
@@ -70,6 +78,15 @@ detector_start_timeout_s: 45.0
 detections_freshness_s: 1.0
 auto_start_camera: true
 auto_start_parking_detector: true
+
+# 航点完成进入泊车阶段时，关闭 start_r300.sh web 启动的常规双YOLO，
+# 仅保留其父 launch 中的 D435i、Web 和轻量反馈节点，再加载停车识别模型。
+# r300_system_dual.launch 已将该常规检测节点设为 non-required，确保 rosnode kill
+# 不会连带关闭相机。
+stop_regular_detector_before_parking: true
+regular_detector_node: /r300_dual_yolo_depth_node
+regular_detector_stop_timeout_s: 6.0
+regular_detector_release_wait_s: 1.0
 
 camera_serial_no: ""
 camera_device_type: d435i

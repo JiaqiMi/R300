@@ -26,6 +26,7 @@
   <depend>tf2_ros</depend>
 
   <exec_depend>message_runtime</exec_depend>
+  <exec_depend>dynamic_reconfigure</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>r300_yolo_detector</exec_depend>
 </package>
