@@ -984,22 +984,40 @@ class TargetSnapshotRecorder:
             ),
         ]
 
-        text_x = max(5, min(width - 10, x_min))
-        text_y = max(25, y_min - 60)
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.55
         thickness = 2
         line_height = 24
 
-        max_text_width = 0
-        for line in lines:
-            text_size, _ = cv2.getTextSize(
-                line,
-                font,
-                font_scale,
-                thickness,
-            )
-            max_text_width = max(max_text_width, text_size[0])
+        # 2026-08-01 修复(操作员实拍反馈): 信息块曾锚定 bbox 左沿(x_min),
+        # 目标靠近画面右缘时整块文字画出图外, LON/HDG 等字段被裁掉。
+        # 现在先量出最宽行, 行宽超图时自动缩小字号, 再把整块水平+垂直
+        # 钳制回图内, 保证所有行完整可见。
+        def measure_max_width(scale: float) -> int:
+            widest = 0
+            for line in lines:
+                text_size, _ = cv2.getTextSize(
+                    line,
+                    font,
+                    scale,
+                    thickness,
+                )
+                widest = max(widest, text_size[0])
+            return widest
+
+        max_text_width = measure_max_width(font_scale)
+        while max_text_width > width - 20 and font_scale > 0.30:
+            font_scale = round(font_scale - 0.05, 2)
+            max_text_width = measure_max_width(font_scale)
+
+        text_x = max(5, min(width - max_text_width - 12, x_min))
+        text_y = max(
+            25,
+            min(
+                y_min - 60,
+                height - line_height * (len(lines) - 1) - 8,
+            ),
+        )
 
         box_x2 = min(width - 1, text_x + max_text_width + 12)
         box_y1 = max(0, text_y - 20)
