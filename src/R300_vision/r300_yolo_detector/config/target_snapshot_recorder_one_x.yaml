@@ -27,7 +27,14 @@ heading_offset_deg: 0.0
 # submit_results/：自动筛选后的全局Top结果
 output_dir: /home/explorer/r300_target_records
 
-# 保持原有筛选逻辑
+# 2026-08-01 保留策略(操作员定, 存储压力改造):
+# 每类目标只保留最近 keep_latest_per_class 张且互不一致的照片——
+# 同一目标(地理间隔 < min_target_distance_m)且时间差 < dedup_min_interval_s
+# 的连拍重复帧直接丢弃; 每类超出上限按时间淘汰最旧(连文件删除)。
+keep_latest_per_class: 3
+dedup_min_interval_s: 2.0
+
+# 旧上限退居兜底(13类×3=39, 正常永远达不到)
 candidate_max_per_target: 20
 candidate_max_total: 500
 submit_max: 10

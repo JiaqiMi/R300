@@ -112,6 +112,17 @@ class TargetSnapshotRecorder:
         self.candidate_max_total = int(
             rospy.get_param("~candidate_max_total", 500)
         )
+        # 2026-08-01 存储压力改造(操作员定): 每类目标只保留最近 N 张"互不一致"的
+        # 照片。不一致判定: 与该类已保留的任意一张相比, 若是同一目标(is_same_target,
+        # 地理间隔 < min_target_distance_m)且时间差 < dedup_min_interval_s, 视为
+        # 连拍重复帧直接丢弃; 否则入库, 每类超出 N 张按时间戳淘汰最旧(连文件删除)。
+        # 旧的 candidate_max_per_target/candidate_max_total 退居兜底上限。
+        self.keep_latest_per_class = int(
+            rospy.get_param("~keep_latest_per_class", 3)
+        )
+        self.dedup_min_interval_s = float(
+            rospy.get_param("~dedup_min_interval_s", 2.0)
+        )
         self.submit_max = int(rospy.get_param("~submit_max", 10))
         self.min_target_distance_m = float(
             rospy.get_param("~min_target_distance_m", 5.0)
@@ -169,6 +180,10 @@ class TargetSnapshotRecorder:
             raise ValueError("candidate_max_per_target 必须大于0")
         if self.candidate_max_total <= 0:
             raise ValueError("candidate_max_total 必须大于0")
+        if self.keep_latest_per_class <= 0:
+            raise ValueError("keep_latest_per_class 必须大于0")
+        if self.dedup_min_interval_s < 0.0:
+            raise ValueError("dedup_min_interval_s 不能为负")
         if self.submit_max <= 0:
             raise ValueError("submit_max 必须大于0")
         if self.min_target_distance_m <= 0.0:
@@ -227,6 +242,9 @@ class TargetSnapshotRecorder:
                 self.submit_dir,
             )
         )
+        # 启动自愈: 对加载到的历史记录立即执行新保留策略(每类只留最新N张),
+        # 旧版攒下的大库(曾见 500 张)会在此被裁剪并删除对应文件。
+        self.enforce_per_class_retention()
         self.enforce_candidate_max_total()
         self.rebuild_submit_results()
         self.save_all_state()
@@ -661,40 +679,67 @@ class TargetSnapshotRecorder:
         image: np.ndarray,
         candidate: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        same_indices = self.find_same_target_indices(
-            self.candidate_records,
-            candidate,
-        )
+        # 2026-08-01 保留策略改造(操作员定): 每类只保留 keep_latest_per_class 张
+        # 最新且互不一致的照片。
+        # 第一步·去重: 与该类【已保留的每一张】比对, 同一目标(地理间隔<
+        # min_target_distance_m; GPS 双无效视为同簇)且时间差 < dedup_min_interval_s
+        # 的属连拍重复帧, 直接丢弃不落盘。逐张比对而非只比最新一张, 防止两个目标
+        # 交替出现时重复帧从"最新一张"的缝隙里漏进来。
+        candidate_ns = int(candidate.get("timestamp_ns", 0))
+        class_name = str(candidate["class_name"])
+        for record in self.candidate_records:
+            if str(record.get("class_name")) != class_name:
+                continue
+            gap_s = abs(
+                candidate_ns - int(record.get("timestamp_ns", 0))
+            ) / 1e9
+            if (gap_s < self.dedup_min_interval_s
+                    and self.is_same_target(record, candidate)):
+                return None
 
-        if len(same_indices) < self.candidate_max_per_target:
-            saved_record = self.save_record_files(
-                image,
-                candidate,
-                self.candidate_dir,
-                subdir=self.sanitize_name(candidate["class_name"]),
-            )
-            self.candidate_records.append(saved_record)
-            return saved_record
-
-        worst_index = max(
-            same_indices,
-            key=lambda index: self.ranking_key(
-                self.candidate_records[index]
-            ),
-        )
-        worst_record = self.candidate_records[worst_index]
-        if self.ranking_key(candidate) >= self.ranking_key(worst_record):
-            return None
-
+        # 第二步·入库 + 按时间裁剪该类到 N 张(淘汰最旧, 连文件删除)
         saved_record = self.save_record_files(
             image,
             candidate,
             self.candidate_dir,
             subdir=self.sanitize_name(candidate["class_name"]),
         )
-        self.delete_record_files(worst_record, self.candidate_dir)
-        self.candidate_records[worst_index] = saved_record
+        self.candidate_records.append(saved_record)
+        self.trim_class_records(class_name)
         return saved_record
+
+    def trim_class_records(self, class_name: str) -> None:
+        """把某一类的候选裁剪到 keep_latest_per_class 张, 按时间戳淘汰最旧。"""
+        while True:
+            class_indices = [
+                index
+                for index, record in enumerate(self.candidate_records)
+                if str(record.get("class_name")) == class_name
+            ]
+            if len(class_indices) <= self.keep_latest_per_class:
+                return
+            oldest_index = min(
+                class_indices,
+                key=lambda index: int(
+                    self.candidate_records[index].get("timestamp_ns", 0)
+                ),
+            )
+            worst_record = self.candidate_records.pop(oldest_index)
+            self.delete_record_files(worst_record, self.candidate_dir)
+            rospy.loginfo(
+                "Evicted oldest of class %s: id=%s (keep latest %d)",
+                class_name,
+                worst_record.get("record_id"),
+                self.keep_latest_per_class,
+            )
+
+    def enforce_per_class_retention(self) -> None:
+        """对所有类执行每类保留上限(启动加载历史记录后的自愈入口)。"""
+        for name in {
+            str(record.get("class_name"))
+            for record in self.candidate_records
+        }:
+            self.trim_class_records(name)
 
     def enforce_candidate_max_total(self) -> None:
         while len(self.candidate_records) > self.candidate_max_total:
