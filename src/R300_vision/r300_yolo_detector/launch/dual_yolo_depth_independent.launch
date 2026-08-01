@@ -1,4 +1,19 @@
 <launch>
+    <arg name="enable_web" default="true"/>
+    <arg name="web_port" default="8080"/>
+    <arg name="enable_camera" default="true"/>
+    <arg name="enable_target_feedback" default="true"/>
+    <arg name="web_address" default="0.0.0.0"/>
+
+
+    <!-- 1. RealSense D435i -->
+    <group if="$(arg enable_camera)">
+        <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+            <arg name="align_depth" value="true"/>
+            <arg name="enable_sync" value="true"/>
+        </include>
+    </group>
+
     <arg
         name="model1_path"
         default="$(find r300_yolo_detector)/models/model_c6_260727.pt"
@@ -36,4 +51,21 @@
         <param name="model1_path" value="$(arg model1_path)"/>
         <param name="model2_path" value="$(arg model2_path)"/>
     </node>
+
+    <!-- 4. Web视频服务 -->
+    <group if="$(arg enable_web)">
+        <node
+            pkg="web_video_server"
+            type="web_video_server"
+            name="r300_web_video_server"
+            output="screen"
+            respawn="true"
+            respawn_delay="5.0"
+        >
+            <param name="port" value="$(arg web_port)"/>
+            <param name="address" value="$(arg web_address)"/>
+            <param name="server_threads" value="2"/>
+            <param name="ros_threads" value="2"/>
+        </node>
+    </group>
 </launch>

@@ -87,7 +87,11 @@
         name="body_to_base_link" args="0 0 0 0 0 0 body base_link"/>
 
   <!-- ==================== GPU 高程图 ==================== -->
-  <node pkg="elevation_mapping_cupy" type="elevation_mapping_node" name="elevation_mapping" output="screen">
+  <!-- elevation_mapping 必须等 FAST-LIO 的点云和 odom->body TF 都可用后再订阅。
+       否则启动初期会把早于首帧 TF 的旧点云送入映射节点，产生
+       “Lookup would require extrapolation ... into the past” 的一次性错误。 -->
+  <node pkg="elevation_mapping_cupy" type="elevation_mapping_node" name="elevation_mapping" output="screen"
+        launch-prefix="$(find single_lidar_elevation)/scripts/wait_for_elevation_ready.sh">
     <rosparam command="load" file="$(find single_lidar_elevation)/config/elevation_core.yaml"/>
     <rosparam command="load" file="$(find single_lidar_elevation)/config/elevation_single.yaml"/>
   </node>

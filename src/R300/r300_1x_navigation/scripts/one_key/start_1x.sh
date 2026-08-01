@@ -12,7 +12,7 @@ set -Eeuo pipefail
 WS="${R300_WS:-$HOME/r300_ws}"
 PKG="${R300_PKG:-r300_1x_navigation}"
 INS_PORT="${INS_PORT:-/dev/ttyACM0}"
-INS_BAUD="${INS_BAUD:-230400}"
+INS_BAUD="${INS_BAUD:-460800}"
 FULL_ATT="${FULL_ATT:-false}"
 ORIGIN_MODE="${ORIGIN_MODE:-deferred}"
 ORIGIN_MAX_AGE="${ORIGIN_MAX_AGE:-0.50}"

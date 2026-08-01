@@ -3,92 +3,92 @@
 # # 确认方向、定位、避障正常后，再逐渐增加航点。
 
 
-subject1_waypoints:
-  waypoints:    
-    - name: wp_01
-      latitude_deg: 38.9866702
-      longitude_deg: 117.3429326
-      altitude_m: 21.741
+# subject1_waypoints:
+#   waypoints:    
+#     - name: wp_01
+#       latitude_deg: 38.9866702
+#       longitude_deg: 117.3429326
+#       altitude_m: 21.741
 
-    - name: wp_02
-      latitude_deg: 38.9868009
-      longitude_deg: 117.3429523
-      altitude_m: 21.741
+#     - name: wp_02
+#       latitude_deg: 38.9868009
+#       longitude_deg: 117.3429523
+#       altitude_m: 21.741
   
-    - name: wp_03
-      latitude_deg: 38.9869733
-      longitude_deg: 117.3429644
-      altitude_m: 21.741
+#     - name: wp_03
+#       latitude_deg: 38.9869733
+#       longitude_deg: 117.3429644
+#       altitude_m: 21.741
     
-    - name: wp_04
-      latitude_deg: 38.9871324
-      longitude_deg: 117.3429775
-      altitude_m: 21.741
+#     - name: wp_04
+#       latitude_deg: 38.9871324
+#       longitude_deg: 117.3429775
+#       altitude_m: 21.741
 
-    - name: wp_05
-      latitude_deg: 38.9873128
-      longitude_deg: 117.3430101
-      altitude_m: 21.741
+#     - name: wp_05
+#       latitude_deg: 38.9873128
+#       longitude_deg: 117.3430101
+#       altitude_m: 21.741
 
-    - name: wp_06
-      latitude_deg: 38.9876096
-      longitude_deg: 117.3430388
-      altitude_m: 21.741
+#     - name: wp_06
+#       latitude_deg: 38.9876096
+#       longitude_deg: 117.3430388
+#       altitude_m: 21.741
 
-    - name: wp_07
-      latitude_deg: 38.9877887
-      longitude_deg: 117.3430600
-      altitude_m: 21.741
+#     - name: wp_07
+#       latitude_deg: 38.9877887
+#       longitude_deg: 117.3430600
+#       altitude_m: 21.741
 
-    - name: wp_08
-      latitude_deg: 38.9880623
-      longitude_deg: 117.3430631
-      altitude_m: 21.741
+#     - name: wp_08
+#       latitude_deg: 38.9880623
+#       longitude_deg: 117.3430631
+#       altitude_m: 21.741
 
-    - name: wp_09
-      latitude_deg: 38.9881896
-      longitude_deg: 117.3430605
-      altitude_m: 21.741   
+#     - name: wp_09
+#       latitude_deg: 38.9881896
+#       longitude_deg: 117.3430605
+#       altitude_m: 21.741   
 
-    - name: wp_10
-      latitude_deg: 38.9880623
-      longitude_deg: 117.3430631
-      altitude_m: 21.741   
+#     - name: wp_10
+#       latitude_deg: 38.9880623
+#       longitude_deg: 117.3430631
+#       altitude_m: 21.741   
 
-    - name: wp_11
-      latitude_deg: 38.9877887
-      longitude_deg: 117.3430600
-      altitude_m: 21.741
+#     - name: wp_11
+#       latitude_deg: 38.9877887
+#       longitude_deg: 117.3430600
+#       altitude_m: 21.741
 
-    - name: wp_12
-      latitude_deg: 38.9876096
-      longitude_deg: 117.3430388
-      altitude_m: 21.741
+#     - name: wp_12
+#       latitude_deg: 38.9876096
+#       longitude_deg: 117.3430388
+#       altitude_m: 21.741
 
-    - name: wp_13
-      latitude_deg: 38.9873128
-      longitude_deg: 117.3430101
-      altitude_m: 21.741
+#     - name: wp_13
+#       latitude_deg: 38.9873128
+#       longitude_deg: 117.3430101
+#       altitude_m: 21.741
 
-    - name: wp_14
-      latitude_deg: 38.9871324
-      longitude_deg: 117.3429775
-      altitude_m: 21.741
+#     - name: wp_14
+#       latitude_deg: 38.9871324
+#       longitude_deg: 117.3429775
+#       altitude_m: 21.741
 
-    - name: wp_15
-      latitude_deg: 38.9869733
-      longitude_deg: 117.3429644
-      altitude_m: 21.741
+#     - name: wp_15
+#       latitude_deg: 38.9869733
+#       longitude_deg: 117.3429644
+#       altitude_m: 21.741
 
-    - name: wp_16
-      latitude_deg: 38.9868009
-      longitude_deg: 117.3429523
-      altitude_m: 21.741
+#     - name: wp_16
+#       latitude_deg: 38.9868009
+#       longitude_deg: 117.3429523
+#       altitude_m: 21.741
     
-    - name: wp_17
-      latitude_deg: 38.9866702
-      longitude_deg: 117.3429326
-      altitude_m: 21.741
+#     - name: wp_17
+#       latitude_deg: 38.9866702
+#       longitude_deg: 117.3429326
+#       altitude_m: 21.741
 
 
 # 科目一多航点列表。
@@ -722,3 +722,30 @@ subject1_waypoints:
 #       latitude_deg: 38.99142114
 #       longitude_deg: 117.34324503
 #       altitude_m: 21.741
+
+subject1_waypoints:
+  waypoints:    
+    - name: wp_01
+      latitude_deg: 38.837584722
+      longitude_deg: 105.70263795
+      altitude_m: 21.741
+
+    - name: wp_02
+      latitude_deg: 38.8375263
+      longitude_deg: 105.7025639
+      altitude_m: 21.741
+  
+    - name: wp_03
+      latitude_deg: 38.8373729
+      longitude_deg: 105.70278413
+      altitude_m: 21.741
+    
+    - name: wp_04
+      latitude_deg: 38.8373593
+      longitude_deg: 105.7030254
+      altitude_m: 21.741
+
+    - name: wp_05
+      latitude_deg: 38.83752521
+      longitude_deg: 105.7028594
+      altitude_m: 21.741
