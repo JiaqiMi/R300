@@ -723,29 +723,56 @@
 #       longitude_deg: 117.34324503
 #       altitude_m: 21.741
 
+# subject1_waypoints:
+#   waypoints:    
+#     - name: wp_01
+#       latitude_deg: 38.837584722
+#       longitude_deg: 105.70263795
+#       altitude_m: 21.741
+
+#     - name: wp_02
+#       latitude_deg: 38.8375263
+#       longitude_deg: 105.7025639
+#       altitude_m: 21.741
+  
+#     - name: wp_03
+#       latitude_deg: 38.8373729
+#       longitude_deg: 105.70278413
+#       altitude_m: 21.741
+    
+#     - name: wp_04
+#       latitude_deg: 38.8373593
+#       longitude_deg: 105.7030254
+#       altitude_m: 21.741
+
+#     - name: wp_05
+#       latitude_deg: 38.83752521
+#       longitude_deg: 105.7028594
+#       altitude_m: 21.741
+  
 subject1_waypoints:
   waypoints:    
     - name: wp_01
-      latitude_deg: 38.837584722
-      longitude_deg: 105.70263795
+      latitude_deg: 38.8373990
+      longitude_deg: 105.702682798
       altitude_m: 21.741
 
-    - name: wp_02
-      latitude_deg: 38.8375263
-      longitude_deg: 105.7025639
-      altitude_m: 21.741
+    # - name: wp_02
+    #   latitude_deg: 38.837356399
+    #   longitude_deg: 105.70305411703
+    #   altitude_m: 21.741
   
-    - name: wp_03
-      latitude_deg: 38.8373729
-      longitude_deg: 105.70278413
-      altitude_m: 21.741
+    # - name: wp_03
+    #   latitude_deg: 38.8375754
+    #   longitude_deg: 105.70318588
+    #   altitude_m: 21.741
     
-    - name: wp_04
-      latitude_deg: 38.8373593
-      longitude_deg: 105.7030254
-      altitude_m: 21.741
+    # - name: wp_04
+    #   latitude_deg: 38.83755924
+    #   longitude_deg: 105.70270501
+    #   altitude_m: 21.741
 
-    - name: wp_05
-      latitude_deg: 38.83752521
-      longitude_deg: 105.7028594
-      altitude_m: 21.741
+    # - name: wp_05
+    #   latitude_deg: 38.83749797
+    #   longitude_deg: 105.7027703
+    #   altitude_m: 21.741

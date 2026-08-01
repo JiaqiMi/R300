@@ -10,9 +10,11 @@ Integrated radar-navigation behaviour:
 3. Rotate only in the positive yaw direction in 30-degree steps, holding each
    direction for five seconds.
 4. Accept one ``parking_empty`` target after five consecutive valid frames,
-   publish its WGS84/map representations, stop the search, and hand a single
-   new goal to the existing ``move_base`` action.
-5. Remain ``FINISHED`` after arrival; no automatic rearm or repeated parking
+   publish its WGS84/map representations, stop the search, temporarily reduce
+   local/global radar inflation to the parking radius, and hand a single new
+   goal to the existing ``move_base`` action.
+5. Restore the original inflation/tolerance after the parking goal, then remain
+   ``FINISHED`` after arrival; no automatic rearm or repeated parking
    mission is performed.
 
 The standalone launch keeps its historical immediate-detection behaviour by
@@ -31,7 +33,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import actionlib
 import rospy
@@ -157,6 +159,7 @@ class ImmediateParkingNode:
         self.lock = threading.RLock()
         self.process_lock = threading.RLock()
         self.dwa_lock = threading.RLock()
+        self.inflation_lock = threading.RLock()
 
         # Essential ROS interfaces.
         self.goal_frame = str(rospy.get_param("~goal_frame", "map"))
@@ -235,6 +238,41 @@ class ImmediateParkingNode:
         )
         self.restore_dwa_goal_tolerance = bool(
             rospy.get_param("~restore_dwa_goal_tolerance_after_parking", True)
+        )
+
+        # The normal radar route keeps its configured safety inflation.  Only
+        # after a stable parking target has been frozen, immediately before the
+        # final move_base goal, reduce both radar-backed costmaps to the parking
+        # radius.  The original live values are restored on success, failure,
+        # timeout, reset, or shutdown.
+        self.parking_inflation_enabled = bool(
+            rospy.get_param("~parking_inflation_enabled", True)
+        )
+        raw_inflation_namespaces = rospy.get_param(
+            "~parking_inflation_reconfigure_namespaces",
+            [
+                "/move_base/local_costmap/inflation_layer",
+                "/move_base/global_costmap/inflation_layer",
+            ],
+        )
+        if isinstance(raw_inflation_namespaces, str):
+            raw_inflation_namespaces = [raw_inflation_namespaces]
+        self.parking_inflation_namespaces = [
+            str(value).strip()
+            for value in raw_inflation_namespaces
+            if str(value).strip()
+        ]
+        self.parking_inflation_radius_m = float(
+            rospy.get_param("~parking_inflation_radius_m", 0.30)
+        )
+        self.inflation_reconfigure_timeout_s = float(
+            rospy.get_param("~inflation_reconfigure_timeout_s", 3.0)
+        )
+        self.parking_inflation_settle_s = float(
+            rospy.get_param("~parking_inflation_settle_s", 0.50)
+        )
+        self.restore_inflation_after_parking = bool(
+            rospy.get_param("~restore_inflation_after_parking", True)
         )
 
         # Camera/detector preparation retained, but it is automatic and has no
@@ -316,6 +354,9 @@ class ImmediateParkingNode:
         self.dwa_client: Optional[DynamicReconfigureClient] = None
         self.saved_xy_goal_tolerance: Optional[float] = None
         self.parking_tolerance_applied = False
+        self.inflation_clients: Dict[str, DynamicReconfigureClient] = {}
+        self.saved_inflation_radii: Dict[str, float] = {}
+        self.parking_inflation_applied = False
 
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(30.0))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -404,6 +445,16 @@ class ImmediateParkingNode:
             raise ValueError("parking_xy_goal_tolerance_m must be > 0")
         if self.dwa_reconfigure_timeout_s <= 0.0:
             raise ValueError("dwa_reconfigure_timeout_s must be > 0")
+        if self.parking_inflation_enabled and not self.parking_inflation_namespaces:
+            raise ValueError(
+                "parking_inflation_reconfigure_namespaces must not be empty when enabled"
+            )
+        if self.parking_inflation_radius_m <= 0.0:
+            raise ValueError("parking_inflation_radius_m must be > 0")
+        if self.inflation_reconfigure_timeout_s <= 0.0:
+            raise ValueError("inflation_reconfigure_timeout_s must be > 0")
+        if self.parking_inflation_settle_s < 0.0:
+            raise ValueError("parking_inflation_settle_s must be >= 0")
         if self.regular_detector_stop_timeout_s <= 0.0:
             raise ValueError("regular_detector_stop_timeout_s must be > 0")
         if self.regular_detector_release_wait_s < 0.0:
@@ -772,8 +823,11 @@ class ImmediateParkingNode:
             if not self.move_base.wait_for_server(rospy.Duration(self.move_base_wait_s)):
                 raise RuntimeError("move_base action server is unavailable")
 
-            # The normal route keeps its original tolerance (typically 1.5 m).
-            # Only the final parking goal is tightened to 0.30 m.
+            # Keep normal-route clearance unchanged.  Only the final parking
+            # goal receives the reduced radar inflation and precise DWA arrival
+            # tolerance.  Applying here (rather than during the scan) preserves
+            # the original safety margin while the vehicle rotates in place.
+            self._apply_parking_inflation_radius()
             self._apply_parking_goal_tolerance()
 
             pose = self._current_map_pose(timeout_s=0.50)
@@ -809,7 +863,112 @@ class ImmediateParkingNode:
             self._set_state(self.ERROR, str(exc))
         finally:
             self._restore_dwa_goal_tolerance()
+            self._restore_parking_inflation_radius()
             self.active_pub.publish(Bool(data=False))
+
+    def _apply_parking_inflation_radius(self) -> None:
+        if not self.parking_inflation_enabled:
+            return
+        with self.inflation_lock:
+            if self.parking_inflation_applied:
+                return
+
+            # Remove duplicates while retaining the configured order.
+            namespaces = list(dict.fromkeys(self.parking_inflation_namespaces))
+            try:
+                for namespace in namespaces:
+                    client = DynamicReconfigureClient(
+                        namespace,
+                        timeout=self.inflation_reconfigure_timeout_s,
+                    )
+                    current = client.get_configuration(
+                        timeout=self.inflation_reconfigure_timeout_s
+                    )
+                    if not current or "inflation_radius" not in current:
+                        raise RuntimeError(
+                            "inflation_radius missing from %s configuration" % namespace
+                        )
+                    previous = float(current["inflation_radius"])
+                    if not math.isfinite(previous):
+                        raise RuntimeError(
+                            "invalid inflation_radius from %s: %s"
+                            % (namespace, previous)
+                        )
+
+                    # Save before updating so a partially completed multi-layer
+                    # change can always be rolled back.
+                    self.inflation_clients[namespace] = client
+                    self.saved_inflation_radii[namespace] = previous
+                    self.parking_inflation_applied = True
+
+                    updated = client.update_configuration(
+                        {"inflation_radius": self.parking_inflation_radius_m}
+                    )
+                    actual = float(updated.get("inflation_radius", float("nan")))
+                    if (
+                        not math.isfinite(actual)
+                        or abs(actual - self.parking_inflation_radius_m) > 1.0e-3
+                    ):
+                        raise RuntimeError(
+                            "%s rejected parking inflation_radius %.3f (actual=%s)"
+                            % (namespace, self.parking_inflation_radius_m, actual)
+                        )
+                    rospy.logwarn(
+                        "Parking navigation temporarily changed %s/inflation_radius: "
+                        "%.3f -> %.3f m",
+                        namespace,
+                        previous,
+                        actual,
+                    )
+
+                if self.parking_inflation_settle_s > 0.0:
+                    rospy.loginfo(
+                        "Waiting %.2fs for parking inflation reinflation to settle",
+                        self.parking_inflation_settle_s,
+                    )
+                    rospy.sleep(self.parking_inflation_settle_s)
+            except Exception as exc:
+                # A partial multi-layer update must always roll back, even
+                # when normal post-parking restoration was explicitly disabled.
+                self._restore_parking_inflation_radius(force=True)
+                raise RuntimeError(
+                    "failed to set parking costmap inflation radius: %s" % exc
+                )
+
+    def _restore_parking_inflation_radius(self, force: bool = False) -> None:
+        with self.inflation_lock:
+            if not self.parking_inflation_applied:
+                return
+            try:
+                if force or self.restore_inflation_after_parking:
+                    # Restore in reverse order of application.  Continue even if
+                    # one server is unavailable so the other layer is not left
+                    # in parking mode.
+                    for namespace in reversed(list(self.saved_inflation_radii.keys())):
+                        client = self.inflation_clients.get(namespace)
+                        previous = self.saved_inflation_radii.get(namespace)
+                        if client is None or previous is None:
+                            continue
+                        try:
+                            updated = client.update_configuration(
+                                {"inflation_radius": previous}
+                            )
+                            actual = float(updated.get("inflation_radius", previous))
+                            rospy.logwarn(
+                                "Restored %s/inflation_radius to %.3f m",
+                                namespace,
+                                actual,
+                            )
+                        except Exception as exc:
+                            rospy.logerr(
+                                "Failed to restore %s/inflation_radius: %s",
+                                namespace,
+                                exc,
+                            )
+            finally:
+                self.inflation_clients = {}
+                self.saved_inflation_radii = {}
+                self.parking_inflation_applied = False
 
     def _apply_parking_goal_tolerance(self) -> None:
         with self.dwa_lock:
@@ -1297,6 +1456,7 @@ class ImmediateParkingNode:
     def _reset_service(self, _req) -> TriggerResponse:
         self.move_base.cancel_all_goals()
         self._restore_dwa_goal_tolerance()
+        self._restore_parking_inflation_radius()
         self.search_active_pub.publish(Bool(data=False))
         self._publish_zero_search_cmd()
         with self.lock:
@@ -1346,6 +1506,7 @@ class ImmediateParkingNode:
         except Exception:
             pass
         self._restore_dwa_goal_tolerance()
+        self._restore_parking_inflation_radius()
         self._stop_owned_process("detector")
         self._stop_owned_process("camera")
 

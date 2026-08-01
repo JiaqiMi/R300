@@ -64,6 +64,19 @@ parking_xy_goal_tolerance_m: 0.30
 dwa_reconfigure_timeout_s: 3.0
 restore_dwa_goal_tolerance_after_parking: true
 
+# 最终停车目标发送给 move_base 前，临时缩小雷达障碍膨胀层。
+# 同时修改局部层(DWA)和全局层(Navfn)，否则只改一层仍可能出现
+# “全局无路”或“全局有路但局部不肯进入停车位”。普通航点和30°巡视阶段
+# 保持原膨胀参数；停车成功、失败、超时、reset或节点退出后恢复原值。
+parking_inflation_enabled: true
+parking_inflation_reconfigure_namespaces:
+  - /move_base/local_costmap/inflation_layer
+  - /move_base/global_costmap/inflation_layer
+parking_inflation_radius_m: 0.30
+inflation_reconfigure_timeout_s: 3.0
+parking_inflation_settle_s: 0.50
+restore_inflation_after_parking: true
+
 # 相机/独立检测节点自动复用或自动启动。
 rgb_topic: /camera/color/image_raw
 depth_topic: /camera/aligned_depth_to_color/image_raw
