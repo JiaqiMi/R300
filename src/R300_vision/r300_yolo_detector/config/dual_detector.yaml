@@ -3,8 +3,8 @@
 # ============================================================
 # model1：完整12类模型，但仅发布 vehicle/smoke/trench/person/左右转
 # model2：六类专用模型，负责 tire/barrel/puddle/rockfall/park/sandbag
-model1_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model_c6_260727.pt
-model2_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model_c7_260727.pt
+model1_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model_c6_260803.pt
+model2_path: /home/explorer/r300_ws/src/R300_vision/r300_yolo_detector/models/model_c7_260803.pt
 
 # ============================================================
 # 输入/输出话题：保持原话题不变，下游模块无需修改
@@ -42,10 +42,10 @@ model2_iou_threshold: 0.45
     # 5: 12,  # crater
 model1_class_conf_thresholds:
   vehicle: 0.25
-  smoke: 0.98
+  smoke: 0.0.25
   trench: 0.25
   person: 0.25
-  park: 0.20
+  park: 0.25
   crater: 0.25
 
 # 模型2六类最终置信度阈值，可按验证结果分别调整。
@@ -54,8 +54,8 @@ model2_class_conf_thresholds:
   barrel: 0.25
   puddle: 0.25
   rockfall: 0.25
-  chevro_left: 0.20
-  chevro_right: 0.20
+  chevro_left: 0.25
+  chevro_right: 0.25
   sandbag: 0.25
 
 # 模型2框与模型1框重叠时，由模型2覆盖模型1，避免同一目标同时
