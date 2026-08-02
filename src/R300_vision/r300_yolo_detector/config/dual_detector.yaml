@@ -42,7 +42,9 @@ model2_iou_threshold: 0.45
     # 5: 12,  # crater
 model1_class_conf_thresholds:
   vehicle: 0.25
-  smoke: 0.0.25
+  smoke: 0.25  # 2026-08-03 修复笔误 0.0.25(字符串)→0.25: 原值会让节点启动时
+               #  float() 崩溃, 整条相机+识别链拉倒。0.98→0.25 本身是配合
+               #  260803 新模型(烟雾类已重训)的正常回调
   trench: 0.25
   person: 0.25
   park: 0.25

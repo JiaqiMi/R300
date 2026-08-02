@@ -26,7 +26,7 @@ from r300_vision_msgs.msg import DetectedObjectArray
 
 
 class TargetSnapshotRecorder:
-    """保存候选障碍物库，并维护全局 Top10 提交结果。"""
+    """单库目标快照记录器: submit_results 每类保留 TOP N 个物理目标(2026-08-03)。"""
 
     # WGS-84 椭球参数。目标通常距离车辆仅数米到数十米，
     # 使用局部子午圈/卯酉圈曲率半径换算，比固定球半径更准确。
@@ -112,16 +112,12 @@ class TargetSnapshotRecorder:
         self.candidate_max_total = int(
             rospy.get_param("~candidate_max_total", 500)
         )
-        # 2026-08-01 存储压力改造(操作员定): 每类目标只保留最近 N 张"互不一致"的
-        # 照片。不一致判定: 与该类已保留的任意一张相比, 若是同一目标(is_same_target,
-        # 地理间隔 < min_target_distance_m)且时间差 < dedup_min_interval_s, 视为
-        # 连拍重复帧直接丢弃; 否则入库, 每类超出 N 张按时间戳淘汰最旧(连文件删除)。
-        # 旧的 candidate_max_per_target/candidate_max_total 退居兜底上限。
-        self.keep_latest_per_class = int(
-            rospy.get_param("~keep_latest_per_class", 3)
-        )
-        self.dedup_min_interval_s = float(
-            rospy.get_param("~dedup_min_interval_s", 2.0)
+        # 2026-08-03 单库语义(操作员定): 不再有 candidate_records, 只保留
+        # submit_results 一个目录; 每类最多 submit_top_per_class 个【物理目标】
+        # (地理间隔 < min_target_distance_m 视为同一目标, 只留排位最优的一张;
+        # 排位 = 置信度降序 → 面积降序), 类内超额按排位淘汰最差(连文件删除)。
+        self.submit_top_per_class = int(
+            rospy.get_param("~submit_top_per_class", 5)
         )
         self.submit_max = int(rospy.get_param("~submit_max", 10))
         self.min_target_distance_m = float(
@@ -180,10 +176,8 @@ class TargetSnapshotRecorder:
             raise ValueError("candidate_max_per_target 必须大于0")
         if self.candidate_max_total <= 0:
             raise ValueError("candidate_max_total 必须大于0")
-        if self.keep_latest_per_class <= 0:
-            raise ValueError("keep_latest_per_class 必须大于0")
-        if self.dedup_min_interval_s < 0.0:
-            raise ValueError("dedup_min_interval_s 不能为负")
+        if self.submit_top_per_class <= 0:
+            raise ValueError("submit_top_per_class 必须大于0")
         if self.submit_max <= 0:
             raise ValueError("submit_max 必须大于0")
         if self.min_target_distance_m <= 0.0:
@@ -202,13 +196,9 @@ class TargetSnapshotRecorder:
             dtype=np.float64,
         ).reshape(3)
 
-        self.candidate_dir = self.output_dir / "candidate_records"
+        # 2026-08-03 单库: 只有 submit_results
         self.submit_dir = self.output_dir / "submit_results"
-        self.candidate_dir.mkdir(parents=True, exist_ok=True)
         self.submit_dir.mkdir(parents=True, exist_ok=True)
-
-        self.candidate_index_path = self.candidate_dir / "index.json"
-        self.candidate_summary_path = self.candidate_dir / "summary.csv"
         self.submit_index_path = self.submit_dir / "index.json"
         self.submit_summary_path = self.submit_dir / "summary.csv"
 
@@ -230,24 +220,13 @@ class TargetSnapshotRecorder:
         self.heading_received_monotonic = 0.0
 
         self.state_lock = threading.Lock()
-        self.candidate_records: List[Dict[str, Any]] = (
-            self.load_record_list(
-                self.candidate_index_path,
-                self.candidate_dir,
-            )
+        self.records: List[Dict[str, Any]] = self.load_record_list(
+            self.submit_index_path,
+            self.submit_dir,
         )
-        self.submit_records: List[Dict[str, Any]] = (
-            self.load_record_list(
-                self.submit_index_path,
-                self.submit_dir,
-            )
-        )
-        # 启动自愈: 对加载到的历史记录立即执行新保留策略(每类只留最新N张),
-        # 旧版攒下的大库(曾见 500 张)会在此被裁剪并删除对应文件。
-        self.enforce_per_class_retention()
-        self.enforce_candidate_max_total()
-        self.rebuild_submit_results()
-        self.save_all_state()
+        # 启动自愈: 按"每类 TOP N 目标"裁剪历史记录(超额删文件)
+        self.enforce_top_retention()
+        self.save_state()
 
         self.gps_sub = rospy.Subscriber(
             self.gps_topic,
@@ -290,11 +269,8 @@ class TargetSnapshotRecorder:
         )
         rospy.loginfo("Output directory: %s", str(self.output_dir))
         rospy.loginfo(
-            "candidate_max_per_target=%d, candidate_max_total=%d, "
-            "submit_max=%d, minimum distance=%.2f m",
-            self.candidate_max_per_target,
-            self.candidate_max_total,
-            self.submit_max,
+            "submit_top_per_class=%d, minimum distance=%.2f m (单库 submit_results)",
+            self.submit_top_per_class,
             self.min_target_distance_m,
         )
         rospy.loginfo(
@@ -654,190 +630,89 @@ class TargetSnapshotRecorder:
         candidate: Dict[str, Any],
     ) -> None:
         with self.state_lock:
-            saved = self.save_to_candidate_records(image, candidate)
-            if saved is None:
+            outcome = self.save_to_submit_store(image, candidate)
+            if outcome is None:
                 return
-            self.enforce_candidate_max_total()
-            self.rebuild_submit_results()
-            self.save_all_state()
+            self.save_state()
             rospy.loginfo(
-                "Saved candidate: class=%s id=%d conf=%.3f area=%d "
-                "lat=%.8f lon=%.8f gps=%s candidates=%d submit=%d",
+                "Saved(%s): class=%s conf=%.3f area=%d lat=%.8f lon=%.8f "
+                "gps=%s total=%d",
+                outcome,
                 candidate["class_name"],
-                candidate["class_id"],
                 candidate["confidence"],
                 candidate["bbox_area"],
                 candidate["target_latitude"],
                 candidate["target_longitude"],
                 candidate["gps_valid"],
-                len(self.candidate_records),
-                len(self.submit_records),
+                len(self.records),
             )
 
-    def save_to_candidate_records(
+    def save_to_submit_store(
         self,
         image: np.ndarray,
         candidate: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        # 2026-08-01 保留策略改造(操作员定): 每类只保留 keep_latest_per_class 张
-        # 最新且互不一致的照片。
-        # 第一步·去重: 与该类【已保留的每一张】比对, 同一目标(地理间隔<
-        # min_target_distance_m; GPS 双无效视为同簇)且时间差 < dedup_min_interval_s
-        # 的属连拍重复帧, 直接丢弃不落盘。逐张比对而非只比最新一张, 防止两个目标
-        # 交替出现时重复帧从"最新一张"的缝隙里漏进来。
-        candidate_ns = int(candidate.get("timestamp_ns", 0))
+    ) -> Optional[str]:
+        """2026-08-03 单库语义(操作员定): 每类最多 submit_top_per_class 个
+        【物理目标】(is_same_target 地理去重); 同一目标只保留排位最优的一张
+        (ranking_key: 置信度降序→面积降序), 新帧更优则换照、不优则丢弃;
+        类内目标数超额按排位淘汰最差(连文件删除)。"""
         class_name = str(candidate["class_name"])
-        for record in self.candidate_records:
+        for index, record in enumerate(self.records):
             if str(record.get("class_name")) != class_name:
                 continue
-            gap_s = abs(
-                candidate_ns - int(record.get("timestamp_ns", 0))
-            ) / 1e9
-            if (gap_s < self.dedup_min_interval_s
-                    and self.is_same_target(record, candidate)):
-                return None
+            if not self.is_same_target(record, candidate):
+                continue
+            if self.ranking_key(candidate) < self.ranking_key(record):
+                saved_record = self.save_record_files(
+                    image,
+                    candidate,
+                    self.submit_dir,
+                )
+                self.delete_record_files(record, self.submit_dir)
+                self.records[index] = saved_record
+                return "换更优照"
+            return None
 
-        # 第二步·入库 + 按时间裁剪该类到 N 张(淘汰最旧, 连文件删除)
         saved_record = self.save_record_files(
             image,
             candidate,
-            self.candidate_dir,
-            subdir=self.sanitize_name(candidate["class_name"]),
+            self.submit_dir,
         )
-        self.candidate_records.append(saved_record)
-        self.trim_class_records(class_name)
-        return saved_record
+        self.records.append(saved_record)
+        self.trim_class_top(class_name)
+        return "新目标"
 
-    def trim_class_records(self, class_name: str) -> None:
-        """把某一类的候选裁剪到 keep_latest_per_class 张, 按时间戳淘汰最旧。"""
+    def trim_class_top(self, class_name: str) -> None:
+        """类内目标数裁剪到 submit_top_per_class, 按排位淘汰最差。"""
         while True:
             class_indices = [
                 index
-                for index, record in enumerate(self.candidate_records)
+                for index, record in enumerate(self.records)
                 if str(record.get("class_name")) == class_name
             ]
-            if len(class_indices) <= self.keep_latest_per_class:
+            if len(class_indices) <= self.submit_top_per_class:
                 return
-            oldest_index = min(
+            worst_index = max(
                 class_indices,
-                key=lambda index: int(
-                    self.candidate_records[index].get("timestamp_ns", 0)
-                ),
+                key=lambda index: self.ranking_key(self.records[index]),
             )
-            worst_record = self.candidate_records.pop(oldest_index)
-            self.delete_record_files(worst_record, self.candidate_dir)
+            worst_record = self.records.pop(worst_index)
+            self.delete_record_files(worst_record, self.submit_dir)
             rospy.loginfo(
-                "Evicted oldest of class %s: id=%s (keep latest %d)",
+                "Evicted worst of class %s: id=%s conf=%.3f (top %d)",
                 class_name,
                 worst_record.get("record_id"),
-                self.keep_latest_per_class,
+                float(worst_record.get("confidence", 0.0)),
+                self.submit_top_per_class,
             )
 
-    def enforce_per_class_retention(self) -> None:
-        """对所有类执行每类保留上限(启动加载历史记录后的自愈入口)。"""
+    def enforce_top_retention(self) -> None:
+        """对所有类执行 TOP N 裁剪(启动加载历史记录后的自愈入口)。"""
         for name in {
             str(record.get("class_name"))
-            for record in self.candidate_records
+            for record in self.records
         }:
-            self.trim_class_records(name)
-
-    def enforce_candidate_max_total(self) -> None:
-        while len(self.candidate_records) > self.candidate_max_total:
-            worst_index = min(
-                range(len(self.candidate_records)),
-                key=lambda index: self.eviction_key(
-                    self.candidate_records[index]
-                ),
-            )
-            worst_record = self.candidate_records.pop(worst_index)
-            self.delete_record_files(worst_record, self.candidate_dir)
-            rospy.loginfo(
-                "Evicted candidate by global limit: id=%s conf=%.3f "
-                "area=%s total=%d",
-                worst_record.get("record_id"),
-                float(worst_record.get("confidence", 0.0)),
-                worst_record.get("bbox_area"),
-                len(self.candidate_records),
-            )
-
-    def clear_submit_result_files(self) -> None:
-        """清理 submit_results 下旧结果图/元数据，保留 index.json 与 summary.csv。"""
-        if not self.submit_dir.exists():
-            self.submit_dir.mkdir(parents=True, exist_ok=True)
-            return
-
-        preserve_names = {
-            self.submit_index_path.name,  # index.json
-            self.submit_summary_path.name,  # summary.csv
-        }
-
-        for path in self.submit_dir.iterdir():
-            if not path.is_file():
-                continue
-            if path.name in preserve_names:
-                continue
-            if path.suffix.lower() not in {".jpg", ".jpeg", ".json"}:
-                continue
-            try:
-                path.unlink(missing_ok=True)
-            except Exception as exc:
-                rospy.logwarn(
-                    "Failed to clear submit file %s: %r",
-                    str(path),
-                    exc,
-                )
-
-    def rebuild_submit_results(self) -> None:
-        # 先清空目录，再按当前 TopN 完整重建，保证磁盘文件数 <= submit_max。
-        self.clear_submit_result_files()
-
-        desired = sorted(
-            self.candidate_records,
-            key=self.ranking_key,
-        )[: self.submit_max]
-
-        new_submit_records: List[Dict[str, Any]] = []
-        for record in desired:
-            new_submit_records.append(
-                self.copy_record_to_submit(record)
-            )
-
-        self.submit_records = new_submit_records
-
-    def copy_record_to_submit(
-        self,
-        candidate_record: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        record_id = str(candidate_record["record_id"])
-        source_image = self.candidate_dir / str(
-            candidate_record["image_file"]
-        )
-
-        image_name = f"{record_id}.jpg"
-        metadata_name = f"{record_id}.json"
-        target_image = self.submit_dir / image_name
-        target_metadata = self.submit_dir / metadata_name
-
-        if not source_image.exists():
-            raise RuntimeError(
-                f"候选图片不存在，无法生成提交结果：{source_image}"
-            )
-
-        shutil.copy2(str(source_image), str(target_image))
-
-        submit_record = dict(candidate_record)
-        submit_record["image_file"] = image_name
-        submit_record["metadata_file"] = metadata_name
-
-        with target_metadata.open("w", encoding="utf-8") as file:
-            json.dump(
-                submit_record,
-                file,
-                ensure_ascii=False,
-                indent=2,
-            )
-
-        return submit_record
+            self.trim_class_top(name)
 
     def find_same_target_indices(
         self,
@@ -1118,25 +993,15 @@ class TargetSnapshotRecorder:
             )
             return []
 
-    def save_all_state(self) -> None:
-        self.save_store_state(
-            index_path=self.candidate_index_path,
-            summary_path=self.candidate_summary_path,
-            records=self.candidate_records,
-            store_name="candidate_records",
-            extra={
-                "candidate_max_per_target": self.candidate_max_per_target,
-                "candidate_max_total": self.candidate_max_total,
-                "min_target_distance_m": self.min_target_distance_m,
-            },
-        )
+    def save_state(self) -> None:
         self.save_store_state(
             index_path=self.submit_index_path,
             summary_path=self.submit_summary_path,
-            records=self.submit_records,
+            records=self.records,
             store_name="submit_results",
             extra={
-                "submit_max": self.submit_max,
+                "submit_top_per_class": self.submit_top_per_class,
+                "min_target_distance_m": self.min_target_distance_m,
             },
         )
 
