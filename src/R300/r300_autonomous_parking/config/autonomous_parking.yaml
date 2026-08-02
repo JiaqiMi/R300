@@ -42,7 +42,7 @@ search_step_timeout_s: 10.0
 
 # 必须严格满足的触发条件。
 empty_class_name: parking_empty
-min_empty_confidence: 0.20
+min_empty_confidence: 0.3
 required_frames: 5
 
 # “连续同一个目标”的最小保护。任一帧无有效 empty 会立即清零。

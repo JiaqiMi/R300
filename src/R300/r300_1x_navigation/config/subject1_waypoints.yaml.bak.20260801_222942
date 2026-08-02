@@ -1,0 +1,41 @@
+# 自动生成文件，请不要手工编辑。
+# 来源 TXT: /home/explorer/Desktop/renwu1.txt
+# 生成时间: 2026-08-01T17:16:02+08:00
+# 排序规则：属性0起点置于首位，属性1终点置于末位，其余点保持TXT原行顺序。
+subject1_waypoints:
+  waypoints:
+    # TXT序号=1，属性=0（起点）
+    - name: start_01
+      latitude_deg: 38.8375984
+      longitude_deg: 105.7026974
+      altitude_m: 0
+
+    # TXT序号=2，属性=2（必经点）
+    - name: wp_02
+      latitude_deg: 38.8375708
+      longitude_deg: 105.7025729
+      altitude_m: 0
+
+    # TXT序号=3，属性=2（必经点）
+    - name: wp_03
+      latitude_deg: 38.837375
+      longitude_deg: 105.7026639
+      altitude_m: 0
+
+    # TXT序号=4，属性=2（必经点）
+    - name: wp_04
+      latitude_deg: 38.8374009
+      longitude_deg: 105.7029615
+      altitude_m: 0
+
+    # TXT序号=5，属性=2（必经点）
+    - name: wp_05
+      latitude_deg: 38.8375305
+      longitude_deg: 105.7028687
+      altitude_m: 0
+
+    # TXT序号=6，属性=1（终点）
+    - name: finish_06
+      latitude_deg: 38.8375351
+      longitude_deg: 105.7027584
+      altitude_m: 0
