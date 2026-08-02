@@ -14,11 +14,11 @@ right_classes:
 
 # 连续多帧确认，避免单帧误识别直接改变路线。
 min_confidence: 0.6
-confirm_frames: 3
+confirm_frames: 5
 confirm_max_gap_s: 0.60
 max_detection_age_s: 0.80
-min_bbox_width_px: 30
-min_bbox_height_px: 20
+min_bbox_width_px: 15
+min_bbox_height_px: 12
 
 # 深度有效时始终使用距离门限；require_valid_depth=true 时，无深度目标不触发。
 require_valid_depth: false
@@ -28,7 +28,7 @@ max_trigger_distance_m: 8.00
 # 临时目标使用极坐标定义，参考系为触发时的 base_link：
 # 左转 = +turn_angle_deg，右转 = -turn_angle_deg。
 # 默认 4m@60° 对应 x≈2.0m、|y|≈3.46m。
-turn_goal_distance_m: 4.00
+turn_goal_distance_m: 3.00
 turn_angle_deg: 90.0
 goal_frame: base_link
 local_goal_timeout_s: 25.0
