@@ -193,6 +193,16 @@ class WaypointExecutor(object):
         self.clamp_resend_min_progress_m = float(rospy.get_param(
             "~clamp_resend_min_progress_m", 0.5))
         # 目标点障碍投影(carrot 语义): 目标格在致命/内切区时沿连线向车回退到最近可行格
+        # 2026-08-03 弦跟随(考试档, 操作员定): 萝卜从"车→航点连线"改放到
+        # 【上一航点→当前航点】的固定弦上(车在弦上的投影+前视 clamp_radius)。
+        # 收益: 绕障后立即回归航线; 跳角后新弦=被跳角→下一角的边, 车沿边绕行,
+        # "对角线切穿内场"灾难消失。萝卜离车超钳制半径时沿"车→弦上萝卜"方向
+        # 回拉到钳制半径(40m 滚动窗铁律: 目标出窗 navfn 直接规划失败)。
+        # 第一条腿的弦锚 = 任务启动时的车位(现场摆车须对准第一条边方向)。
+        # false = 回退旧行为(车→航点连线), 现场一键可回。
+        self.chord_follow_enabled = bool(rospy.get_param(
+            "~chord_follow_enabled", True))
+
         self.goal_project_enabled = bool(rospy.get_param(
             "~goal_project_enabled", True))
         self.goal_project_max_m = float(rospy.get_param(
@@ -233,6 +243,7 @@ class WaypointExecutor(object):
         # 钳制器/失败策略运行态
         self.goal_is_clamped = False      # 当前活动目标是否为子目标(而非真航点)
         self.last_sent_target = None      # 最近发出的目标位置(rviz 胡萝卜标记用)
+        self.first_leg_origin = None      # 弦跟随: 第一条腿的弦锚(任务启动时车位)
         self.clamp_sent_pos = None        # 发出子目标时的车位置(前移判据)
         self.clamp_sent_time = 0.0
         self.fail_count = 0               # 当前真航点累计失败次数
@@ -372,6 +383,54 @@ class WaypointExecutor(object):
             return None
         return g.data[my * g.info.width + mx]
 
+    def chord_anchor(self):
+        """当前腿的弦起点: 上一航点坐标(即使它被跳过, 其几何仍锚定本腿);
+        第一条腿 = 任务启动时的车位。None = 无锚, 退回旧行为。"""
+        i = self.current_index
+        if i > 0 and i - 1 < len(self.waypoints):
+            prev_wp = self.waypoints[i - 1]
+            if prev_wp.get("enu_ready"):
+                return prev_wp["east"], prev_wp["north"]
+            return None
+        return self.first_leg_origin
+
+    def compute_carrot(self, rx, ry, wp):
+        """钳制子目标(胡萝卜)位置。
+        弦跟随(默认): 萝卜在【上一航点→当前航点】固定弦上, 位于"车在弦上的
+        投影 + 前视 clamp_radius"处; 萝卜离车超过钳制半径时, 沿"车→弦上萝卜"
+        方向回拉到钳制半径(保证目标始终落在 40m 滚动窗内, navfn 生存底线)。
+        关闭弦跟随/弦退化(过短或无锚)时回退旧行为: 车→航点连线上取 18m。"""
+        tx, ty = wp["east"], wp["north"]
+        if self.chord_follow_enabled:
+            anchor = self.chord_anchor()
+            if anchor is not None:
+                ax, ay = anchor
+                cx, cy = tx - ax, ty - ay
+                leg_len = math.hypot(cx, cy)
+                if leg_len > 1.0:
+                    ux, uy = cx / leg_len, cy / leg_len
+                    t = (rx - ax) * ux + (ry - ay) * uy
+                    t = max(0.0, min(leg_len, t))
+                    # 前视量随离弦距离自适应: 贴弦=满前视18m(等价旧直行行为);
+                    # 离弦越远前视越短, 远离时直奔弦上最近点(纯回归, 不切角)。
+                    # 仿真对照: 跳角场景内场侵入 固定前视~51m → 自适应~0m
+                    foot_x = ax + ux * t
+                    foot_y = ay + uy * t
+                    d_perp = math.hypot(rx - foot_x, ry - foot_y)
+                    lookahead = max(0.0, self.clamp_radius_m - d_perp)
+                    s = min(leg_len, t + lookahead)
+                    mx = ax + ux * s
+                    my = ay + uy * s
+                    d = math.hypot(mx - rx, my - ry)
+                    if d > self.clamp_radius_m and d > 1e-6:
+                        k = self.clamp_radius_m / d
+                        mx = rx + (mx - rx) * k
+                        my = ry + (my - ry) * k
+                    return mx, my
+        dist = math.hypot(tx - rx, ty - ry)
+        scale = self.clamp_radius_m / max(dist, 1e-6)
+        return rx + (tx - rx) * scale, ry + (ty - ry) * scale
+
     def project_goal_off_obstacle(self, tx, ty, rx, ry):
         """目标格落在致命/内切区时, 沿"目标→车"连线回退搜索最近可行格(carrot 语义,
         上限 goal_project_max_m)。返回 None = 无需调整或搜索失败(失败留给
@@ -415,6 +474,12 @@ class WaypointExecutor(object):
             self.retry_after = 0.0
             self.consecutive_skips = 0
             self.goal_is_clamped = False
+            # 弦跟随: 第一条腿的弦锚定在"开始执行那一刻"的车位
+            if self.latest_odom is not None:
+                self.first_leg_origin = (
+                    self.latest_odom.pose.pose.position.x,
+                    self.latest_odom.pose.pose.position.y,
+                )
             self.state = self.RUNNING
             self.last_command = "START"
             self.last_transition = "STARTED"
@@ -670,9 +735,7 @@ class WaypointExecutor(object):
         tx, ty = wp["east"], wp["north"]
         clamped = False
         if self.clamp_enabled and distance > self.clamp_radius_m:
-            s = self.clamp_radius_m / distance
-            tx = rx + (wp["east"] - rx) * s
-            ty = ry + (wp["north"] - ry) * s
+            tx, ty = self.compute_carrot(rx, ry, wp)
             clamped = True
 
         # —— 目标点障碍投影: 目标格在致命/内切区时沿连线向车回退到最近可行格 ——
