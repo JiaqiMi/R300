@@ -917,12 +917,20 @@ class TargetSnapshotRecorder:
                 output, lines, width, height, x_min, y_min
             )
 
-        # 量宽(超图自动缩字号)——沿用 2026-08-01 的"整块钳制回图内"语义
+        # 量宽(超图自动缩字号)——沿用 2026-08-01 的"整块钳制回图内"语义。
+        # Pillow>=8 用 getbbox, 老版(板上系统python是 7.0)只有 getsize——双兼容,
+        # 否则系统 python 启动的录制器画中文会在量宽处崩掉。
+        def text_width(font_obj, line: str) -> int:
+            try:
+                bbox = font_obj.getbbox(line)
+                return int(bbox[2] - bbox[0])
+            except AttributeError:
+                return int(font_obj.getsize(line)[0])
+
         def measure_max_width(font_obj) -> int:
             widest = 0
             for line in lines:
-                bbox = font_obj.getbbox(line)
-                widest = max(widest, int(bbox[2] - bbox[0]))
+                widest = max(widest, text_width(font_obj, line))
             return widest
 
         max_text_width = measure_max_width(pil_font)
