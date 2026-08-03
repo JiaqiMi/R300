@@ -30,19 +30,19 @@ from r300_vision_msgs.msg import (
 
 # 统一对外发布的全局类别编号。下游模块继续使用这套编号，无需修改。
 GLOBAL_CLASS_NAME_TO_ID: Dict[str, int] = {
-    "tire": 0,
-    "barrel": 1,
-    "vehicle": 2,
-    "smoke": 3,
-    "trench": 4,
-    "puddle": 5,
-    "person": 6,
-    "rockfall": 7,
-    "park": 8,
-    "chevro_left": 9,
-    "chevro_right": 10,
-    "sandbag": 11,
-    "crater": 12,
+    "tire": 0,     # 轮胎
+    "barrel": 1,   # 油桶
+    "vehicle": 2,  # 模拟战损车辆
+    "smoke": 3,    # 发烟罐
+    "trench": 4,   # 壕沟
+    "puddle": 5,   # 水坑
+    "person": 6,   # 人
+    "rockfall": 7, # 落石
+    "park": 8,     # 停车
+    "chevro_left": 9,   # 左转
+    "chevro_right": 10, # 右转
+    "sandbag": 11,   # 掩体
+    "crater": 12,    # 弹坑
 }
 
 GLOBAL_CLASS_ID_TO_NAME: Dict[int, str] = {
