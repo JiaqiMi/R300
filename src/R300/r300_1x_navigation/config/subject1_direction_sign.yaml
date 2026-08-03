@@ -13,8 +13,8 @@ right_classes:
   - chevro_right
 
 # 连续多帧确认，避免单帧误识别直接改变路线。
-min_confidence: 0.6
-confirm_frames: 5
+min_confidence: 0.4
+confirm_frames: 8
 confirm_max_gap_s: 0.60
 max_detection_age_s: 0.80
 min_bbox_width_px: 15
