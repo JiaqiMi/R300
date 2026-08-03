@@ -60,18 +60,14 @@
   <arg name="turn_switch_distance_cap_ratio" default="0.45"/>
 
   <!-- 适配 max_vel_x=2.5m/s、max_vel_theta=0.75rad/s 的初始分级。 -->
-  <!-- 2026-08-04 考试档(操作员定): 航点=路径指引, 不要求精确到达——
-       过点半径统一 4.0m(4m 圈可覆盖埋进障碍≤2m 的点: 2+膨胀1.5+车体0.4=3.9);
-       速度门放宽: 直/缓 2.6(等于不设), 中/急 1.5/1.2(不停车但收着过弯)。
-       UTURN 类同步在节点内并入 SHARP 档(旧行为: 必须1.5m硬到达)。 -->
-  <arg name="straight_switch_distance_m" default="4.0"/>
+  <arg name="straight_switch_distance_m" default="3.5"/>
   <arg name="straight_switch_max_speed_mps" default="2.6"/>
-  <arg name="gentle_switch_distance_m" default="4.0"/>
-  <arg name="gentle_switch_max_speed_mps" default="2.6"/>
-  <arg name="medium_switch_distance_m" default="4.0"/>
+  <arg name="gentle_switch_distance_m" default="2.5"/>
+  <arg name="gentle_switch_max_speed_mps" default="1.8"/>
+  <arg name="medium_switch_distance_m" default="2.0"/>
   <arg name="medium_switch_max_speed_mps" default="1.5"/>
-  <arg name="sharp_switch_distance_m" default="4.0"/>
-  <arg name="sharp_switch_max_speed_mps" default="1.2"/>
+  <arg name="sharp_switch_distance_m" default="1.2"/>
+  <arg name="sharp_switch_max_speed_mps" default="0.5"/>
 
   <!-- Chassis: subscribe directly to DWA output. Scout wheel odometry/TF stays disabled. -->
   <group if="$(arg launch_base)">
