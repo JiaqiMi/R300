@@ -206,14 +206,20 @@ class WaypointExecutor(object):
         self.goal_project_enabled = bool(rospy.get_param(
             "~goal_project_enabled", True))
         self.goal_project_max_m = float(rospy.get_param(
-            "~goal_project_max_pullback_m", 3.0))
+            "~goal_project_max_pullback_m", 4.0))  # 2026-08-04 3→4(考试档):
+        # 航点埋障碍时沿线回退找可行格的上限。4=与统一4m过点语义对齐,
+        # 车最远停在真点 4+1.5(容差)=5.5m 处即记到达, 深埋点不再进失败链
         self.goal_project_cost_thresh = int(rospy.get_param(
             "~goal_project_cost_thresh", 99))  # OccupancyGrid 值: 99=内切 100=致命; 软膨胀(1~98)可作目标
         # 失败策略(对齐 Nav2 WaypointFollower stop_on_failure=false 语义):
         #   retry_then_skip = 重试 retry_limit 次(延迟 retry_delay 给自动脱困倒车留窗) → 跳下一航点
         #   stop            = 原行为, 全任务 FAILED 停摆
         self.on_failure = rospy.get_param("~on_failure", "retry_then_skip")
-        self.failure_retry_limit = int(rospy.get_param("~failure_retry_limit", 1))
+        self.failure_retry_limit = int(rospy.get_param(
+            "~failure_retry_limit", 0))  # 2026-08-04 考试档 1→0(操作员定):
+        # 静态障碍场重试无意义(8s后障碍还在), 到不了直接跳省~12s/坏点。
+        # 跳过分支自带 8s 静默窗, 脱困倒车窗口不受影响(见 done_cb 注释)。
+        # 若考场有行人等瞬时遮挡, 改回 1 可保住被临时挡住的必经点
         self.failure_retry_delay_s = float(rospy.get_param(
             "~failure_retry_delay_s", 8.0))  # 脱困反射: 静止判定~1.2s+倒车3.2s+复核, 8s 够整个反射走完
         self.skip_fuse_limit = int(rospy.get_param(
@@ -652,13 +658,13 @@ class WaypointExecutor(object):
             speed_mps = self.turn_profiles[turn_class]["speed_mps"]
             allow_pass = True
         else:
-            # A near reversal is intentionally treated as a normal stop goal.
-            # Waiting for SUCCEEDED is safer than handing a U-turn to DWA while
-            # the vehicle is still moving through the waypoint.
+            # 2026-08-04 考试档(操作员定): 航点=路径指引, 掉头点也开放过点切换
+            # (并入 SHARP 档半径/速度门)。旧行为"UTURN 必须 1.5m 硬到达"在
+            # 掉头点压障碍时=20~30s失败链钉子户。提前切换后由 DWA 完成掉头。
             turn_class = "UTURN"
-            distance_m = 0.0
-            speed_mps = 0.0
-            allow_pass = False
+            distance_m = self.turn_profiles["SHARP"]["distance_m"]
+            speed_mps = self.turn_profiles["SHARP"]["speed_mps"]
+            allow_pass = True
 
         if allow_pass:
             distance_cap = (
