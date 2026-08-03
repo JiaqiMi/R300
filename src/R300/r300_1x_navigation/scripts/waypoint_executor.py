@@ -297,6 +297,13 @@ class WaypointExecutor(object):
             str(self.angle_adaptive_switch_enabled),
             self.waypoint_switch_distance_m,
             self.waypoint_switch_max_speed_mps)
+        # 启动时明确宣告弦跟随状态, 供操作员在第5步控制台肉眼确认
+        rospy.logwarn(
+            "子目标钳制模式: %s (chord_follow_enabled=%s, "
+            "false 可一键回退旧'车-点连线'行为)",
+            "弦跟随(萝卜沿航点弦+自适应前视)" if self.chord_follow_enabled
+            else "旧行为(车→航点连线)",
+            str(self.chord_follow_enabled))
 
         if not self.auto_start:
             rospy.logwarn(
