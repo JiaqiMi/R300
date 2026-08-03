@@ -24,6 +24,40 @@ from std_msgs.msg import Float64
 
 from r300_vision_msgs.msg import DetectedObjectArray
 
+# 2026-08-03 保存图中文标注(操作员定, 方案A: 仅录制器信息面板, 背景检测框不动):
+# cv2.putText 不支持中文(Hershey 字体只有 ASCII), 文字渲染改用 PIL + 板上
+# CJK 字体; PIL/字体缺失时自动退回英文+cv2, 绝不因此崩溃。
+try:
+    from PIL import Image as PilImage
+    from PIL import ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
+CLASS_NAME_CN = {
+    "tire": "轮胎",
+    "barrel": "油桶",
+    "vehicle": "模拟战损车辆",
+    "smoke": "发烟罐",
+    "trench": "壕沟",
+    "puddle": "水坑",
+    "person": "人",
+    "rockfall": "落石",
+    "park": "停车",
+    "chevro_left": "左转",
+    "chevro_right": "右转",
+    "sandbag": "掩体",
+    "crater": "弹坑",
+}
+
+CJK_FONT_CANDIDATES = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+]
+
 
 class TargetSnapshotRecorder:
     """单库目标快照记录器: submit_results 每类保留 TOP N 个物理目标(2026-08-03)。"""
@@ -201,6 +235,14 @@ class TargetSnapshotRecorder:
         self.submit_dir.mkdir(parents=True, exist_ok=True)
         self.submit_index_path = self.submit_dir / "index.json"
         self.submit_summary_path = self.submit_dir / "summary.csv"
+
+        # 中文标注字体(路径可用 ~overlay_font_path 覆盖; 缺失自动退回英文)
+        self.overlay_font_path = str(
+            rospy.get_param("~overlay_font_path", "")
+        )
+        self._font_cache: Dict[int, Any] = {}
+        self._font_file: Optional[str] = None
+        self._font_warned = False
 
         self.nav_lock = threading.Lock()
         self.vehicle_latitude = self.default_latitude
@@ -838,9 +880,13 @@ class TargetSnapshotRecorder:
             4,
         )
 
+        display_name = CLASS_NAME_CN.get(
+            str(candidate["class_name"]),
+            str(candidate["class_name"]),
+        )
         lines = [
             (
-                f"{candidate['class_name']} "
+                f"{display_name} "
                 f"conf={candidate['confidence']:.3f}"
             ),
             (
@@ -859,23 +905,121 @@ class TargetSnapshotRecorder:
             ),
         ]
 
+        font_size = 22
+        pil_font = self._load_overlay_font(font_size)
+        if pil_font is None:
+            # 兜底: PIL/中文字体不可用, 退回英文+cv2(中文在cv2里会画成???)
+            lines[0] = (
+                f"{candidate['class_name']} "
+                f"conf={candidate['confidence']:.3f}"
+            )
+            return self._draw_lines_cv2(
+                output, lines, width, height, x_min, y_min
+            )
+
+        # 量宽(超图自动缩字号)——沿用 2026-08-01 的"整块钳制回图内"语义
+        def measure_max_width(font_obj) -> int:
+            widest = 0
+            for line in lines:
+                bbox = font_obj.getbbox(line)
+                widest = max(widest, int(bbox[2] - bbox[0]))
+            return widest
+
+        max_text_width = measure_max_width(pil_font)
+        while max_text_width > width - 20 and font_size > 12:
+            font_size -= 2
+            pil_font = self._load_overlay_font(font_size)
+            max_text_width = measure_max_width(pil_font)
+
+        line_height = font_size + 8
+        block_height = line_height * len(lines)
+        text_x = max(5, min(width - max_text_width - 12, x_min))
+        block_top = max(
+            5,
+            min(y_min - block_height - 10, height - block_height - 5),
+        )
+
+        cv2.rectangle(
+            output,
+            (max(0, text_x - 4), max(0, block_top - 4)),
+            (
+                min(width - 1, text_x + max_text_width + 8),
+                min(height - 1, block_top + block_height + 4),
+            ),
+            (0, 0, 0),
+            -1,
+        )
+
+        pil_image = PilImage.fromarray(
+            cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
+        )
+        drawer = ImageDraw.Draw(pil_image)
+        for index, line in enumerate(lines):
+            drawer.text(
+                (text_x, block_top + index * line_height),
+                line,
+                font=pil_font,
+                fill=(255, 255, 0),
+            )
+        return cv2.cvtColor(np.asarray(pil_image), cv2.COLOR_RGB2BGR)
+
+    def _find_font_file(self) -> Optional[str]:
+        if self._font_file is not None:
+            return self._font_file
+        candidates = (
+            [self.overlay_font_path] if self.overlay_font_path else []
+        ) + CJK_FONT_CANDIDATES
+        for path in candidates:
+            if path and Path(path).is_file():
+                self._font_file = path
+                return path
+        return None
+
+    def _load_overlay_font(self, size: int):
+        """加载中文字体(按字号缓存); PIL/字体缺失返回 None → 调用方退回英文。"""
+        if not PIL_AVAILABLE:
+            if not self._font_warned:
+                self._font_warned = True
+                rospy.logwarn("PIL 不可用, 保存图标注退回英文")
+            return None
+        if size in self._font_cache:
+            return self._font_cache[size]
+        font_file = self._find_font_file()
+        if font_file is None:
+            if not self._font_warned:
+                self._font_warned = True
+                rospy.logwarn("未找到中文字体, 保存图标注退回英文")
+            return None
+        try:
+            font = ImageFont.truetype(font_file, size)
+        except Exception as exc:
+            if not self._font_warned:
+                self._font_warned = True
+                rospy.logwarn("字体加载失败(%r), 保存图标注退回英文", exc)
+            return None
+        self._font_cache[size] = font
+        return font
+
+    def _draw_lines_cv2(
+        self,
+        output: np.ndarray,
+        lines: List[str],
+        width: int,
+        height: int,
+        x_min: int,
+        y_min: int,
+    ) -> np.ndarray:
+        """英文兜底渲染(cv2), 保留量宽+整块钳制语义。"""
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.55
         thickness = 2
         line_height = 24
 
-        # 2026-08-01 修复(操作员实拍反馈): 信息块曾锚定 bbox 左沿(x_min),
-        # 目标靠近画面右缘时整块文字画出图外, LON/HDG 等字段被裁掉。
-        # 现在先量出最宽行, 行宽超图时自动缩小字号, 再把整块水平+垂直
-        # 钳制回图内, 保证所有行完整可见。
         def measure_max_width(scale: float) -> int:
             widest = 0
             for line in lines:
                 text_size, _ = cv2.getTextSize(
-                    line,
-                    font,
-                    scale,
-                    thickness,
+                    line, font, scale, thickness
                 )
                 widest = max(widest, text_size[0])
             return widest
@@ -893,22 +1037,16 @@ class TargetSnapshotRecorder:
                 height - line_height * (len(lines) - 1) - 8,
             ),
         )
-
-        box_x2 = min(width - 1, text_x + max_text_width + 12)
-        box_y1 = max(0, text_y - 20)
-        box_y2 = min(
-            height - 1,
-            text_y + line_height * (len(lines) - 1) + 8,
-        )
-
         cv2.rectangle(
             output,
-            (text_x - 4, box_y1),
-            (box_x2, box_y2),
+            (text_x - 4, max(0, text_y - 20)),
+            (
+                min(width - 1, text_x + max_text_width + 12),
+                min(height - 1, text_y + line_height * (len(lines) - 1) + 8),
+            ),
             (0, 0, 0),
             -1,
         )
-
         for index, line in enumerate(lines):
             cv2.putText(
                 output,
@@ -920,7 +1058,6 @@ class TargetSnapshotRecorder:
                 thickness,
                 cv2.LINE_AA,
             )
-
         return output
 
     def delete_record_files(
