@@ -6,30 +6,14 @@ subject1_waypoints:
   waypoints:
     # TXT序号=1，属性=0（起点）
     - name: start_01
-      latitude_deg: 38.8375904
-      longitude_deg: 105.7027813
+      latitude_deg: 38.83751699
+      longitude_deg: 105.70260149
       altitude_m: 0
 
     # TXT序号=2，属性=2（必经点）
     - name: wp_02
-      latitude_deg: 38.8373885
-      longitude_deg: 105.7026569
+      latitude_deg: 38.8374826
+      longitude_deg: 105.70330574
       altitude_m: 0
 
-    # TXT序号=3，属性=2（必经点）
-    - name: wp_03
-      latitude_deg: 38.8373590
-      longitude_deg: 105.7028617
-      altitude_m: 0
-
-    # TXT序号=4，属性=2（必经点）
-    - name: wp_04
-      latitude_deg: 38.8375941
-      longitude_deg: 105.7031967
-      altitude_m: 0
-
-    # TXT序号=5，属性=1（终点）
-    - name: finish_05
-      latitude_deg: 38.8375058
-      longitude_deg: 105.7030747
-      altitude_m: 0
+    
