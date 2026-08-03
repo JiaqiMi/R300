@@ -66,7 +66,9 @@
   <arg name="gentle_switch_max_speed_mps" default="1.8"/>
   <arg name="medium_switch_distance_m" default="2.0"/>
   <arg name="medium_switch_max_speed_mps" default="1.5"/>
-  <arg name="sharp_switch_distance_m" default="1.2"/>
+  <!-- 2026-08-04 操作员定: 过点半径下限 2.0——急弯档 1.2 太严(角点稍埋障碍
+       1.2m 圈即不可达, 必进失败链); 速度门保持 0.5 不变 -->
+  <arg name="sharp_switch_distance_m" default="2.0"/>
   <arg name="sharp_switch_max_speed_mps" default="0.5"/>
 
   <!-- Chassis: subscribe directly to DWA output. Scout wheel odometry/TF stays disabled. -->
