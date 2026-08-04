@@ -1,25 +1,65 @@
 # 自动生成文件，请不要手工编辑。
-# 来源 TXT: /home/explorer/r300_ws/src/R300/r300_1x_navigation/waypoints/renwu1.txt
-# 生成时间: 2026-08-02T18:24:56+08:00
+# 来源 TXT: /home/wangqin/R300/src/R300/r300_1x_navigation/waypoints/renwu1_edited_20260804_130757.txt
+# 生成时间: 2026-08-04T13:07:57+08:00
 # 排序规则：属性0起点置于首位，属性1终点置于末位，其余点保持TXT原行顺序。
 subject1_waypoints:
   waypoints:
     # TXT序号=1，属性=0（起点）
     - name: start_01
-      latitude_deg: 38.83749922
-      longitude_deg: 105.70271515
+      latitude_deg: 39.2901720
+      longitude_deg: 105.6070520
       altitude_m: 0
 
     # TXT序号=2，属性=2（必经点）
-    # - name: wp_02
-    #   latitude_deg: 38.8374586
-    #   longitude_deg: 105.7027913
-    #   altitude_m: 0
+    - name: wp_02
+      latitude_deg: 39.2860430
+      longitude_deg: 105.6070190
+      altitude_m: 0
 
-    # TXT序号=2，属性=2（必经点）
+    # TXT序号=3，属性=2（必经点）
     - name: wp_03
-      latitude_deg: 38.83751565
-      longitude_deg: 105.7033187
+      latitude_deg: 39.2855098
+      longitude_deg: 105.6071097
       altitude_m: 0
 
-    
+    # TXT序号=4，属性=2（必经点）
+    - name: wp_04
+      latitude_deg: 39.2855030
+      longitude_deg: 105.6093720
+      altitude_m: 0
+
+    # TXT序号=5，属性=2（必经点）
+    - name: wp_05
+      latitude_deg: 39.2856290
+      longitude_deg: 105.6170820
+      altitude_m: 0
+
+    # TXT序号=6，属性=2（必经点）
+    - name: wp_06
+      latitude_deg: 39.2857910
+      longitude_deg: 105.6219220
+      altitude_m: 0
+
+    # TXT序号=7，属性=2（必经点）
+    - name: wp_07
+      latitude_deg: 39.2898390
+      longitude_deg: 105.6217860
+      altitude_m: 0
+
+    # TXT序号=8，属性=2（必经点）
+    - name: wp_08
+      latitude_deg: 39.2903737
+      longitude_deg: 105.6215851
+      altitude_m: 0
+
+    # TXT序号=9，属性=2（必经点）
+    - name: wp_09
+      latitude_deg: 39.2903960
+      longitude_deg: 105.6206440
+      altitude_m: 0
+
+    # TXT序号=10，属性=1（终点）
+    - name: finish_10
+      latitude_deg: 39.2904610
+      longitude_deg: 105.6078270
+      altitude_m: 0

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>航点补点编辑器</title>
+<style>
+  body { margin:0; font-family:sans-serif; display:flex; flex-direction:column; height:100vh; }
+  #bar { padding:8px 12px; background:#243447; color:#fff; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  #bar b { color:#ffd75e; }
+  #hint { font-size:13px; color:#cfe3ff; }
+  #cv { flex:1; display:block; background:#fff; cursor:crosshair; }
+  #gen { background:#2e8b57; color:#fff; border:0; padding:8px 18px; border-radius:5px; font-size:15px; cursor:pointer; }
+  #gen:hover { background:#256f46; }
+  #out { position:fixed; right:10px; top:56px; width:420px; max-height:60vh; overflow:auto;
+         background:#111c; color:#9fe89f; font:12px/1.5 monospace; padding:10px; border-radius:6px;
+         white-space:pre-wrap; display:none; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>航点补点编辑器</b>
+  <span id="stat">加载中…</span>
+  <span id="cursor">东 — m, 北 — m</span>
+  <button id="gen">生成 YAML</button>
+  <span id="hint">画布点击=插入绿点(自动落在最合适的两点之间, 永不折返) · 拖绿点微调 / 右键删除 · 滚轮缩放 · 左键空白拖动平移</span>
+</div>
+<canvas id="cv"></canvas>
+<div id="out"></div>
+<script>
+"use strict";
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const statEl = document.getElementById("stat"), curEl = document.getElementById("cursor"),
+      outEl = document.getElementById("out");
+
+/* ---------- 数据 ---------- */
+let pts = [];          // 途经序列 [{lat,lon,alt,attr,src:'txt'|'new',seq0}]
+let lat0=0, lon0=0, mLat=111000, mLon=86000;   // 锚点与米/度(按起点纬度计算)
+let view = {cx:0, cy:0, scale:2};              // 世界中心(米) + 像素/米
+let dragIdx = -1, panning=false, downAt=null, moved=false;
+
+function mPerDeg(latDeg){
+  const p = latDeg*Math.PI/180;
+  return {
+    lat: 111132.92 - 559.82*Math.cos(2*p) + 1.175*Math.cos(4*p) - 0.0023*Math.cos(6*p),
+    lon: 111412.84*Math.cos(p) - 93.5*Math.cos(3*p) + 0.118*Math.cos(5*p)
+  };
+}
+const toXY   = p => ({x:(p.lon-lon0)*mLon, y:(p.lat-lat0)*mLat});
+const toLL   = (x,y) => ({lat: lat0 + y/mLat, lon: lon0 + x/mLon});
+const toScr  = w => ({x: cv.width/2 + (w.x-view.cx)*view.scale,
+                      y: cv.height/2 - (w.y-view.cy)*view.scale});
+const toWorld= s => ({x: view.cx + (s.x-cv.width/2)/view.scale,
+                      y: view.cy - (s.y-cv.height/2)/view.scale});
+const dist   = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+
+/* ---------- 加载 ---------- */
+fetch("/api/points").then(r=>r.json()).then(d=>{
+  if(!d.ok){ statEl.textContent = "读取失败: " + d.error; return; }
+  const start = d.points.find(p=>p.attr===0);
+  lat0 = parseFloat(start.lat); lon0 = parseFloat(start.lon);
+  const m = mPerDeg(lat0); mLat=m.lat; mLon=m.lon;
+  pts = d.points.map(p=>({lat:parseFloat(p.lat), lon:parseFloat(p.lon),
+                          alt:p.alt, attr:p.attr, src:"txt", seq0:p.seq}));
+  fitView(); statEl.textContent = `考卷 ${pts.length} 点(灰=只读)`;
+  draw();
+});
+
+function fitView(){
+  const ws = pts.map(toXY);
+  const xs=ws.map(w=>w.x), ys=ws.map(w=>w.y);
+  const minx=Math.min(...xs), maxx=Math.max(...xs),
+        miny=Math.min(...ys), maxy=Math.max(...ys);
+  view.cx=(minx+maxx)/2; view.cy=(miny+maxy)/2;
+  const w=Math.max(maxx-minx,20), h=Math.max(maxy-miny,20);
+  view.scale = Math.min(cv.width/(w*1.4), cv.height/(h*1.4));
+}
+
+/* ---------- 绘制 ---------- */
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  drawGrid();
+  const ws = pts.map(toXY), ss = ws.map(toScr);
+  // 腿
+  for(let i=0;i<pts.length-1;i++){
+    ctx.strokeStyle = "#b9c2cc";
+    ctx.lineWidth   = 2;
+    ctx.beginPath(); ctx.moveTo(ss[i].x,ss[i].y); ctx.lineTo(ss[i+1].x,ss[i+1].y); ctx.stroke();
+    const L = dist(ws[i], ws[i+1]);
+    const mx=(ss[i].x+ss[i+1].x)/2, my=(ss[i].y+ss[i+1].y)/2;
+    ctx.fillStyle = "#7c8894";
+    ctx.font="12px sans-serif";
+    ctx.fillText(L.toFixed(1)+" m", mx+6, my-6);
+    // 方向箭头
+    const ang=Math.atan2(ss[i+1].y-ss[i].y, ss[i+1].x-ss[i].x);
+    ctx.save(); ctx.translate(mx,my); ctx.rotate(ang);
+    ctx.beginPath(); ctx.moveTo(6,0); ctx.lineTo(-4,4); ctx.lineTo(-4,-4); ctx.closePath();
+    ctx.fillStyle="#9aa6b2"; ctx.fill(); ctx.restore();
+  }
+  // 点
+  pts.forEach((p,i)=>{
+    const s=ss[i], isNew = p.src==="new";
+    ctx.beginPath(); ctx.arc(s.x,s.y, isNew?8:9, 0, 7);
+    ctx.fillStyle = isNew ? "#2e8b57" : "#8a949e";
+    ctx.fill(); ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle="#fff"; ctx.font="bold 10px sans-serif"; ctx.textAlign="center";
+    ctx.fillText(String(i+1), s.x, s.y+3.5); ctx.textAlign="left";
+    let tag = "";
+    if(p.attr===0) tag="起"; else if(p.attr===1) tag="终"; else if(isNew) tag="新";
+    if(tag){ ctx.fillStyle=isNew?"#2e8b57":"#5c666f"; ctx.font="11px sans-serif";
+             ctx.fillText(tag, s.x+11, s.y-8); }
+    ctx.fillStyle = isNew ? "#2e8b57" : "#98a2ac"; ctx.font="10px monospace";
+    ctx.fillText(p.lat.toFixed(7), s.x+11, s.y+4);
+    ctx.fillText(p.lon.toFixed(7), s.x+11, s.y+15);
+  });
+  // 拖拽中: 到前后点的距离虚线
+  if(dragIdx>0 && dragIdx<pts.length-1){
+    const w=toXY(pts[dragIdx]);
+    [[dragIdx-1],[dragIdx+1]].forEach(([j])=>{
+      const wj=toXY(pts[j]), a=toScr(w), b=toScr(wj);
+      ctx.setLineDash([5,4]); ctx.strokeStyle="#2e8b57"; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle="#2e8b57"; ctx.font="12px sans-serif";
+      ctx.fillText(dist(w,wj).toFixed(1)+" m", (a.x+b.x)/2+6, (a.y+b.y)/2+12);
+    });
+  }
+  drawCompassScale();
+}
+function drawGrid(){
+  const tl=toWorld({x:0,y:0}), br=toWorld({x:cv.width,y:cv.height});
+  for(const [step,color] of [[10,"#f925"],[50,"#9995"]]){
+    if(step*view.scale < 6) continue;
+    ctx.strokeStyle=color==="#f925"?"#eef1f4":"#d5dbe1"; ctx.lineWidth=1;
+    for(let x=Math.floor(tl.x/step)*step; x<=br.x; x+=step){
+      const s=toScr({x,y:0}); ctx.beginPath(); ctx.moveTo(s.x,0); ctx.lineTo(s.x,cv.height); ctx.stroke(); }
+    for(let y=Math.floor(br.y/step)*step; y<=tl.y; y+=step){
+      const s=toScr({x:0,y}); ctx.beginPath(); ctx.moveTo(0,s.y); ctx.lineTo(cv.width,s.y); ctx.stroke(); }
+  }
+}
+function drawCompassScale(){
+  ctx.fillStyle="#243447"; ctx.font="12px sans-serif";
+  ctx.fillText("北 ↑", 14, 24);
+  const px50 = 50*view.scale;
+  ctx.strokeStyle="#243447"; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(14, cv.height-18); ctx.lineTo(14+px50, cv.height-18); ctx.stroke();
+  ctx.fillText("50 m", 14+px50/2-14, cv.height-24);
+}
+
+/* ---------- 命中测试 ---------- */
+function hitPoint(s){  // 只允许命中绿点
+  for(let i=0;i<pts.length;i++){
+    if(pts[i].src!=="new") continue;
+    if(dist(s, toScr(toXY(pts[i]))) <= 10) return i;
+  }
+  return -1;
+}
+
+/* ---------- 交互 ---------- */
+function resize(){ cv.width=cv.clientWidth; cv.height=cv.clientHeight; draw(); }
+window.addEventListener("resize", resize);
+
+cv.addEventListener("mousedown", e=>{
+  if(e.button!==0) return;
+  const s={x:e.offsetX,y:e.offsetY};
+  dragIdx = hitPoint(s);
+  panning = dragIdx<0; downAt=s; moved=false;
+});
+cv.addEventListener("mousemove", e=>{
+  const s={x:e.offsetX,y:e.offsetY}, w=toWorld(s), ll=toLL(w.x,w.y);
+  curEl.textContent=`东 ${w.x.toFixed(1)} m, 北 ${w.y.toFixed(1)} m | ${ll.lat.toFixed(7)}, ${ll.lon.toFixed(7)}`;
+  if(downAt && dist(s,downAt)>4) moved=true;
+  if(dragIdx>=0 && moved){
+    const ll=toLL(w.x,w.y); pts[dragIdx].lat=ll.lat; pts[dragIdx].lon=ll.lon; draw();
+  } else if(panning && downAt && moved){
+    view.cx -= (s.x-downAt.x)/view.scale; view.cy += (s.y-downAt.y)/view.scale;
+    downAt=s; draw();
+  }
+});
+cv.addEventListener("mouseup", e=>{
+  if(e.button!==0) return;
+  const s={x:e.offsetX,y:e.offsetY};
+  if(!moved && dragIdx<0){                     // 纯点击 = 最小绕行插入
+    const w=toWorld(s), ll=toLL(w.x,w.y);
+    // 无掉头前提下: 插到"绕行增量最小"的相邻两点之间, 序号自然落在
+    // 当前点与下一点中间, 永不折返(含同一条长腿上连续补多点的正确排序)
+    let best=-1, bestCost=Infinity;
+    const ws=pts.map(toXY);
+    for(let i=0;i<pts.length-1;i++){
+      const cost = dist(ws[i],w)+dist(w,ws[i+1])-dist(ws[i],ws[i+1]);
+      if(cost<bestCost){ bestCost=cost; best=i; }
+    }
+    pts.splice(best+1, 0, {lat:ll.lat, lon:ll.lon, alt:"0", attr:2, src:"new"});
+    statEl.textContent=`共 ${pts.length} 点(绿=新增, 插入为第${best+2}号)`;
+    draw();
+  }
+  dragIdx=-1; panning=false; downAt=null; moved=false;
+});
+cv.addEventListener("contextmenu", e=>{
+  e.preventDefault();
+  const i=hitPoint({x:e.offsetX,y:e.offsetY});
+  if(i>=0){ pts.splice(i,1); statEl.textContent=`共 ${pts.length} 点`; draw(); }
+});
+cv.addEventListener("wheel", e=>{
+  e.preventDefault();
+  const s={x:e.offsetX,y:e.offsetY}, before=toWorld(s);
+  view.scale *= (e.deltaY<0 ? 1.15 : 1/1.15);
+  const after=toWorld(s);
+  view.cx += before.x-after.x; view.cy += before.y-after.y;
+  draw();
+});
+
+/* ---------- 生成 ---------- */
+document.getElementById("gen").addEventListener("click", ()=>{
+  const payload = { points: pts.map(p=>({
+    lon: p.lon.toFixed ? p.lon.toFixed(7) : String(p.lon),
+    lat: p.lat.toFixed ? p.lat.toFixed(7) : String(p.lat),
+    alt: p.alt || "0", attr: p.attr })) };
+  fetch("/api/generate", {method:"POST",
+    headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)})
+    .then(r=>r.json()).then(d=>{
+      outEl.style.display="block";
+      outEl.textContent = (d.ok ? "✅ 生成成功\n" : "❌ 失败\n")
+        + (d.merged_txt ? "合并TXT: "+d.merged_txt+"\n" : "")
+        + (d.generator_output || d.error || "")
+        + (d.ok ? "\n\n⚠️ 提醒: yaml 在导航【启动时】加载——先生成, 再启动导航(第五步)。" : "");
+    });
+});
+
+resize();
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# 自动生成文件，请不要手工编辑。
+# 来源 TXT: /home/explorer/r300_ws/src/R300/r300_1x_navigation/waypoints/renwu1.txt
+# 生成时间: 2026-08-02T18:24:56+08:00
+# 排序规则：属性0起点置于首位，属性1终点置于末位，其余点保持TXT原行顺序。
+subject1_waypoints:
+  waypoints:
+    # TXT序号=1，属性=0（起点）
+    - name: start_01
+      latitude_deg: 38.83749922
+      longitude_deg: 105.70271515
+      altitude_m: 0
+
+    # TXT序号=2，属性=2（必经点）
+    # - name: wp_02
+    #   latitude_deg: 38.8374586
+    #   longitude_deg: 105.7027913
+    #   altitude_m: 0
+
+    # TXT序号=2，属性=2（必经点）
+    - name: wp_03
+      latitude_deg: 38.83751565
+      longitude_deg: 105.7033187
+      altitude_m: 0
+
+    
